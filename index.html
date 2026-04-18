@@ -46,7 +46,12 @@ h1{font-size:26px;font-weight:700;letter-spacing:-0.5px}
 .payroll-break-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:13px;flex-wrap:wrap}
 .payroll-break-bar label{font-weight:500;color:var(--text)}
 .payroll-break-bar input{width:56px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface);text-align:right}
-.payroll-break-bar .ot-note{color:var(--text3);font-size:12px;margin-left:auto}
+.payroll-break-bar .ot-note{color:var(--text3);font-size:12px;margin-left:auto;flex-basis:100%;order:99}
+.payroll-break-bar.break-unset{background:#FFF7ED;border-color:#FDBA74}
+.payroll-break-bar.break-unset input{border-color:#FB923C;background:#FFFBEB}
+.payroll-break-bar .break-confirm-btn{padding:4px 10px;font-size:12px;font-weight:500;background:var(--dark-orange);color:#fff;border:none;border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif}
+.payroll-break-bar .break-confirm-btn:hover{background:#9A3412}
+.payroll-break-bar .break-confirmed{font-size:12px;color:var(--green);font-weight:500;padding:3px 10px;background:#E6F4EC;border-radius:4px;font-family:'Outfit',sans-serif}
 
 /* === UPLOAD === */
 .upload-zone{border:2px dashed var(--border);border-radius:12px;padding:32px;text-align:center;margin-bottom:20px;transition:all 0.2s;cursor:pointer;background:var(--surface)}
@@ -326,6 +331,8 @@ table.review tr.source-ec{}
 .ocr-file-list .file-row.status-err .fstatus{background:#fdecea;color:#b3261e}
 .ocr-file-list .file-row .spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 0.7s linear infinite;display:none}
 .ocr-file-list .file-row.status-running .spinner{display:inline-block}
+.ocr-file-list .file-row .retry-btn{margin-right:8px;padding:3px 8px;font-size:11px;background:#fff;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;white-space:nowrap}
+.ocr-file-list .file-row .retry-btn:hover{background:var(--red);color:#fff}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* === Flag pills (review table) === */
@@ -392,11 +399,13 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
 .all-entity-preview{margin-top:24px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
 .all-entity-preview h3{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text1)}
 .all-entity-preview table{width:100%;border-collapse:collapse;font-size:12px}
-.all-entity-preview th{background:#E8E8E4;padding:8px 10px;text-align:left;font-weight:600;border-bottom:2px solid #999}
-.all-entity-preview td{padding:6px 10px;border-bottom:1px solid var(--grid-line)}
+.all-entity-preview th{background:#E8E8E4;padding:8px 10px;text-align:center;font-weight:600;border-bottom:2px solid #999}
+.all-entity-preview td{padding:6px 10px;border-bottom:1px solid var(--grid-line);text-align:center}
+.all-entity-preview td.entity-col{font-size:18px;font-weight:700;letter-spacing:0.3px;background:#F0EFE9;border-right:2px solid #999;vertical-align:middle;color:var(--text1);padding:10px 14px}
+.all-entity-preview td.name-col{text-align:center}
 .all-entity-preview tr.entity-subtotal td{background:#F0EFE9;font-weight:700}
 .all-entity-preview tr.grand-total td{background:#E0DED5;font-weight:700;font-size:13px;border-top:2px solid #666}
-.all-entity-preview td.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+.all-entity-preview td.num{font-family:'IBM Plex Mono',monospace;text-align:center}
 .all-entity-preview tr.orphan td{background:#FEF2F2}
 .all-entity-preview tr.orphan .name-col{color:var(--red);font-style:italic}
 
@@ -617,7 +626,7 @@ const BIZ_START=7,BIZ_END=23,OT_THRESHOLD=40;
 // Each entity: {name, employees, dateLabels, newDateLabels, newWeekStartVal, breakMinutes}
 let nextEntityId=1;
 // Each entity has a stable `id` so wages/rounding survive entity renames
-let entities=[{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,actualDays:[]}];
+let entities=[{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]}];
 let activeEntityIdx=0;
 let activePayrollEntityIdx=0;
 let actualsMode='separate'; // always 'separate' now (uploads moved to Intake tab per entity)
@@ -760,7 +769,7 @@ function switchEntity(idx){
 function addEntity(){
   saveEntityHeaderState();
   readTableState();
-  entities.push({id:nextEntityId++,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,actualDays:[]});
+  entities.push({id:nextEntityId++,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]});
   activeEntityIdx=entities.length-1;
   activeEmp=null;
   renderEntityTabBar();
@@ -1604,10 +1613,11 @@ function renderPayrollEntityContent(idx){
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
     </div>
-    <div class="payroll-break-bar">
+    <div class="payroll-break-bar${ent.breakMinutesSet?'':' break-unset'}">
       <label>Mandatory break deduction per worked shift:</label>
       <input type="number" value="${ent.breakMinutes}" step="1" min="0" onchange="setEntityBreak(${idx},this.value)">
       <span>minutes</span>
+      ${ent.breakMinutesSet?'<span class="break-confirmed" title="Break minutes confirmed">✓ confirmed</span>':`<button class="btn btn-small break-confirm-btn" onclick="confirmEntityBreak(${idx})" title="Confirm this entity's break minutes">Confirm ${ent.breakMinutes} min</button>`}
       <span class="ot-note">The mandatory break is deducted from billable hours every day the employee clocks in, <em>even if they took no break</em>. If they took a longer break than this minimum (based on the gap between clock-in pairs), the longer actual break is deducted instead. Hours over 40/wk are flagged as OT informationally — no 1.5× multiplier.</span>
     </div>
     <div class="info-bar" id="payrollInfoBar" style="display:flex"></div>
@@ -1646,18 +1656,21 @@ function renderAllEntityPreview(){
     const flatExtras=getFlatWageRows(entityName);
     const allRows=results.concat(orphanRows).concat(flatExtras);
     if(allRows.length===0)return;
-    let entH=0,entPay=0,first=true;
-    allRows.forEach(r=>{
+    let entH=0,entPay=0;
+    // Render employee rows first, then prepend the merged entity cell to the first one.
+    // rowspan covers every employee row PLUS the subtotal row (+1).
+    const spanCount=allRows.length+1;
+    allRows.forEach((r,i)=>{
       const hrs=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
       const rate=r.isFlat?'—':(r.wage>0?'$'+r.wage.toFixed(2):'—');
       const totalN=r.isFlat?r.flatAmount:(r.wage>0?r.pay:null);
       if(hrs!=null)entH+=hrs;
       if(totalN!=null)entPay+=totalN;
       const rowCls=r.isOrphan?' class="orphan"':'';
-      html+=`<tr${rowCls}><td>${first?escHtml(entityName):''}</td><td class="name-col">${escHtml(r.name||'(unnamed)')}${r.isOrphan?' <span style="font-size:10px;color:var(--red)">(orphan)</span>':''}${r.isFlat?' <span style="font-size:10px;color:var(--text3)">(flat)</span>':''}</td><td class="num">${hrs!=null?hrs.toFixed(2):'—'}</td><td class="num">${rate}</td><td class="num">${totalN!=null?'$'+totalN.toFixed(2):'—'}</td></tr>`;
-      first=false;
+      const entityCell=(i===0)?`<td class="entity-col" rowspan="${spanCount}">${escHtml(entityName)}</td>`:'';
+      html+=`<tr${rowCls}>${entityCell}<td class="name-col">${escHtml(r.name||'(unnamed)')}${r.isOrphan?' <span style="font-size:10px;color:var(--red)">(orphan)</span>':''}${r.isFlat?' <span style="font-size:10px;color:var(--text3)">(flat)</span>':''}</td><td class="num">${hrs!=null?hrs.toFixed(2):'—'}</td><td class="num">${rate}</td><td class="num">${totalN!=null?'$'+totalN.toFixed(2):'—'}</td></tr>`;
     });
-    html+=`<tr class="entity-subtotal"><td colspan="2">${escHtml(entityName)} subtotal</td><td class="num">${entH.toFixed(2)}</td><td></td><td class="num">$${entPay.toFixed(2)}</td></tr>`;
+    html+=`<tr class="entity-subtotal"><td class="name-col">Subtotal</td><td class="num">${entH.toFixed(2)}</td><td></td><td class="num">$${entPay.toFixed(2)}</td></tr>`;
     grandH+=entH;grandPay+=entPay;
   });
   html+=`<tr class="grand-total"><td colspan="2">GRAND TOTAL</td><td class="num">${grandH.toFixed(2)}</td><td></td><td class="num">$${grandPay.toFixed(2)}</td></tr>`;
@@ -1673,9 +1686,19 @@ function clearEntityActuals(idx){
   if(clearBtn)clearBtn.style.display=hasAny?'inline-block':'none';
 }
 
+function confirmEntityBreak(idx){
+  const ent=entities[idx];if(!ent)return;
+  ent.breakMinutesSet=true;
+  renderPayroll();
+  showToast(`Break confirmed: ${ent.breakMinutes} min/shift for ${ent.name||'Entity '+(idx+1)}`,'ok');
+}
+
 function setEntityBreak(idx,val){
   const m=parseFloat(val);
-  entities[idx].breakMinutes=isNaN(m)||m<0?0:m;
+  const ent=entities[idx];
+  ent.breakMinutes=isNaN(m)||m<0?0:m;
+  // Any edit unsets the confirmed flag so the user must explicitly confirm the new value
+  ent.breakMinutesSet=false;
   renderPayrollEntityContent(idx);
 }
 
@@ -1854,31 +1877,38 @@ function renderPaySummary(rows,hasActuals){
   document.getElementById('paySummaryWrap').style.display='block';
 }
 
+// ROW KEY RESOLVER: the renderer and flat-override detection key off the underlying
+// scheduled/orphan name (emp.name / o.name). When the display name is upgraded via
+// fuzzy full-name matching, row.name differs from row.schedName. All handlers below
+// MUST use schedName (falling back to row.name) so writes land on the same key the
+// renderer reads — otherwise the Flat toggle silently no-ops.
+function _rowKey(item){return item.row.schedName||item.row.name;}
 function setWage(rowIdx,val){
   const item=_flatRows[rowIdx];if(!item)return;
-  wageRates[wKey(entities[item.entityIdx].id,item.row.name)]=parseFloat(val)||0;
+  wageRates[wKey(entities[item.entityIdx].id,_rowKey(item))]=parseFloat(val)||0;
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.wage-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
 }
 function setRounding(rowIdx,val){
   const digits=parseInt(val);if(isNaN(digits)||digits<0||digits>6)return;
   const item=_flatRows[rowIdx];if(!item)return;
-  roundingFactors[wKey(entities[item.entityIdx].id,item.row.name)]=digits;
+  roundingFactors[wKey(entities[item.entityIdx].id,_rowKey(item))]=digits;
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.rounding-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
 }
 function toggleFlat(rowIdx){
   const item=_flatRows[rowIdx];if(!item)return;
   const ent=entities[item.entityIdx];
-  const k=wKey(ent.id,item.row.name);
+  const keyName=_rowKey(item);
+  const k=wKey(ent.id,keyName);
   if(flatWages[k]!=null){
     // Currently flat -> switch back to hourly
     delete flatWages[k];
-    delete flatWagesDisplayNames[item.row.name.toLowerCase().trim()];
+    delete flatWagesDisplayNames[keyName.toLowerCase().trim()];
   }else{
     // Switch to flat; seed with current computed pay
     flatWages[k]=Math.round((item.row.pay||0)*100)/100;
-    flatWagesDisplayNames[item.row.name.toLowerCase().trim()]=item.row.name;
+    flatWagesDisplayNames[keyName.toLowerCase().trim()]=item.row.name;
   }
   renderPayrollEntityContent(item.entityIdx);
 }
@@ -1886,7 +1916,7 @@ function toggleFlat(rowIdx){
 function setRowType(rowIdx,type){
   const item=_flatRows[rowIdx];if(!item)return;
   const ent=entities[item.entityIdx];
-  const isFlatNow=flatWages[wKey(ent.id,item.row.name)]!=null;
+  const isFlatNow=flatWages[wKey(ent.id,_rowKey(item))]!=null;
   const wantFlat=type==='flat';
   if(wantFlat!==isFlatNow)toggleFlat(rowIdx);
 }
@@ -1894,8 +1924,9 @@ function setFlatAmount(rowIdx,val){
   const item=_flatRows[rowIdx];if(!item)return;
   const ent=entities[item.entityIdx];
   const amt=parseFloat(val);if(isNaN(amt)||amt<0)return;
-  flatWages[wKey(ent.id,item.row.name)]=amt;
-  flatWagesDisplayNames[item.row.name.toLowerCase().trim()]=item.row.name;
+  const keyName=_rowKey(item);
+  flatWages[wKey(ent.id,keyName)]=amt;
+  flatWagesDisplayNames[keyName.toLowerCase().trim()]=item.row.name;
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.flat-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
 }
@@ -2243,6 +2274,10 @@ function renderIntake(){
     if(ent.employees.length===0)return;
     wireIntakeDrop('tcDrop_'+idx,'tcInput_'+idx,files=>addIntakeFiles(idx,'tc',files));
     wireIntakeDrop('ecDrop_'+idx,'ecInput_'+idx,files=>addIntakeFiles(idx,'ec',files));
+    // Restore OCR job list (retry buttons etc.) if a prior run left any jobs around
+    if(ent.intake&&Array.isArray(ent.intake._ocrJobs)&&ent.intake._ocrJobs.length>0){
+      renderOcrFileList(idx,ent.intake._ocrJobs);
+    }
   });
 }
 
@@ -2267,24 +2302,43 @@ function clearIntake(idx){
   const ent=entities[idx];if(!ent.intake)return;
   ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];
   ent.intake.reviewRows=[];ent.intake.ocrDone=false;ent.intake.lastOcrError='';
+  ent.intake._ocrJobs=[];
   renderIntake();
 }
 
 function addManualRow(idx){
   const ent=entities[idx];ensureIntakeState(ent);
-  // pick first schedule date as default
+  // Default the empName to the currently-active employee sub-tab so the row
+  // lands on the tab the user is already looking at.
+  const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
+  const activeTab=ent.intake.activeEmpTab;
+  const prefillName=(activeTab&&activeTab!=='__unrecognized__'&&schedNames.includes(activeTab))?activeTab:'';
+  // Default the date to the first schedule date — guaranteed to be inside
+  // the loaded week and lets the user tab-to-change if needed.
   const firstDate=(ent.dateLabels||[]).find(d=>d)||'';
   const iso=schedLabelToIso(firstDate)||'';
   const dayIdx=iso?new Date(iso+'T00:00:00').getDay():0;
+  const newId='manual_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
   ent.intake.reviewRows.push({
-    id:'manual_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
-    source:'MN',empName:'',date:iso,dayIdx,
+    id:newId,
+    source:'MN',empName:prefillName,date:iso,dayIdx,
     clockIn1:'',clockOut1:'',clockIn2:'',clockOut2:'',clockIn3:'',clockOut3:'',
     confidence:1.0,flags:['Manually added — fill in all fields'],needsReview:true,approved:false,
     originalName:'(manual)'
   });
+  // Lock the sub-tab focus onto the row we just created so the user sees it immediately
+  ent.intake.activeEmpTab=prefillName||'__unrecognized__';
   ent.intake.ocrDone=true;
   renderIntake();
+  // Focus the first time input of the new row so the user can start typing punches right away
+  setTimeout(()=>{
+    const rowEl=document.querySelector(`tr[data-row-id="${newId}"]`);
+    if(rowEl){
+      rowEl.scrollIntoView({behavior:'smooth',block:'center'});
+      const firstTimeInput=rowEl.querySelector('input.time-text');
+      if(firstTimeInput)firstTimeInput.focus();
+    }
+  },50);
 }
 
 function schedLabelToIso(label){
@@ -2303,8 +2357,65 @@ function schedLabelToIso(label){
 function renderOcrFileList(idx, jobs){
   const el=document.getElementById('ocrFileList_'+idx);if(!el)return;
   if(!jobs||jobs.length===0){el.className='ocr-file-list';el.innerHTML='';return;}
+  // Persist jobs on the entity so per-file retry can find them after re-render
+  const ent=entities[idx];if(ent&&ent.intake)ent.intake._ocrJobs=jobs;
   el.className='ocr-file-list active';
-  el.innerHTML=jobs.map((j,i)=>`<div class="file-row status-${j.status}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':'EasyClocking'}</span></span><span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span><span class="fstatus">${j.status}</span></div>`).join('');
+  el.innerHTML=jobs.map((j,i)=>{
+    const retryBtn=(j.status==='err')?`<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i})" title="Retry OCR for this file">↻ Retry</button>`:'';
+    return `<div class="file-row status-${j.status}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':'EasyClocking'}</span></span><span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span>${retryBtn}<span class="fstatus">${j.status}</span></div>`;
+  }).join('');
+}
+
+// Retry a single failed OCR job. Re-uses the same in-memory file handle the user
+// originally uploaded so no re-upload is required.
+async function retryOcrJob(idx,jobIdx){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  const jobs=ent.intake._ocrJobs;if(!jobs||!jobs[jobIdx])return;
+  const job=jobs[jobIdx];
+  if(job.status==='running'){showToast('Already running','ok');return;}
+  const apiKey=localStorage.getItem('pv26_api_key');
+  if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return;}
+  const tcModel=getTcModel();
+  const ecModel=getEcModel();
+  const autoEscalate=getAutoEscalate();
+  const scheduleNames=ent.employees.map(e=>e.name).filter(Boolean);
+  const scheduleWeek=(ent.dateLabels||[]).filter(Boolean);
+  const scheduleAnchors=buildScheduleAnchors(ent);
+
+  // Drop any existing rows extracted from this file (in case of partial success on a prior attempt)
+  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
+
+  job.status='running';job.detail='retrying…';
+  renderOcrFileList(idx,jobs);
+  try{
+    let rows;
+    if(job.kind==='TC'){
+      rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek,scheduleAnchors);
+      if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
+        job.detail='low confidence → retrying with Pro';
+        renderOcrFileList(idx,jobs);
+        try{
+          const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek,scheduleAnchors);
+          rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
+        }catch(e){/* keep original rows if Pro fails */}
+      }
+      rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+    }else{
+      rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
+      rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+    }
+    job.status='done';
+    job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`;
+    showToast(`Retry OK · ${rows.length} row${rows.length===1?'':'s'} extracted from ${job.name}`,'ok');
+    ent.intake.lastOcrError='';
+  }catch(err){
+    job.status='err';
+    job.detail=(err.message||String(err)).slice(0,120);
+    ent.intake.lastOcrError='OCR failed on '+job.name+': '+(err.message||err);
+    showToast(`Retry failed · ${job.name}`,'err');
+  }
+  renderIntake();
+  renderOcrFileList(idx,jobs);
 }
 async function runOcrForEntity(idx){
   const ent=entities[idx];ensureIntakeState(ent);
@@ -3072,12 +3183,11 @@ async function exportPayroll(){
   // Make sure review→actuals is synced
   syncActualsFromReview();
 
-  // Require break minutes to be explicitly set per entity (even 0 is fine, but field must have been touched)
-  // We treat breakMinutes===undefined as unset; 0 is fine.
-  const unsetBreak=entities.filter(e=>e.employees.length>0&&(e.breakMinutes==null||e.breakMinutes===''));
+  // Require break minutes to be explicitly confirmed per entity (even 0 is fine, but must click Confirm)
+  const unsetBreak=entities.filter(e=>e.employees.length>0&&!e.breakMinutesSet);
   if(unsetBreak.length>0){
     const names=unsetBreak.map(e=>e.name||'(unnamed)').join(', ');
-    if(!confirm('Break minutes not explicitly set for: '+names+'.\n\nThese will be treated as 0 min. Continue with export?'))return;
+    if(!confirm('Break minutes not confirmed for: '+names+'.\n\nCurrent values will be used anyway. Continue with export?'))return;
   }
 
   const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
@@ -3246,10 +3356,10 @@ async function exportPayrollPdf(){
 
   syncActualsFromReview();
 
-  const unsetBreak=entities.filter(e=>e.employees.length>0&&(e.breakMinutes==null||e.breakMinutes===''));
+  const unsetBreak=entities.filter(e=>e.employees.length>0&&!e.breakMinutesSet);
   if(unsetBreak.length>0){
     const names=unsetBreak.map(e=>e.name||'(unnamed)').join(', ');
-    if(!confirm('Break minutes not explicitly set for: '+names+'.\n\nThese will be treated as 0 min. Continue with export?'))return;
+    if(!confirm('Break minutes not confirmed for: '+names+'.\n\nCurrent values will be used anyway. Continue with export?'))return;
   }
 
   const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
