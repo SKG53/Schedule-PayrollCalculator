@@ -3077,8 +3077,13 @@ function recomputeRowFlags(row,ent){
 
 function approveReviewRow(id){
   const h=findReviewRow(id);if(!h)return;
+  if(!isRowStructurallyValid(h.row)){
+    showToast('Cannot approve — this row has a missing clock-in or clock-out. Fix the pair first.','err');
+    return;
+  }
   h.row.approved=true;
   refreshReviewTable(entities.indexOf(h.ent));
+  scheduleDynamicRecompute();
 }
 
 function deleteReviewRow(id){
@@ -3089,11 +3094,33 @@ function deleteReviewRow(id){
   }
 }
 
+// A punch pair is structurally valid only when BOTH sides are filled or BOTH empty.
+// Mismatched pairs (e.g. clockIn1='' with clockOut1='17:00') indicate missing OCR data
+// that MUST be reviewed manually — silently approving them underreports pay.
+function isRowStructurallyValid(r){
+  const pairs=[['clockIn1','clockOut1'],['clockIn2','clockOut2'],['clockIn3','clockOut3']];
+  for(const [ci,co] of pairs){
+    const a=(r[ci]||'').trim();const b=(r[co]||'').trim();
+    if((a&&!b)||(!a&&b))return false;
+  }
+  return true;
+}
+
 function approveAll(idx){
   const ent=entities[idx];if(!ent||!ent.intake)return;
-  ent.intake.reviewRows.forEach(r=>{r.approved=true;});
+  let approved=0,skipped=0;
+  ent.intake.reviewRows.forEach(r=>{
+    if(r.approved)return;
+    if(!isRowStructurallyValid(r)){skipped++;return;}
+    r.approved=true;approved++;
+  });
   refreshReviewTable(idx);
   scheduleDynamicRecompute();
+  if(skipped>0){
+    showToast('Approved '+approved+' row'+(approved===1?'':'s')+'. '+skipped+' skipped — fix missing punch pairs first.','err');
+  }else if(approved>0){
+    showToast('Approved '+approved+' row'+(approved===1?'':'s')+'.','ok');
+  }
 }
 
 // Unapprove all rows for an entity, keeping every edit intact.
@@ -3261,7 +3288,9 @@ async function exportPayroll(){
       row.height=22;
     });
 
-    const stRow=ws1.addRow([`${entityName} Total`,'',entityTotalHours>0?entityTotalHours:'','',entityTotalPay]);
+    // Round subtotals to 2 decimals to avoid floating-point accumulation (e.g. 407.8400000000001)
+    const _rt=n=>Math.round(n*100)/100;
+    const stRow=ws1.addRow([`${entityName} Total`,'',entityTotalHours>0?_rt(entityTotalHours):'','',_rt(entityTotalPay)]);
     stRow.eachCell((cell,ci)=>{
       cell.font={name:'Arial',bold:true,size:10};
       cell.fill=subtotalFill;
@@ -3284,7 +3313,8 @@ async function exportPayroll(){
       if(totalStr!=null)grandPay+=totalStr;
     });
   });
-  const gtRow=ws1.addRow(['GRAND TOTAL','',grandHours,'',grandPay]);
+  const _rt2=n=>Math.round(n*100)/100;
+  const gtRow=ws1.addRow(['GRAND TOTAL','',_rt2(grandHours),'',_rt2(grandPay)]);
   gtRow.eachCell((cell,ci)=>{
     cell.font={name:'Arial',bold:true,size:11};
     cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE0DED5'}};
