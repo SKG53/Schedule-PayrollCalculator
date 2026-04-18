@@ -7,6 +7,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{--bg:#FAFAF8;--surface:#FFF;--border:#E5E3DC;--text:#1A1A18;--text2:#6B6960;--text3:#9E9B90;--grid-line:#EDEBE5;--alt-hour:rgba(0,0,0,0.022);--red:#DC2626;--green:#16A34A;--blue:#2563EB;--amber:#D97706;--dark-orange:#C2410C}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -328,10 +330,22 @@ table.review tr.source-ec{}
 
 /* === Flag pills (review table) === */
 .flag-pills{display:flex;flex-wrap:wrap;gap:4px}
-.flag-pill{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:600;letter-spacing:0.2px;background:rgba(217,119,6,0.12);color:var(--amber);border:1px solid rgba(217,119,6,0.25);white-space:nowrap}
+.flag-pill{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:600;letter-spacing:0.2px;background:rgba(217,119,6,0.12);color:var(--amber);border:1px solid rgba(217,119,6,0.25);white-space:normal;word-break:break-word;max-width:100%;line-height:1.3;text-align:left}
 .flag-pill.err{background:rgba(220,38,38,0.12);color:var(--red);border-color:rgba(220,38,38,0.25)}
 .flag-pill.info{background:rgba(37,99,235,0.12);color:var(--blue);border-color:rgba(37,99,235,0.25)}
 .flag-pill.ok{background:rgba(22,163,74,0.12);color:var(--green);border-color:rgba(22,163,74,0.25)}
+
+/* === Employee sub-tabs (per-entity review) === */
+.emp-subtabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--border);margin:10px 0 0 0;padding:0}
+.emp-subtab{padding:7px 12px;font-family:'Outfit',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--text2);border-radius:6px 6px 0 0;margin-bottom:-1px;display:inline-flex;align-items:center;gap:6px;transition:all 0.12s}
+.emp-subtab:hover:not(.active){color:var(--text);background:var(--surface)}
+.emp-subtab.active{color:var(--text);background:var(--surface);border-color:var(--border);border-bottom-color:var(--surface)}
+.emp-subtab .cnt{font-size:10px;background:rgba(0,0,0,0.05);color:var(--text3);padding:1px 6px;border-radius:999px;font-family:'IBM Plex Mono',monospace}
+.emp-subtab.active .cnt{background:rgba(37,99,235,0.12);color:var(--blue)}
+.emp-subtab .warn-dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.emp-subtab.unrecognized{color:var(--red)}
+.emp-subtab.unrecognized.active{color:var(--red);border-color:rgba(220,38,38,0.25)}
+.review-empty-msg{padding:16px;text-align:center;color:var(--text3);font-size:12px;background:var(--surface);border:1px dashed var(--border);border-radius:6px;margin-top:8px}
 
 /* === Review legend (above table) === */
 .review-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--text3);padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin:8px 0;align-items:center}
@@ -476,10 +490,10 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div class="instructions">
       <strong>How to use:</strong>
       <ol>
-        <li>Make sure each entity has a schedule loaded in the <em>Schedules</em> tab first.</li>
-        <li>For each entity below, either drop in physical timecard photos / EasyClocking screenshots, <em>or</em> upload a spreadsheet (.xlsx) of actuals using the template provided.</li>
-        <li>If using images: click <strong>Run OCR</strong>. The app extracts clock-in/out data for every punch.</li>
-        <li>Review each row. Any row with a flag needs your eyes. Fix names, dates, or times in place, then approve.</li>
+        <li>Load each entity's schedule first in the <em>Schedules</em> tab.</li>
+        <li>For each entity, drop in physical timecard photos <strong>and/or</strong> EasyClocking screenshots, then click <strong>Run OCR</strong>.</li>
+        <li>Rows are split into one sub-tab per employee. Review each employee: correct names, dates, or times in place, then approve the row.</li>
+        <li>Need to tweak a row you already approved? Click <em>Unapprove</em> to unlock it, edit, then reapprove.</li>
         <li>Head to the <em>Payroll</em> tab to set wages and export.</li>
       </ol>
     </div>
@@ -491,11 +505,10 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div class="instructions">
       <strong>How to use:</strong>
       <ol>
-        <li>Upload last week's schedule .xlsx — or click <em>start blank</em> in the drop zone to enter shifts manually.</li>
+        <li>Give this entity a name (required before you can move to the next tab), then upload last week's schedule .xlsx, or click <em>start blank</em> to enter shifts by hand.</li>
         <li>Edit shifts using formats like <code>6:45AM - 2:15PM</code> or <code>OFF</code>. Overnight shifts are supported (<code>11PM - 7AM</code>).</li>
-        <li>Set the new week's start date — the date headers update automatically.</li>
-        <li>Export either the employee-facing schedule or the manager view with hours totals.</li>
-        <li>Use the entity tabs below to manage multiple entities — each has its own schedule.</li>
+        <li>Set the new week's start date — the date headers update automatically. The calendar below shows staffing counts per hour.</li>
+        <li>Export the employee-facing schedule or the manager view with hours totals. Use the entity tabs above to manage multiple entities.</li>
       </ol>
     </div>
     <div id="entityTabBar" class="entity-tab-bar"></div>
@@ -549,10 +562,9 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div class="instructions">
       <strong>How to use:</strong>
       <ol>
-        <li>Load schedules in the <em>Employee Schedule</em> tab first — one per entity.</li>
-        <li>Choose an upload mode: <em>one file for all entities</em> (must include an <code>Entity</code> column) or <em>separate file per entity</em> (no entity column needed). Expected columns: <code>Employee Name</code>, <code>Date</code>, <code>Clock In 1/2/3</code>, <code>Clock Out 1/2/3</code>. Multiple pairs per day are summed.</li>
-        <li>Switch between entity tabs — each has its own mandatory break and wage settings.</li>
-        <li>Enter hourly wages and export the report.</li>
+        <li>Each entity with a loaded schedule and approved actuals gets its own tab below.</li>
+        <li>Per entity: set the mandatory break deduction, enter an hourly wage for each employee, or switch the employee to <em>Flat</em> and type a flat dollar amount.</li>
+        <li>The all-entity preview at the bottom mirrors what will be exported. Use <em>Export as Excel</em> for the full report or <em>Export as PDF</em> for a one-page week summary.</li>
       </ol>
       <strong>Color rule:</strong> more hours than expected is shown in <span style="color:var(--red);font-weight:600">red</span> (pay more); less hours is shown in <span style="color:var(--green);font-weight:600">green</span> (pay less).
     </div>
@@ -561,18 +573,19 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
       No schedule loaded yet. Go to the <strong>Employee Schedule</strong> tab, load at least one entity's schedule, then return here.
     </div>
 
-    <!-- Global buttons — visible above the entity tabs at all times -->
-    <div class="toolbar" id="payrollToolbar" style="display:none">
-      <button class="btn btn-green" onclick="exportPayroll()">Export Payroll Report</button>
-      <span class="spacer"></span>
-      <button class="btn" id="clearActualsBtn" onclick="clearActuals()">Clear Actuals</button>
-    </div>
-
     <!-- Entity tab bar for payroll (one tab per entity with a schedule) -->
     <div id="payrollEntityTabBar" class="entity-tab-bar" style="display:none;margin-top:16px"></div>
 
     <!-- Per-entity payroll content rendered here -->
     <div id="payrollEntityContent"></div>
+
+    <!-- Export buttons — moved to the BOTTOM so the all-entity preview sits just above them. -->
+    <div class="toolbar" id="payrollToolbar" style="display:none;margin-top:16px">
+      <div class="export-group">
+        <button class="btn btn-green" onclick="exportPayroll()">Export as Excel</button>
+        <button class="btn" onclick="exportPayrollPdf()">Export as PDF</button>
+      </div>
+    </div>
   </div>
 </div></div>
 <div class="tooltip" id="tip"><div class="tt-name"></div><div class="tt-time"></div><div class="tt-hrs"></div></div>
@@ -1076,13 +1089,26 @@ function renderCalendar(idx){
   }
   const totalH=CE-CS,PAD=10,rowH=50,totalPx=totalH*rowH+PAD*2,BM=3;
   function hourToY(h){return PAD+(h-CS)*rowH}
-  function getStaff(di,hour){
+  // Count how many employees are on-shift at (day=di, calHour=h) in the calendar's
+  // coordinate space (CS..CE, possibly >24 for overnights). A shift drawn on day di
+  // occupies y(s.start)..y(s.end) where end may exceed 24. Only carry over to day di+1
+  // when the end exceeds CE (i.e. the tail wasn't already drawn on day di).
+  function getStaff(di,calHour){
     let c=0;
     ent.employees.forEach(emp=>{
       const s=parseShift(emp.shifts[di]);
-      if(s){if(s.end<=24){if(hour>=s.start&&hour<s.end)c++}else{if(hour>=s.start||hour<(s.end-24))c++}}
-      if(di>0){const ps=parseShift(emp.shifts[di-1]);if(ps&&ps.end>24&&hour<(ps.end-24))c++}
-    });return c;
+      if(s){
+        if(calHour>=s.start&&calHour<s.end)c++;
+      }
+      if(di>0){
+        const ps=parseShift(emp.shifts[di-1]);
+        if(ps&&ps.end>24&&ps.end>CE){
+          const carryEnd=ps.end-24;
+          if(calHour>=CS&&calHour<carryEnd)c++;
+        }
+      }
+    });
+    return c;
   }
   let maxLanes=1;
   for(let d=0;d<7;d++){
@@ -1106,7 +1132,7 @@ function renderCalendar(idx){
       const ah=h%24;
       if((h-CS)%2===1&&h<CE){const b=document.createElement('div');b.className='hour-band';b.style.top=hourToY(h)+'px';b.style.height=rowH+'px';b.style.background='var(--alt-hour)';col.appendChild(b)}
       const ln=document.createElement('div');ln.className='hour-line';ln.style.top=hourToY(h)+'px';col.appendChild(ln);
-      if(h<CE){const cnt=getStaff(d,ah);const ce=document.createElement('div');const wt=ah<16.5?4:5;ce.className='emp-count'+(cnt>=wt?' warn':'');ce.style.top=(hourToY(h)+2)+'px';ce.textContent=cnt;col.appendChild(ce)}
+      if(h<CE){const cnt=getStaff(d,h);const ce=document.createElement('div');const wt=ah<16.5?4:5;ce.className='emp-count'+(cnt>=wt?' warn':'');ce.style.top=(hourToY(h)+2)+'px';ce.textContent=cnt;col.appendChild(ce)}
     }
     let ds=[];
     ent.employees.forEach((emp,ei)=>{const s=parseShift(emp.shifts[d]);if(!s)return;const s0=Math.max(s.start,CS),s1=Math.min(s.end,CE);if(s1>s0)ds.push({emp,ei,s0,s1,origStart:s.start,origEnd:s.end,raw:s.raw})});
@@ -1380,19 +1406,40 @@ function computePayrollForEntity(idx){
 
   // Aggregate by employee+dayIdx
   const byEmpDay={};
+  // Also collect the longest full-name seen per employee key (for display)
+  const fullNameByKey={};
   entityActuals.forEach(d=>{
-    const key=d.empName.toLowerCase().trim()+'|'+d.dayIdx;
+    const nameKey=d.empName.toLowerCase().trim();
+    const key=nameKey+'|'+d.dayIdx;
     if(!byEmpDay[key])byEmpDay[key]={pairs:[],totalMin:0,firstIn:Infinity,lastOut:-Infinity};
     d.pairs.forEach(p=>{
       byEmpDay[key].pairs.push(p);byEmpDay[key].totalMin+=p.minutes;
       if(p.in<byEmpDay[key].firstIn)byEmpDay[key].firstIn=p.in;
       if(p.outAdj>byEmpDay[key].lastOut)byEmpDay[key].lastOut=p.outAdj;
     });
+    const cand=(d.fullName||d.empName||'').trim();
+    const candWords=cand.split(/\s+/).filter(Boolean).length;
+    const existingWords=(fullNameByKey[nameKey]||'').split(/\s+/).filter(Boolean).length;
+    if(candWords>existingWords)fullNameByKey[nameKey]=cand;
   });
+  // Helper: pick the best display name for a scheduled employee by reaching into actuals/schedule full forms.
+  function resolveDisplayName(schedEmp){
+    const nameKey=schedEmp.name.toLowerCase().trim();
+    const full=fullNameByKey[nameKey];
+    if(full&&full.split(/\s+/).filter(Boolean).length>schedEmp.name.split(/\s+/).filter(Boolean).length)return full;
+    // Also try fuzzy: actuals where the OCR name contains the schedule first name
+    for(const [k,v] of Object.entries(fullNameByKey)){
+      if(k===nameKey)continue;
+      const firstWord=nameKey.split(/\s+/)[0];
+      if(!firstWord)continue;
+      if(k.includes(firstWord)&&v&&v.split(/\s+/).filter(Boolean).length>1)return v;
+    }
+    return schedEmp.name;
+  }
 
   const results=ent.employees.map(emp=>{
     const row={
-      name:emp.name,isOrphan:false,days:[],
+      name:resolveDisplayName(emp),schedName:emp.name,isOrphan:false,days:[],
       scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,
       actualHours:0,actualBreakH:0,actualDaysWorked:0,otH:0,
       inDiffs:[],outDiffs:[],
@@ -1465,7 +1512,10 @@ function computePayrollForEntity(idx){
     }
   });
   const orphanRows=Object.values(orphanMap).map(o=>{
-    const row={name:o.name,isOrphan:true,days:[],scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,actualHours:0,actualDaysWorked:0,actualBreakH:0,otH:0,wage:wageRates[wKey(ent.id,o.name)]||0,rounding:roundingFactors[wKey(ent.id,o.name)]!=null?roundingFactors[wKey(ent.id,o.name)]:2,pay:0,inDiffs:[],outDiffs:[],avgInDiff:null,avgOutDiff:null};
+    const nameKey=o.name.toLowerCase().trim();
+    const full=fullNameByKey[nameKey];
+    const displayName=(full&&full.split(/\s+/).filter(Boolean).length>o.name.split(/\s+/).filter(Boolean).length)?full:o.name;
+    const row={name:displayName,schedName:o.name,isOrphan:true,days:[],scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,actualHours:0,actualDaysWorked:0,actualBreakH:0,otH:0,wage:wageRates[wKey(ent.id,o.name)]||0,rounding:roundingFactors[wKey(ent.id,o.name)]!=null?roundingFactors[wKey(ent.id,o.name)]:2,pay:0,inDiffs:[],outDiffs:[],avgInDiff:null,avgOutDiff:null};
     for(let d=0;d<7;d++){
       const a=o.byDay[d];let workedH=0,spanH=0,actualBreakH_raw=0,effectiveBreakH=0,billableH=0;
       if(a){workedH=a.totalMin/60;spanH=Math.max(0,a.lastOut-a.firstIn);actualBreakH_raw=Math.max(0,spanH-workedH);effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);billableH=Math.max(0,spanH-effectiveBreakH);if(workedH>0)row.actualDaysWorked++;row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH}
@@ -1768,8 +1818,15 @@ function renderPaySummary(rows,hasActuals){
     }
     const typeToggleHtml=`<div class="type-toggle"><button class="${r.isFlat?'':'selected'}" onclick="setRowType(${i},'hourly')" title="Compute pay as wage × hours">Hourly</button><button class="${r.isFlat?'selected':''}" onclick="setRowType(${i},'flat')" title="Use a flat dollar amount">Flat</button></div>`;
     if(r.isFlat){
-      html+=`<td colspan="2" style="padding:6px;text-align:center;background:#FAF9F4"><span style="font-size:11px;color:var(--text3);margin-right:6px">Flat $</span><input type="number" class="flat-input" value="${(r.flatAmount||0).toFixed(2)}" step="0.01" min="0" onchange="setFlatAmount(${i},this.value)" style="width:90px"></td>`;
-      html+=`<td class="pay-cell">$${(r.flatAmount||0).toFixed(2)}</td>`;
+      // Condense wage + rounding + final pay into ONE cell so the Flat row is visually lighter.
+      // Single large input shows the final flat dollar amount; wage and rounding are hidden — no meaning for Flat.
+      html+=`<td colspan="3" style="padding:8px 10px;text-align:center;background:#FAF9F4">
+        <div style="display:inline-flex;align-items:center;gap:10px;font-weight:600">
+          <span style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px">Final flat pay</span>
+          <span style="font-size:13px;color:var(--text3)">$</span>
+          <input type="number" class="flat-input" value="${(r.flatAmount||0).toFixed(2)}" step="0.01" min="0" onchange="setFlatAmount(${i},this.value)" style="width:110px;font-size:15px;font-weight:700;text-align:right">
+        </div>
+      </td>`;
       html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td></tr>`;
     }else{
       html+=`<td style="padding:6px;text-align:center"><input type="number" class="wage-input" value="${r.wage.toFixed(2)}" step="0.01" min="0" onchange="setWage(${i},this.value)"></td>`;
@@ -2120,58 +2177,6 @@ function ensureIntakeState(ent){
   return ent.intake;
 }
 
-function setIntakeMode(idx,mode){
-  const ent=entities[idx];ensureIntakeState(ent);
-  ent.intake.uploadMode=mode;
-  renderIntake();
-}
-
-function handleIntakeXlsx(file,idx){
-  handleEntityActualsFile(file,idx);
-  // After parse, populate reviewRows from parsed data so the same review flow applies
-  setTimeout(()=>{
-    const ent=entities[idx];ensureIntakeState(ent);
-    ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.source==='MN');
-    (ent.actualDays||[]).forEach(d=>{
-      const pad=n=>String(n).padStart(2,'0');
-      const toHHMM=h=>{const hh=Math.floor(h%24),mm=Math.round((h-Math.floor(h))*60);return pad2(hh)+':'+pad2(mm);};
-      const row={
-        empName:d.empName,date:d.date,
-        clockIn1:d.pairs[0]?toHHMM(d.pairs[0].in):'',clockOut1:d.pairs[0]?toHHMM(d.pairs[0].out):'',
-        clockIn2:d.pairs[1]?toHHMM(d.pairs[1].in):'',clockOut2:d.pairs[1]?toHHMM(d.pairs[1].out):'',
-        clockIn3:d.pairs[2]?toHHMM(d.pairs[2].in):'',clockOut3:d.pairs[2]?toHHMM(d.pairs[2].out):'',
-        confidence:1.0,source:'XL',originalName:file.name
-      };
-      ent.intake.reviewRows.push(processReviewRow(row,ent));
-    });
-    ent.intake.ocrDone=true;
-    renderIntake();
-  },100);
-}
-
-function downloadActualsTemplate(idx){
-  const ent=entities[idx];
-  const name=(ent&&ent.name)||'Entity';
-  // Build a sample sheet with one header row + a few employee rows using the schedule
-  const wb=XLSX.utils.book_new();
-  const header=['Name','Date','Clock In 1','Clock Out 1','Clock In 2','Clock Out 2'];
-  const rows=[header];
-  if(ent&&ent.employees&&ent.employees.length){
-    ent.employees.forEach(emp=>{
-      (ent.dateLabels||[]).forEach(dl=>{
-        if(dl)rows.push([emp.name||'',dl,'','','','']);
-      });
-    });
-  }else{
-    rows.push(['(employee name)','YYYY-MM-DD','08:00','12:00','13:00','17:00']);
-  }
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:18},{wch:14},{wch:11},{wch:11},{wch:11},{wch:11}];
-  XLSX.utils.book_append_sheet(wb,ws,'Actuals');
-  const safeName=name.replace(/[^A-Za-z0-9_-]/g,'_');
-  XLSX.writeFile(wb,`Actuals_Template_${safeName}.xlsx`);
-}
-
 // ================================================================
 // INTAKE RENDER (per-entity blocks)
 // ================================================================
@@ -2198,20 +2203,7 @@ function renderIntake(){
       <h3>${escHtml(name)} <span style="font-weight:400;color:var(--text3);font-size:13px">— ${empCount} scheduled employees</span></h3>
       <div class="roster-note">Roster comes from this entity's schedule. Anyone clocked in but not on the schedule will be flagged.</div>
 
-      <div class="intake-upload-chooser">
-        <button class="upload-mode-btn ${ent.intake.uploadMode!=='xlsx'?'active':''}" onclick="setIntakeMode(${idx},'images')">📷 Upload timecard images</button>
-        <button class="upload-mode-btn ${ent.intake.uploadMode==='xlsx'?'active':''}" onclick="setIntakeMode(${idx},'xlsx')">📄 Upload actuals .xlsx</button>
-      </div>
-
-      <div class="intake-xlsx-panel ${xlsxLoaded?'loaded':''}" style="display:${ent.intake.uploadMode==='xlsx'?'flex':'none'}" id="xlsxPanel_${idx}">
-        <button type="button" class="xlsx-btn" onclick="document.getElementById('xlsxInput_${idx}').click()">📁 Choose .xlsx file</button>
-        <input type="file" id="xlsxInput_${idx}" accept=".xlsx,.xls,.csv" onchange="if(this.files[0])handleIntakeXlsx(this.files[0],${idx})">
-        <span class="xlsx-note">${xlsxLoaded?'<strong style="color:var(--green)">✓ '+ent.actualDays.length+' records loaded</strong>':'Columns: Name, Date, Clock In 1/2, Clock Out 1/2 (In 3/Out 3 optional).'}</span>
-        <button type="button" class="template-download" onclick="downloadActualsTemplate(${idx})" title="Download a blank .xlsx with the right column layout">⬇ Download template</button>
-        ${xlsxLoaded?`<button type="button" class="xlsx-btn" onclick="clearEntityActuals(${idx});renderIntake()" style="color:var(--red)">Clear</button>`:''}
-      </div>
-
-      <div class="intake-drop-row" style="display:${ent.intake.uploadMode==='xlsx'?'none':'flex'}">
+      <div class="intake-drop-row" style="display:flex">
         <div class="intake-drop ${tcCount>0?'has-files':''}" id="tcDrop_${idx}" onclick="document.getElementById('tcInput_${idx}').click()">
           <div class="label">Physical Timecard Photos</div>
           <div class="hint">Drop images or click</div>
@@ -2240,7 +2232,7 @@ function renderIntake(){
       <div class="ocr-results ${ent.intake.reviewRows.length>0?'active':''}" id="ocrResults_${idx}">
         ${renderReviewSummary(ent)}
         <div class="review-legend"><strong>Legend</strong><span><span class="legend-abbr">TC</span> = Timecard photo</span><span><span class="legend-abbr">EC</span> = EasyClocking</span><span><span class="legend-abbr">MN</span> = Manual</span></div>
-        <div class="review-wrap"><table class="review" id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</table></div>
+        <div id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</div>
       </div>
     </div>`;
   });
@@ -2595,10 +2587,12 @@ async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,schedu
 
 function processReviewRow(r,ent){
   // Ensure all fields exist and normalize — keep raw values always (never blank on validation fail)
+  const rawOcrName=(r.empName||'').trim();
   const row={
     id:'r_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),
     source:r.source||'??',
-    empName:(r.empName||'').trim(),
+    empName:rawOcrName,
+    rawOcrName, // preserve verbatim so payroll/export can reach for First + Last when available
     date:r.date||'',
     clockIn1:normTime(r.clockIn1),clockOut1:normTime(r.clockOut1),
     clockIn2:normTime(r.clockIn2),clockOut2:normTime(r.clockOut2),
@@ -2699,13 +2693,15 @@ function renderReviewSummary(ent){
   if(rows.length===0)return '';
   const tot=rows.length;
   const need=rows.filter(r=>r.needsReview&&!r.approved).length;
-  const app=rows.filter(r=>r.approved||!r.needsReview).length;
+  const app=rows.filter(r=>r.approved).length;
+  const idx=entities.indexOf(ent);
   return `<div class="review-summary">
     <span class="chip total">Total rows: ${tot}</span>
     <span class="chip review">Needs review: ${need}</span>
-    <span class="chip approved">OK: ${app}</span>
+    <span class="chip approved">Approved: ${app}</span>
     <span class="spacer"></span>
-    <button class="btn" onclick="approveAll(${entities.indexOf(ent)})">Approve all</button>
+    <button class="btn" onclick="approveAll(${idx})" title="Mark every row approved (keeps current values)">Approve all</button>
+    <button class="btn" onclick="unapproveAll(${idx})" title="Unapprove every row but keep your edits">Unapprove all</button>
   </div>`;
 }
 
@@ -2723,35 +2719,168 @@ function renderFlagPills(flags){
   return '<div class="flag-pills">'+flags.map(f=>`<span class="flag-pill ${flagPillClass(f)}">${escHtml(f)}</span>`).join('')+'</div>';
 }
 
+// Bucket key used to group review rows into per-employee sub-tabs.
+// Exact schedule match -> that name; fuzzy suggestion -> the suggested schedule name; else 'Unrecognized'.
+function reviewBucketKey(row,ent){
+  if(!row.empName)return '__unrecognized__';
+  const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
+  const exact=schedNames.find(s=>s.toLowerCase()===row.empName.toLowerCase());
+  if(exact)return exact;
+  if(row._suggestedName)return row._suggestedName;
+  const m=matchEmployeeName(row.empName,ent);
+  if(m.exact)return m.exact;
+  if(m.suggestion)return m.suggestion;
+  return '__unrecognized__';
+}
+
 function renderReviewTableHtml(ent,idx){
   const rows=ent.intake.reviewRows;
-  if(rows.length===0)return '<tbody><tr><td style="padding:14px;text-align:center;color:var(--text3)">No OCR results yet. Upload images and click Run OCR.</td></tr></tbody>';
+  if(rows.length===0)return '<div class="review-empty-msg">No OCR results yet. Upload timecard images above and click Run OCR.</div>';
   const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
-  // Hide In3/Out3 columns by default; show only if any row actually has a 3rd pair
+  // Build per-employee buckets (one entry per scheduled name, plus Unrecognized).
+  const buckets=new Map();
+  schedNames.forEach(n=>buckets.set(n,[]));
+  buckets.set('__unrecognized__',[]);
+  rows.forEach(r=>{
+    const k=reviewBucketKey(r,ent);
+    if(!buckets.has(k))buckets.set(k,[]);
+    buckets.get(k).push(r);
+  });
+  // Restore active tab if it still has rows; otherwise pick the first bucket that has rows.
+  if(!ent.intake.activeEmpTab||!buckets.has(ent.intake.activeEmpTab)){
+    ent.intake.activeEmpTab=schedNames.find(n=>(buckets.get(n)||[]).length>0)
+      ||(buckets.get('__unrecognized__').length>0?'__unrecognized__':(schedNames[0]||'__unrecognized__'));
+  }
+  const activeKey=ent.intake.activeEmpTab;
+  const activeRows=buckets.get(activeKey)||[];
+
+  // Render tab bar
+  let html='<div class="emp-subtabs" role="tablist">';
+  schedNames.forEach(n=>{
+    const b=buckets.get(n)||[];
+    const needs=b.filter(r=>r.needsReview&&!r.approved).length;
+    const active=n===activeKey?' active':'';
+    html+=`<button class="emp-subtab${active}" onclick="setEmpSubtab(${idx},'${escJs(n)}')" title="${escHtml(n)} — ${b.length} row${b.length===1?'':'s'}">${escHtml(n)}<span class="cnt">${b.length}</span>${needs>0?'<span class="warn-dot" title="'+needs+' need review"></span>':''}</button>`;
+  });
+  const unrec=buckets.get('__unrecognized__')||[];
+  const unrecActive=activeKey==='__unrecognized__'?' active':'';
+  html+=`<button class="emp-subtab unrecognized${unrecActive}" onclick="setEmpSubtab(${idx},'__unrecognized__')" title="Rows whose name doesn't match any scheduled employee">Unrecognized<span class="cnt">${unrec.length}</span></button>`;
+  html+='</div>';
+
+  // Table for the active bucket
   const show3=rows.some(r=>r.clockIn3||r.clockOut3);
-  let html='<thead><tr><th style="width:38px">Source</th><th>Employee</th><th>Date</th><th>In 1</th><th>Out 1</th><th>In 2</th><th>Out 2</th>';
+  if(activeRows.length===0){
+    html+='<div class="review-empty-msg">No rows for this employee yet.</div>';
+    return html;
+  }
+  html+='<div class="review-wrap" style="margin-top:10px"><table class="review">';
+  html+='<thead><tr>';
+  html+='<th style="width:34px"></th>'; // delete column (leftmost, per user request)
+  html+='<th style="width:38px">Source</th>';
+  html+='<th>Employee</th>';
+  html+='<th style="width:56px">Day</th>';
+  html+='<th>Date</th>';
+  html+='<th>In 1</th><th>Out 1</th><th>In 2</th><th>Out 2</th>';
   if(show3)html+='<th>In 3</th><th>Out 3</th>';
-  html+='<th>Flags</th><th>Actions</th></tr></thead><tbody>';
-  rows.forEach((r,ri)=>{
+  html+='<th>Flags</th>';
+  html+='<th>Action</th></tr></thead><tbody>';
+  activeRows.forEach(r=>{
     const cls=r.approved?'approved':(r.needsReview?'needs-review':'');
-    const srcCls=r.source==='TC'?'tc':(r.source==='EC'?'ec':(r.source==='MN'?'mn':''));
-    html+=`<tr class="${cls}" data-row-id="${r.id}"><td><span class="src-chip ${srcCls}" title="${r.source==='TC'?'Timecard photo':(r.source==='EC'?'EasyClocking screenshot':'Manual entry')}">${r.source}</span></td>`;
-    // Name is editable (oninput for smooth feel, onblur commits + re-renders)
-    html+=`<td><input class="name-field" list="names_${idx}" value="${escHtml(r.empName)}" oninput="updateReviewFieldLight('${r.id}','empName',this.value)" onblur="updateReviewField('${r.id}','empName',this.value)"></td>`;
+    const srcCls=r.source==='TC'?'tc':(r.source==='EC'?'ec':(r.source==='MN'?'mn':(r.source==='XL'?'xl':'')));
+    html+=`<tr class="${cls}" data-row-id="${r.id}">`;
+    // 1. Delete X (leftmost)
+    html+=`<td class="actions-cell" style="width:34px;padding:4px 2px"><button class="mini-btn reject" onclick="deleteReviewRow('${r.id}')" title="Delete row">✕</button></td>`;
+    // 2. Source chip
+    html+=`<td><span class="src-chip ${srcCls}" title="${r.source==='TC'?'Timecard photo':(r.source==='EC'?'EasyClocking screenshot':(r.source==='MN'?'Manual entry':'Actuals .xlsx'))}">${r.source}</span></td>`;
+    // 3. Employee dropdown (schedule names only).
+    // If OCR name fuzzy-matched a schedule name via _suggestedName, treat that
+    // schedule name as the "effective" current selection so the dropdown
+    // reflects where the row is bucketed — not the raw OCR string.
+    html+=`<td><select class="name-field" onchange="updateReviewField('${r.id}','empName',this.value)" style="min-width:120px">`;
+    const cur=r.empName||'';
+    const exactSched=schedNames.find(s=>s.toLowerCase()===cur.toLowerCase());
+    const suggSched=(!exactSched&&r._suggestedName&&schedNames.some(s=>s.toLowerCase()===r._suggestedName.toLowerCase()))?schedNames.find(s=>s.toLowerCase()===r._suggestedName.toLowerCase()):'';
+    const effective=exactSched||suggSched||cur;
+    const effectiveMatchesSched=!!exactSched||!!suggSched;
+    html+=`<option value=""${cur===''?' selected':''}>— select employee —</option>`;
+    schedNames.forEach(n=>{
+      const sel=effectiveMatchesSched&&n.toLowerCase()===effective.toLowerCase()?' selected':'';
+      const lbl=(suggSched&&n.toLowerCase()===suggSched.toLowerCase())?`${n} (${r.rawOcrName||cur})`:n;
+      html+=`<option value="${escHtml(n)}"${sel}>${escHtml(lbl)}</option>`;
+    });
+    // Preserve the raw OCR name if it doesn't match any schedule name (no fuzzy match either)
+    if(cur&&!effectiveMatchesSched){
+      html+=`<option value="${escHtml(cur)}" selected>${escHtml(cur)} (not on schedule)</option>`;
+    }
+    html+='</select></td>';
+    // 4. Day of week (derived from date, read-only)
+    const dayLbl=r.date?(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(r.date+'T00:00:00').getDay()]||''):'';
+    html+=`<td style="text-align:center;font-size:11px;color:var(--text2);font-family:'IBM Plex Mono',monospace">${dayLbl}</td>`;
+    // 5. Date
     html+=`<td><input class="date-field" type="date" value="${escHtml(r.date)}" onchange="updateReviewField('${r.id}','date',this.value)"></td>`;
+    // 6-11 Time pairs (use TEXT inputs to prevent native time-picker focus loss between digits)
     const timeFields=show3?['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3']:['clockIn1','clockOut1','clockIn2','clockOut2'];
     timeFields.forEach(k=>{
-      html+=`<td><input type="time" value="${escHtml(r[k])}" oninput="updateReviewFieldLight('${r.id}','${k}',this.value)" onchange="updateReviewField('${r.id}','${k}',this.value)"></td>`;
+      html+=`<td><input class="time-text" type="text" inputmode="numeric" pattern="[0-9:]*" maxlength="5" placeholder="--:--" value="${escHtml(r[k])}" oninput="handleTimeInput(this,'${r.id}','${k}')" onblur="commitTimeInput(this,'${r.id}','${k}')" style="width:64px;text-align:center;font-family:'IBM Plex Mono',monospace"></td>`;
     });
+    // Flags
     html+=`<td class="flag-cell">${renderFlagPills(r.flags)}</td>`;
-    html+=`<td class="actions-cell">`;
-    if(!r.approved)html+=`<button class="mini-btn approve" onclick="approveReviewRow('${r.id}')" title="Approve this row">✓ Approve</button> `;
-    html+=`<button class="mini-btn reject" onclick="deleteReviewRow('${r.id}')" title="Delete row">✕</button></td></tr>`;
+    // Per-row approve/unapprove button
+    html+=`<td class="actions-cell" style="width:110px">`;
+    if(r.approved){
+      html+=`<button class="mini-btn" onclick="unapproveReviewRow('${r.id}')" title="Unapprove this row (keeps your edits)">↺ Unapprove</button>`;
+    }else{
+      html+=`<button class="mini-btn approve" onclick="approveReviewRow('${r.id}')" title="Approve this row">✓ Approve</button>`;
+    }
+    html+='</td></tr>';
   });
-  html+='</tbody>';
-  // Add datalist for name autocomplete
-  html+=`<datalist id="names_${idx}">${schedNames.map(n=>`<option value="${escHtml(n)}">`).join('')}</datalist>`;
+  html+='</tbody></table></div>';
   return html;
+}
+
+// Light utility: JS-string escape for onclick attribute values
+function escJs(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/</g,'\\x3c').replace(/>/g,'\\x3e');}
+
+function setEmpSubtab(idx,key){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  ent.intake.activeEmpTab=key;
+  refreshReviewTable(idx);
+}
+
+// Text-based time input handlers — avoids native <input type="time"> focus-loss bug.
+// User can type "845" → auto-formats to "08:45" on blur; "1315" → "13:15".
+// During typing we only normalize, we do NOT rerender (keeps focus).
+function handleTimeInput(el,id,field){
+  // Filter to digits+colon, cap at 5 chars. No auto-reformat during typing.
+  const filtered=el.value.replace(/[^0-9:]/g,'').slice(0,5);
+  if(filtered!==el.value)el.value=filtered;
+  const h=findReviewRow(id);if(!h)return;
+  h.row[field]=filtered;
+  scheduleDynamicRecompute();
+}
+function commitTimeInput(el,id,field){
+  const raw=(el.value||'').replace(/\s+/g,'');
+  let formatted='';
+  if(raw===''){formatted='';}
+  else if(/^(\d{1,2}):(\d{2})$/.test(raw)){
+    const [hh,mm]=raw.split(':');
+    const h=Math.min(23,Math.max(0,parseInt(hh)||0));
+    const m=Math.min(59,Math.max(0,parseInt(mm)||0));
+    formatted=pad2(h)+':'+pad2(m);
+  }else if(/^\d+$/.test(raw)){
+    // Bare digits: 3 digits → H:MM (845 -> 08:45), 4 digits → HH:MM (1315 -> 13:15), 1-2 digits → HH:00
+    let hh,mm;
+    if(raw.length<=2){hh=parseInt(raw);mm=0;}
+    else if(raw.length===3){hh=parseInt(raw.slice(0,1));mm=parseInt(raw.slice(1));}
+    else {hh=parseInt(raw.slice(0,raw.length-2));mm=parseInt(raw.slice(-2));}
+    hh=Math.min(23,Math.max(0,hh||0));mm=Math.min(59,Math.max(0,mm||0));
+    formatted=pad2(hh)+':'+pad2(mm);
+  }else{
+    // Leave unparseable text as-is — will be caught by flag recomputation
+    formatted=raw;
+  }
+  el.value=formatted;
+  updateReviewField(id,field,formatted);
 }
 
 function findReviewRow(id){
@@ -2853,6 +2982,23 @@ function approveAll(idx){
   const ent=entities[idx];if(!ent||!ent.intake)return;
   ent.intake.reviewRows.forEach(r=>{r.approved=true;});
   refreshReviewTable(idx);
+  scheduleDynamicRecompute();
+}
+
+// Unapprove all rows for an entity, keeping every edit intact.
+function unapproveAll(idx){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  ent.intake.reviewRows.forEach(r=>{r.approved=false;});
+  refreshReviewTable(idx);
+  scheduleDynamicRecompute();
+}
+
+// Unapprove a single row — keeps its current values so the user can edit then reapprove.
+function unapproveReviewRow(id){
+  const h=findReviewRow(id);if(!h)return;
+  h.row.approved=false;
+  refreshReviewTable(entities.indexOf(h.ent));
+  scheduleDynamicRecompute();
 }
 
 function refreshReviewTable(idx){
@@ -2880,9 +3026,15 @@ function syncActualsFromReview(){
     ensureIntakeState(ent);
     const rows=ent.intake.reviewRows;
     const out=[];
+    const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
     rows.forEach(r=>{
       if(!r.empName||!r.date)return;
       const d=new Date(r.date+'T00:00:00');if(isNaN(d))return;
+      // Resolve effective empName: if OCR/review row fuzzy-matched a schedule name
+      // via _suggestedName, route punches to that schedule name instead of the raw OCR string.
+      const exactSched=schedNames.find(s=>s.toLowerCase()===r.empName.toLowerCase());
+      const suggSched=(!exactSched&&r._suggestedName&&schedNames.some(s=>s.toLowerCase()===r._suggestedName.toLowerCase()))?schedNames.find(s=>s.toLowerCase()===r._suggestedName.toLowerCase()):'';
+      const effectiveName=exactSched||suggSched||r.empName;
       const pairs=[];
       const mkPair=(inStr,outStr)=>{
         const inH=parseClockTime(inStr),outH=parseClockTime(outStr);
@@ -2900,9 +3052,14 @@ function syncActualsFromReview(){
       const pad=n=>String(n).padStart(2,'0');
       const iso=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
       // Merge with any existing row with same empName+date (e.g., EasyClocking row per punch-pair)
-      const existing=out.find(x=>x.empName.toLowerCase()===r.empName.toLowerCase()&&x.date===iso);
-      if(existing){pairs.forEach(p=>existing.pairs.push(p));}
-      else out.push({empName:r.empName,entityName:ent.name||'',date:iso,dayIdx:d.getDay(),pairs});
+      const existing=out.find(x=>x.empName.toLowerCase()===effectiveName.toLowerCase()&&x.date===iso);
+      if(existing){
+        pairs.forEach(p=>existing.pairs.push(p));
+        // Prefer the longer full-name form when merging (e.g., OCR row may include First+Last)
+        const candidateFull=(r.rawOcrName||r.empName||'').trim();
+        if(candidateFull.split(/\s+/).length>(existing.fullName||'').split(/\s+/).filter(Boolean).length)existing.fullName=candidateFull;
+      }
+      else out.push({empName:effectiveName,fullName:(r.rawOcrName||r.empName||'').trim(),entityName:ent.name||'',date:iso,dayIdx:d.getDay(),pairs});
     });
     ent.actualDays=out;
   });
@@ -3078,6 +3235,85 @@ async function exportPayroll(){
     if(iso)fname=`Payroll_Week_of_${iso}.xlsx`;
   }
   downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+}
+
+// ================================================================
+// PAYROLL EXPORT — PDF (renders the all-entity preview as a PDF)
+// ================================================================
+async function exportPayrollPdf(){
+  if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
+  const {jsPDF}=window.jspdf;
+
+  syncActualsFromReview();
+
+  const unsetBreak=entities.filter(e=>e.employees.length>0&&(e.breakMinutes==null||e.breakMinutes===''));
+  if(unsetBreak.length>0){
+    const names=unsetBreak.map(e=>e.name||'(unnamed)').join(', ');
+    if(!confirm('Break minutes not explicitly set for: '+names+'.\n\nThese will be treated as 0 min. Continue with export?'))return;
+  }
+
+  const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
+    const idx=entities.indexOf(e);
+    return{entityIdx:idx,entityName:e.name||('Entity '+(idx+1)),...computePayrollForEntity(idx)};
+  });
+  const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
+
+  const firstEntWithDates=entities.find(e=>e.dateLabels&&e.dateLabels.some(d=>d));
+  let periodStr='PAYROLL';
+  if(firstEntWithDates){
+    periodStr=`PAYROLL — Week of ${firstEntWithDates.dateLabels[0]} to ${firstEntWithDates.dateLabels[6]}`;
+  }
+
+  const doc=new jsPDF({unit:'pt',format:'letter',orientation:'portrait'});
+  const pageW=doc.internal.pageSize.getWidth();
+  doc.setFont('helvetica','bold');doc.setFontSize(16);
+  doc.text(periodStr,pageW/2,40,{align:'center'});
+
+  const body=[];
+  let grandHours=0,grandPay=0;
+  allEntityResults.forEach(({entityName,results,orphanRows})=>{
+    const flatExtras=getFlatWageRows(entityName);
+    const allRows=results.concat(orphanRows).concat(flatExtras);
+    if(allRows.length===0)return;
+    let entityTotalHours=0,entityTotalPay=0,entityFirstRow=true;
+    allRows.forEach(r=>{
+      const hoursVal=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
+      const wage=r.wage;
+      const rateStr=r.isFlat?'':(wage>0?('$'+wage.toFixed(2)):'');
+      const totalStr=r.isFlat?('$'+r.flatAmount.toFixed(2)):(wage>0?('$'+r.pay.toFixed(2)):'');
+      if(hoursVal!=null)entityTotalHours+=hoursVal;
+      if(r.isFlat)entityTotalPay+=r.flatAmount;else if(wage>0)entityTotalPay+=r.pay;
+      body.push([
+        entityFirstRow?entityName:'',
+        r.name+(r.isOrphan?' (orphan)':''),
+        hoursVal!=null?hoursVal.toFixed(2):'',
+        rateStr,
+        totalStr
+      ]);
+      entityFirstRow=false;
+    });
+    body.push([{content:entityName+' Total',styles:{fontStyle:'bold',fillColor:[240,239,233]}},{content:'',styles:{fillColor:[240,239,233]}},{content:entityTotalHours>0?entityTotalHours.toFixed(2):'',styles:{fontStyle:'bold',fillColor:[240,239,233],halign:'right'}},{content:'',styles:{fillColor:[240,239,233]}},{content:'$'+entityTotalPay.toFixed(2),styles:{fontStyle:'bold',fillColor:[240,239,233],halign:'right'}}]);
+    grandHours+=entityTotalHours;grandPay+=entityTotalPay;
+  });
+  body.push([{content:'GRAND TOTAL',styles:{fontStyle:'bold',fillColor:[224,222,213]}},{content:'',styles:{fillColor:[224,222,213]}},{content:grandHours.toFixed(2),styles:{fontStyle:'bold',fillColor:[224,222,213],halign:'right'}},{content:'',styles:{fillColor:[224,222,213]}},{content:'$'+grandPay.toFixed(2),styles:{fontStyle:'bold',fillColor:[224,222,213],halign:'right'}}]);
+
+  doc.autoTable({
+    head:[['Entity','Employee Name','Billable Hours','Rate','Total']],
+    body,
+    startY:60,
+    theme:'grid',
+    styles:{font:'helvetica',fontSize:9,cellPadding:5,lineColor:[176,176,176],lineWidth:0.5},
+    headStyles:{fillColor:[232,232,228],textColor:[26,26,24],fontStyle:'bold',halign:'left'},
+    columnStyles:{0:{cellWidth:110},1:{cellWidth:130},2:{halign:'right',cellWidth:80},3:{halign:'right',cellWidth:60},4:{halign:'right',cellWidth:80}},
+    margin:{left:40,right:40}
+  });
+
+  let fname='Payroll_Report.pdf';
+  if(firstEntWithDates&&firstEntWithDates.dateLabels[0]){
+    const iso=schedLabelToIso(firstEntWithDates.dateLabels[0]);
+    if(iso)fname=`Payroll_Week_of_${iso}.pdf`;
+  }
+  doc.save(fname);
 }
 
 // Flat-wage extras: employees with a flat amount set in wageRates AS A NEGATIVE sentinel
