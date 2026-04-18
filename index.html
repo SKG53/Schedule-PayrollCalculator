@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Payroll v26</title>
+<title>Schedule Planning & Payroll Calculation</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -274,6 +274,8 @@ table.review tr.source-ec{}
 .src-chip{display:inline-block;font-size:10px;padding:1px 6px;border-radius:3px;font-weight:600;letter-spacing:0.3px}
 .src-chip.tc{background:rgba(37,99,235,0.1);color:var(--blue)}
 .src-chip.ec{background:rgba(124,58,237,0.1);color:#7C3AED}
+.src-chip.mn{background:rgba(100,116,139,0.12);color:#64748B}
+.src-chip.xl{background:rgba(22,163,74,0.12);color:var(--green)}
 
 /* Review summary bar */
 .review-summary{display:flex;gap:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;flex-wrap:wrap;align-items:center}
@@ -323,6 +325,70 @@ table.review tr.source-ec{}
 .ocr-file-list .file-row .spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 0.7s linear infinite;display:none}
 .ocr-file-list .file-row.status-running .spinner{display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* === Flag pills (review table) === */
+.flag-pills{display:flex;flex-wrap:wrap;gap:4px}
+.flag-pill{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:600;letter-spacing:0.2px;background:rgba(217,119,6,0.12);color:var(--amber);border:1px solid rgba(217,119,6,0.25);white-space:nowrap}
+.flag-pill.err{background:rgba(220,38,38,0.12);color:var(--red);border-color:rgba(220,38,38,0.25)}
+.flag-pill.info{background:rgba(37,99,235,0.12);color:var(--blue);border-color:rgba(37,99,235,0.25)}
+.flag-pill.ok{background:rgba(22,163,74,0.12);color:var(--green);border-color:rgba(22,163,74,0.25)}
+
+/* === Review legend (above table) === */
+.review-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--text3);padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin:8px 0;align-items:center}
+.review-legend strong{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px}
+.review-legend .legend-abbr{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--text2)}
+
+/* === Entity-name-missing highlight === */
+.entity-name-missing{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(220,38,38,0.2)!important;animation:shake 0.35s ease-in-out}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+/* === Entity employee count header (payroll tab) === */
+.entity-emp-count{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(37,99,235,0.08);color:var(--blue);font-size:12px;font-weight:600;margin-left:6px}
+.entity-emp-count .n{font-family:'IBM Plex Mono',monospace}
+
+/* === Per-row approve button (more prominent) === */
+table.review tr.needs-review .mini-btn.approve{animation:pulseApprove 2.4s ease-in-out infinite}
+@keyframes pulseApprove{0%,100%{box-shadow:0 0 0 0 rgba(22,163,74,0.25)}50%{box-shadow:0 0 0 4px rgba(22,163,74,0.08)}}
+table.review tr.approved .mini-btn.approve{display:none}
+table.review tr.approved{background:rgba(22,163,74,0.04)}
+table.review tr.approved td{opacity:1}
+table.review tr.approved .name-field,table.review tr.approved .date-field{color:var(--text2)}
+
+/* === Intake tab: upload option chooser === */
+.intake-upload-chooser{display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.intake-upload-chooser .upload-mode-btn{flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);text-align:center;transition:all 0.15s}
+.intake-upload-chooser .upload-mode-btn:hover{border-color:var(--blue);color:var(--blue)}
+.intake-upload-chooser .upload-mode-btn.active{border-color:var(--blue);background:rgba(37,99,235,0.06);color:var(--blue)}
+.intake-xlsx-panel{padding:12px 14px;background:var(--surface);border:1px dashed var(--border);border-radius:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.intake-xlsx-panel input[type=file]{display:none}
+.intake-xlsx-panel .xlsx-btn{padding:7px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);cursor:pointer;font-size:12px;font-weight:600}
+.intake-xlsx-panel .xlsx-btn:hover{border-color:var(--blue);color:var(--blue)}
+.intake-xlsx-panel .xlsx-note{font-size:11px;color:var(--text3);flex:1;min-width:200px}
+.intake-xlsx-panel.loaded{border-style:solid;border-color:var(--green);background:rgba(22,163,74,0.04)}
+
+/* === Payroll Type toggle (side-by-side) === */
+.type-toggle{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:10px}
+.type-toggle button{padding:4px 8px;background:var(--surface);color:var(--text3);border:none;cursor:pointer;font-weight:600;font-family:'Outfit',sans-serif;letter-spacing:0.3px;text-transform:uppercase}
+.type-toggle button+button{border-left:1px solid var(--border)}
+.type-toggle button:hover{background:#F0EEE6}
+.type-toggle button.selected{background:#1A1A18;color:#FAF9F4}
+.type-toggle button.selected:hover{background:#2A2A27}
+
+/* === All-entity preview table === */
+.all-entity-preview{margin-top:24px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.all-entity-preview h3{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text1)}
+.all-entity-preview table{width:100%;border-collapse:collapse;font-size:12px}
+.all-entity-preview th{background:#E8E8E4;padding:8px 10px;text-align:left;font-weight:600;border-bottom:2px solid #999}
+.all-entity-preview td{padding:6px 10px;border-bottom:1px solid var(--grid-line)}
+.all-entity-preview tr.entity-subtotal td{background:#F0EFE9;font-weight:700}
+.all-entity-preview tr.grand-total td{background:#E0DED5;font-weight:700;font-size:13px;border-top:2px solid #666}
+.all-entity-preview td.num{text-align:right;font-family:'IBM Plex Mono',monospace}
+.all-entity-preview tr.orphan td{background:#FEF2F2}
+.all-entity-preview tr.orphan .name-col{color:var(--red);font-style:italic}
+
+/* === Template download button on intake === */
+.template-download{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;color:var(--text2);text-decoration:none}
+.template-download:hover{border-color:var(--blue);color:var(--blue)}
 </style>
 </head>
 <body>
@@ -330,7 +396,7 @@ table.review tr.source-ec{}
 <!-- ===== LOGIN OVERLAY ===== -->
 <div id="loginOverlay" class="overlay">
   <div class="overlay-panel">
-    <h2>Payroll v26</h2>
+    <h2>Schedule Planning &amp; Payroll Calculation</h2>
     <p class="sub">Enter the shared password to continue.</p>
     <label>Password</label>
     <input type="password" id="loginPassword" autocomplete="off" onkeydown="if(event.key==='Enter')tryLogin()">
@@ -391,7 +457,7 @@ table.review tr.source-ec{}
 <!-- ===== MAIN APP ===== -->
 <div id="appContainer"><div class="page">
   <div class="app-header">
-    <h1>Payroll v26</h1>
+    <h1>Schedule Planning &amp; Payroll Calculation</h1>
     <div class="header-actions">
       <span id="ocrStatus" class="ocr-status"></span>
       <button class="btn" onclick="openSettings()">Settings</button>
@@ -411,10 +477,10 @@ table.review tr.source-ec{}
       <strong>How to use:</strong>
       <ol>
         <li>Make sure each entity has a schedule loaded in the <em>Schedules</em> tab first.</li>
-        <li>For each entity below, drop in physical timecard photos and/or EasyClocking screenshots.</li>
-        <li>Click <strong>Run OCR</strong>. The app extracts clock-in/out data for every punch.</li>
-        <li>Review each row. Any row with a flag needs your eyes. Fix names, dates, or times in place.</li>
-        <li>Set the mandatory break minutes per entity. Then go to the <em>Payroll</em> tab.</li>
+        <li>For each entity below, either drop in physical timecard photos / EasyClocking screenshots, <em>or</em> upload a spreadsheet (.xlsx) of actuals using the template provided.</li>
+        <li>If using images: click <strong>Run OCR</strong>. The app extracts clock-in/out data for every punch.</li>
+        <li>Review each row. Any row with a flag needs your eyes. Fix names, dates, or times in place, then approve.</li>
+        <li>Head to the <em>Payroll</em> tab to set wages and export.</li>
       </ol>
     </div>
     <div id="intakeContent"></div>
@@ -495,20 +561,6 @@ table.review tr.source-ec{}
       No schedule loaded yet. Go to the <strong>Employee Schedule</strong> tab, load at least one entity's schedule, then return here.
     </div>
 
-    <!-- Actuals upload mode toggle -->
-    <div class="actuals-mode-bar" id="actualsModeBar">
-      <span style="font-weight:600;font-size:13px">Upload actuals as:</span>
-      <label class="mode-radio"><input type="radio" name="actualsMode" value="combined" checked onchange="setActualsMode('combined')"> <span>One file for all entities</span> <span class="mode-note">requires an Entity column in the file</span></label>
-      <label class="mode-radio"><input type="radio" name="actualsMode" value="separate" onchange="setActualsMode('separate')"> <span>Separate file per entity</span> <span class="mode-note">upload one file per entity tab below</span></label>
-    </div>
-
-    <!-- Combined mode: single upload zone -->
-    <div class="upload-zone" id="payrollDropZone">
-      <h2>Drop combined actuals .xlsx here</h2>
-      <p>or click to browse — first column must be Entity name</p>
-      <input type="file" id="payrollFileInput" accept=".xlsx,.xls,.csv">
-    </div>
-
     <!-- Global buttons — visible above the entity tabs at all times -->
     <div class="toolbar" id="payrollToolbar" style="display:none">
       <button class="btn btn-green" onclick="exportPayroll()">Export Payroll Report</button>
@@ -555,7 +607,7 @@ let nextEntityId=1;
 let entities=[{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,actualDays:[]}];
 let activeEntityIdx=0;
 let activePayrollEntityIdx=0;
-let actualsMode='combined'; // 'combined' | 'separate'
+let actualsMode='separate'; // always 'separate' now (uploads moved to Intake tab per entity)
 let currentView='employee',currentTab='schedule',flagView='employee',activeEmp=null;
 let actualDays=[]; // combined mode global   // [{empName,entityName,date,dayIdx,pairs:[{in,out,outAdj,minutes}]}]
 let wageRates={};    // key: wKey(entityId, empName) — survives entity renames
@@ -1140,6 +1192,19 @@ async function exportManager(){
 // TAB SWITCHING
 // ================================================================
 function setTab(tab){
+  // Guard: require a name on every entity that has any employees before leaving Schedules
+  if(currentTab==='schedule' && tab!=='schedule'){
+    const unnamed=entities.filter(e=>e.employees.length>0 && !(e.name||'').trim());
+    if(unnamed.length>0){
+      alert('Please name every entity before moving on.\n\n'+unnamed.length+' entit'+(unnamed.length===1?'y is':'ies are')+' missing a name. Go to the Schedules tab, select the entity, and type a name in the top bar.');
+      // Switch focus back to the first offending entity
+      const idx=entities.indexOf(unnamed[0]);
+      if(idx>=0){activeEntityIdx=idx;renderEntityTabBar();syncEntityHeader();}
+      const inp=document.getElementById('entityNameInput');
+      if(inp){inp.focus();inp.classList.add('entity-name-missing');setTimeout(()=>inp.classList.remove('entity-name-missing'),2000);}
+      return;
+    }
+  }
   currentTab=tab;
   document.getElementById('tab-schedule').classList.toggle('active',tab==='schedule');
   document.getElementById('tab-intake').classList.toggle('active',tab==='intake');
@@ -1152,17 +1217,9 @@ function setTab(tab){
 }
 
 // ================================================================
-// PAYROLL — FILE HANDLING
+// PAYROLL — FILE HANDLING (legacy combined mode retained for internal calls;
+// all actuals uploads now happen on the Intake tab per entity)
 // ================================================================
-(function(){
-  const dz=document.getElementById('payrollDropZone'),fi=document.getElementById('payrollFileInput');
-  dz.addEventListener('click',()=>fi.click());
-  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
-  dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
-  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');handleActualsFile(e.dataTransfer.files[0])});
-  fi.addEventListener('change',e=>{if(e.target.files[0])handleActualsFile(e.target.files[0])});
-})();
-
 function handleActualsFile(file){
   const reader=new FileReader();
   reader.onload=function(e){
@@ -1188,26 +1245,7 @@ function handleEntityActualsFile(file,idx){
   reader.readAsArrayBuffer(file);
 }
 
-function setActualsMode(mode){
-  // Switching modes never clears data — only uploading a new file replaces that mode's store.
-  // Each mode has an independent store (combined: global actualDays, separate: per-entity actualDays).
-  // If you switch to a mode that has no data, the UI shows empty-state upload zones; your old
-  // data in the other mode is preserved and reappears if you switch back.
-  actualsMode=mode;
-  // Refresh the combined drop zone label to reflect current data (if any)
-  const dz=document.getElementById('payrollDropZone');
-  if(dz){
-    if(actualDays.length>0){
-      dz.classList.add('loaded');
-      dz.querySelector('h2').textContent=`${actualDays.length} combined-file records loaded`;
-    }else{
-      dz.classList.remove('loaded');
-      dz.querySelector('h2').textContent='Drop combined actuals .xlsx here';
-      dz.querySelector('p').textContent='or click to browse — first column must be Entity name';
-    }
-  }
-  renderPayroll();
-}
+function setActualsMode(mode){ actualsMode='separate'; renderPayroll(); }
 
 // Single parse function handles both modes
 // mode='combined': parses entity column, stores to global actualDays
@@ -1287,14 +1325,16 @@ function parseActuals(rows,mode,entityIdx){
     const matchedEntries=Object.entries(counts).filter(([k])=>k==='(no entity)'||scheduledNames.has(k.toLowerCase().trim()));
     const breakdown=matchedEntries.map(([k,v])=>`${k}: ${v}`).join(' · ');
     const dz=document.getElementById('payrollDropZone');
-    dz.classList.add('loaded');
-    dz.querySelector('h2').textContent=`${parsed.length} records loaded across ${Object.keys(counts).length} entit${Object.keys(counts).length===1?'y':'ies'}`;
-    let pText=breakdown;
-    if(unmatched.length>0){
-      const unmatchedStr=unmatched.map(k=>`${k} (${counts[k]})`).join(', ');
-      pText+=`  ⚠ unmatched: ${unmatchedStr}`;
+    if(dz){
+      dz.classList.add('loaded');
+      dz.querySelector('h2').textContent=`${parsed.length} records loaded across ${Object.keys(counts).length} entit${Object.keys(counts).length===1?'y':'ies'}`;
+      let pText=breakdown;
+      if(unmatched.length>0){
+        const unmatchedStr=unmatched.map(k=>`${k} (${counts[k]})`).join(', ');
+        pText+=`  ⚠ unmatched: ${unmatchedStr}`;
+      }
+      dz.querySelector('p').textContent=pText;
     }
-    dz.querySelector('p').textContent=pText;
   }else{
     entities[entityIdx].actualDays=parsed;
   }
@@ -1305,14 +1345,6 @@ function parseActuals(rows,mode,entityIdx){
 function clearActuals(){
   actualDays=[];
   entities.forEach(e=>e.actualDays=[]);
-  const dz=document.getElementById('payrollDropZone');
-  if(dz){
-    dz.classList.remove('loaded');
-    dz.querySelector('h2').textContent='Drop combined actuals .xlsx here';
-    dz.querySelector('p').textContent='or click to browse — first column must be Entity name';
-  }
-  const fi=document.getElementById('payrollFileInput');
-  if(fi)fi.value='';
   renderPayroll();
 }
 
@@ -1465,7 +1497,8 @@ function renderPayrollEntityTabBar(){
   entities.forEach((e,realIdx)=>{
     const isActive=realIdx===activePayrollEntityIdx;
     const label=e.name||'Entity '+(realIdx+1);
-    html+=`<button class="entity-tab${isActive?' active':''}" onclick="switchPayrollEntity(${realIdx})">${escHtml(label)}</button>`;
+    const n=e.employees.length;
+    html+=`<button class="entity-tab${isActive?' active':''}" onclick="switchPayrollEntity(${realIdx})">${escHtml(label)}<span class="entity-emp-count" style="margin-left:8px"><span class="n">${n}</span> employee${n===1?'':'s'}</span></button>`;
   });
   bar.innerHTML=html;
 }
@@ -1480,8 +1513,7 @@ function renderPayroll(){
   const hasSchedule=entities.some(e=>e.employees.length>0);
   document.getElementById('payrollNoSchedule').style.display=hasSchedule?'none':'block';
   // Combined upload zone: visible only in combined mode
-  const dz=document.getElementById('payrollDropZone');
-  dz.style.display=actualsMode==='combined'?'block':'none';
+  // (legacy combined dropzone removed)
   // hasActuals: combined = global pool; separate = any entity has data
   const hasActuals=actualsMode==='combined'
     ?actualDays.length>0
@@ -1514,24 +1546,14 @@ function renderPayrollEntityContent(idx){
   const allRows=results.concat(orphanRows);
   _flatRows=allRows.map(r=>({entityIdx:idx,entityName:ent.name,row:r}));
 
-  // Per-entity upload zone (separate mode only)
   const entityName=escHtml(ent.name||'Entity '+(idx+1));
-  const loadedCount=ent.actualDays&&ent.actualDays.length>0?ent.actualDays.length:0;
-  const perEntityZone=actualsMode==='separate'?`
-    <div class="entity-actuals-zone">
-      <div class="upload-zone${loadedCount>0?' loaded':''}" id="entityDZ-${idx}"
-           onclick="document.getElementById('entityFI-${idx}').click()"
-           ondragover="event.preventDefault();this.classList.add('dragover')"
-           ondragleave="this.classList.remove('dragover')"
-           ondrop="event.preventDefault();this.classList.remove('dragover');handleEntityActualsFile(event.dataTransfer.files[0],${idx})">
-        <h2>${loadedCount>0?loadedCount+' records loaded for '+entityName:'Drop '+entityName+' actuals here'}</h2>
-        <p>${loadedCount>0?'<a href=\"#\" onclick=\"clearEntityActuals('+idx+');return false\" style=\"color:var(--red)\">Clear</a>':'or click to browse — entity column not required for this file'}</p>
-        <input type="file" id="entityFI-${idx}" accept=".xlsx,.xls,.csv" style="display:none"
-               onchange="if(this.files[0])handleEntityActualsFile(this.files[0],${idx})">
-      </div>
-    </div>`:'';
+  const empCount=ent.employees.length;
 
-  container.innerHTML=perEntityZone+`
+  container.innerHTML=`
+    <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px">
+      <strong style="font-size:15px">${entityName}</strong>
+      <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
+    </div>
     <div class="payroll-break-bar">
       <label>Mandatory break deduction per worked shift:</label>
       <input type="number" value="${ent.breakMinutes}" step="1" min="0" onchange="setEntityBreak(${idx},this.value)">
@@ -1547,6 +1569,50 @@ function renderPayrollEntityContent(idx){
   renderPayrollInfoChips(allRows,hasActuals);
   renderPayrollGrid(allRows,ent,hasActuals);
   renderPaySummary(allRows,hasActuals);
+  renderAllEntityPreview();
+}
+
+// Render the all-entity preview table + grand total just above the Export button.
+function renderAllEntityPreview(){
+  let host=document.getElementById('allEntityPreviewHost');
+  if(!host){
+    host=document.createElement('div');
+    host.id='allEntityPreviewHost';
+    // Insert the host just above the payroll toolbar (Export button)
+    const toolbar=document.getElementById('payrollToolbar');
+    if(toolbar&&toolbar.parentNode){
+      toolbar.parentNode.insertBefore(host,toolbar);
+    }
+  }
+  const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
+  const entityResults=entities.filter(e=>e.employees.length>0).map((e,_i)=>{
+    const realIdx=entities.indexOf(e);
+    return{entityIdx:realIdx,entityName:e.name||('Entity '+(realIdx+1)),...computePayrollForEntity(realIdx)};
+  });
+  if(entityResults.length===0){host.innerHTML='';return;}
+  let grandH=0,grandPay=0;
+  let html='<div class="all-entity-preview"><h3>All-entity preview — final export</h3><table><thead><tr><th>Entity</th><th>Employee</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Total</th></tr></thead><tbody>';
+  entityResults.forEach(({entityName,results,orphanRows})=>{
+    const flatExtras=getFlatWageRows(entityName);
+    const allRows=results.concat(orphanRows).concat(flatExtras);
+    if(allRows.length===0)return;
+    let entH=0,entPay=0,first=true;
+    allRows.forEach(r=>{
+      const hrs=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
+      const rate=r.isFlat?'—':(r.wage>0?'$'+r.wage.toFixed(2):'—');
+      const totalN=r.isFlat?r.flatAmount:(r.wage>0?r.pay:null);
+      if(hrs!=null)entH+=hrs;
+      if(totalN!=null)entPay+=totalN;
+      const rowCls=r.isOrphan?' class="orphan"':'';
+      html+=`<tr${rowCls}><td>${first?escHtml(entityName):''}</td><td class="name-col">${escHtml(r.name||'(unnamed)')}${r.isOrphan?' <span style="font-size:10px;color:var(--red)">(orphan)</span>':''}${r.isFlat?' <span style="font-size:10px;color:var(--text3)">(flat)</span>':''}</td><td class="num">${hrs!=null?hrs.toFixed(2):'—'}</td><td class="num">${rate}</td><td class="num">${totalN!=null?'$'+totalN.toFixed(2):'—'}</td></tr>`;
+      first=false;
+    });
+    html+=`<tr class="entity-subtotal"><td colspan="2">${escHtml(entityName)} subtotal</td><td class="num">${entH.toFixed(2)}</td><td></td><td class="num">$${entPay.toFixed(2)}</td></tr>`;
+    grandH+=entH;grandPay+=entPay;
+  });
+  html+=`<tr class="grand-total"><td colspan="2">GRAND TOTAL</td><td class="num">${grandH.toFixed(2)}</td><td></td><td class="num">$${grandPay.toFixed(2)}</td></tr>`;
+  html+='</tbody></table></div>';
+  host.innerHTML=html;
 }
 
 function clearEntityActuals(idx){
@@ -1700,15 +1766,16 @@ function renderPaySummary(rows,hasActuals){
       html+=`<td class="metric-cell ${metricClsStr(r.avgOutDiff,'out')}">${metricStr(r.avgOutDiff)}</td>`;
       html+=`<td class="num-cell" style="${r.otH>0?'color:var(--dark-orange);font-weight:600':'color:var(--text3)'}">${r.otH.toFixed(2)}</td>`;
     }
+    const typeToggleHtml=`<div class="type-toggle"><button class="${r.isFlat?'':'selected'}" onclick="setRowType(${i},'hourly')" title="Compute pay as wage × hours">Hourly</button><button class="${r.isFlat?'selected':''}" onclick="setRowType(${i},'flat')" title="Use a flat dollar amount">Flat</button></div>`;
     if(r.isFlat){
       html+=`<td colspan="2" style="padding:6px;text-align:center;background:#FAF9F4"><span style="font-size:11px;color:var(--text3);margin-right:6px">Flat $</span><input type="number" class="flat-input" value="${(r.flatAmount||0).toFixed(2)}" step="0.01" min="0" onchange="setFlatAmount(${i},this.value)" style="width:90px"></td>`;
       html+=`<td class="pay-cell">$${(r.flatAmount||0).toFixed(2)}</td>`;
-      html+=`<td style="padding:6px;text-align:center"><button class="btn-flat-toggle active" onclick="toggleFlat(${i})" title="Currently flat. Click to switch to hourly">Flat</button></td></tr>`;
+      html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td></tr>`;
     }else{
       html+=`<td style="padding:6px;text-align:center"><input type="number" class="wage-input" value="${r.wage.toFixed(2)}" step="0.01" min="0" onchange="setWage(${i},this.value)"></td>`;
       html+=`<td style="padding:6px;text-align:center"><input type="number" class="rounding-input" value="${r.rounding}" step="1" min="0" max="6" onchange="setRounding(${i},this.value)" title="Digits after decimal for Final Pay"></td>`;
       html+=`<td class="pay-cell">$${r.pay.toFixed(r.rounding)}</td>`;
-      html+=`<td style="padding:6px;text-align:center"><button class="btn-flat-toggle" onclick="toggleFlat(${i})" title="Switch to flat amount (override wage x hours)">Hourly</button></td></tr>`;
+      html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td></tr>`;
     }
   });
   // Total row
@@ -1723,6 +1790,8 @@ function renderPaySummary(rows,hasActuals){
     html+=`<td class="num-cell">${totOT.toFixed(2)}</td>`;
   }
   html+=`<td></td><td></td><td class="pay-cell">$${totPay.toFixed(2)}</td><td></td></tr></tbody>`;
+  // Style the Type column header wide enough for side-by-side buttons
+  html=html.replace('<th style="width:70px">Type</th>','<th style="width:120px">Type</th>');
   table.innerHTML=html;
   document.getElementById('paySummaryHeading').style.display='block';
   document.getElementById('paySummaryWrap').style.display='block';
@@ -1755,6 +1824,14 @@ function toggleFlat(rowIdx){
     flatWagesDisplayNames[item.row.name.toLowerCase().trim()]=item.row.name;
   }
   renderPayrollEntityContent(item.entityIdx);
+}
+// Side-by-side Type toggle handler — only flips when state actually changes.
+function setRowType(rowIdx,type){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  const isFlatNow=flatWages[wKey(ent.id,item.row.name)]!=null;
+  const wantFlat=type==='flat';
+  if(wantFlat!==isFlatNow)toggleFlat(rowIdx);
 }
 function setFlatAmount(rowIdx,val){
   const item=_flatRows[rowIdx];if(!item)return;
@@ -2035,10 +2112,64 @@ function ensureIntakeState(ent){
       reviewRows:[],
       ocrInProgress:false,
       ocrDone:false,
-      lastOcrError:''
+      lastOcrError:'',
+      uploadMode:'images' // 'images' or 'xlsx'
     };
   }
+  if(ent.intake.uploadMode==null)ent.intake.uploadMode='images';
   return ent.intake;
+}
+
+function setIntakeMode(idx,mode){
+  const ent=entities[idx];ensureIntakeState(ent);
+  ent.intake.uploadMode=mode;
+  renderIntake();
+}
+
+function handleIntakeXlsx(file,idx){
+  handleEntityActualsFile(file,idx);
+  // After parse, populate reviewRows from parsed data so the same review flow applies
+  setTimeout(()=>{
+    const ent=entities[idx];ensureIntakeState(ent);
+    ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.source==='MN');
+    (ent.actualDays||[]).forEach(d=>{
+      const pad=n=>String(n).padStart(2,'0');
+      const toHHMM=h=>{const hh=Math.floor(h%24),mm=Math.round((h-Math.floor(h))*60);return pad2(hh)+':'+pad2(mm);};
+      const row={
+        empName:d.empName,date:d.date,
+        clockIn1:d.pairs[0]?toHHMM(d.pairs[0].in):'',clockOut1:d.pairs[0]?toHHMM(d.pairs[0].out):'',
+        clockIn2:d.pairs[1]?toHHMM(d.pairs[1].in):'',clockOut2:d.pairs[1]?toHHMM(d.pairs[1].out):'',
+        clockIn3:d.pairs[2]?toHHMM(d.pairs[2].in):'',clockOut3:d.pairs[2]?toHHMM(d.pairs[2].out):'',
+        confidence:1.0,source:'XL',originalName:file.name
+      };
+      ent.intake.reviewRows.push(processReviewRow(row,ent));
+    });
+    ent.intake.ocrDone=true;
+    renderIntake();
+  },100);
+}
+
+function downloadActualsTemplate(idx){
+  const ent=entities[idx];
+  const name=(ent&&ent.name)||'Entity';
+  // Build a sample sheet with one header row + a few employee rows using the schedule
+  const wb=XLSX.utils.book_new();
+  const header=['Name','Date','Clock In 1','Clock Out 1','Clock In 2','Clock Out 2'];
+  const rows=[header];
+  if(ent&&ent.employees&&ent.employees.length){
+    ent.employees.forEach(emp=>{
+      (ent.dateLabels||[]).forEach(dl=>{
+        if(dl)rows.push([emp.name||'',dl,'','','','']);
+      });
+    });
+  }else{
+    rows.push(['(employee name)','YYYY-MM-DD','08:00','12:00','13:00','17:00']);
+  }
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:18},{wch:14},{wch:11},{wch:11},{wch:11},{wch:11}];
+  XLSX.utils.book_append_sheet(wb,ws,'Actuals');
+  const safeName=name.replace(/[^A-Za-z0-9_-]/g,'_');
+  XLSX.writeFile(wb,`Actuals_Template_${safeName}.xlsx`);
 }
 
 // ================================================================
@@ -2062,11 +2193,25 @@ function renderIntake(){
     const tcCount=ent.intake.timecardFiles.length;
     const ecCount=ent.intake.easyclockFiles.length;
     const breakSet=ent.breakMinutes!=null&&ent.breakMinutes!=='';
+    const xlsxLoaded=(ent.actualDays||[]).length>0;
     html+=`<div class="intake-entity-block" id="intakeBlock_${idx}">
       <h3>${escHtml(name)} <span style="font-weight:400;color:var(--text3);font-size:13px">— ${empCount} scheduled employees</span></h3>
       <div class="roster-note">Roster comes from this entity's schedule. Anyone clocked in but not on the schedule will be flagged.</div>
 
-      <div class="intake-drop-row">
+      <div class="intake-upload-chooser">
+        <button class="upload-mode-btn ${ent.intake.uploadMode!=='xlsx'?'active':''}" onclick="setIntakeMode(${idx},'images')">📷 Upload timecard images</button>
+        <button class="upload-mode-btn ${ent.intake.uploadMode==='xlsx'?'active':''}" onclick="setIntakeMode(${idx},'xlsx')">📄 Upload actuals .xlsx</button>
+      </div>
+
+      <div class="intake-xlsx-panel ${xlsxLoaded?'loaded':''}" style="display:${ent.intake.uploadMode==='xlsx'?'flex':'none'}" id="xlsxPanel_${idx}">
+        <button type="button" class="xlsx-btn" onclick="document.getElementById('xlsxInput_${idx}').click()">📁 Choose .xlsx file</button>
+        <input type="file" id="xlsxInput_${idx}" accept=".xlsx,.xls,.csv" onchange="if(this.files[0])handleIntakeXlsx(this.files[0],${idx})">
+        <span class="xlsx-note">${xlsxLoaded?'<strong style="color:var(--green)">✓ '+ent.actualDays.length+' records loaded</strong>':'Columns: Name, Date, Clock In 1/2, Clock Out 1/2 (In 3/Out 3 optional).'}</span>
+        <button type="button" class="template-download" onclick="downloadActualsTemplate(${idx})" title="Download a blank .xlsx with the right column layout">⬇ Download template</button>
+        ${xlsxLoaded?`<button type="button" class="xlsx-btn" onclick="clearEntityActuals(${idx});renderIntake()" style="color:var(--red)">Clear</button>`:''}
+      </div>
+
+      <div class="intake-drop-row" style="display:${ent.intake.uploadMode==='xlsx'?'none':'flex'}">
         <div class="intake-drop ${tcCount>0?'has-files':''}" id="tcDrop_${idx}" onclick="document.getElementById('tcInput_${idx}').click()">
           <div class="label">Physical Timecard Photos</div>
           <div class="hint">Drop images or click</div>
@@ -2084,7 +2229,6 @@ function renderIntake(){
       <div class="actions-row">
         <button class="btn btn-primary" onclick="runOcrForEntity(${idx})" ${(tcCount+ecCount===0)?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Run OCR</button>
         <button class="btn" onclick="clearIntake(${idx})">Clear</button>
-        <span class="break-field ${breakSet?'':'unset'}"><label>Mandatory break (min):</label><input type="number" min="0" step="1" value="${ent.breakMinutes||0}" onchange="setEntityBreak(${idx},this.value)"></span>
         <span style="flex:1"></span>
         <button class="btn" onclick="addManualRow(${idx})">+ Add manual row</button>
       </div>
@@ -2095,6 +2239,7 @@ function renderIntake(){
 
       <div class="ocr-results ${ent.intake.reviewRows.length>0?'active':''}" id="ocrResults_${idx}">
         ${renderReviewSummary(ent)}
+        <div class="review-legend"><strong>Legend</strong><span><span class="legend-abbr">TC</span> = Timecard photo</span><span><span class="legend-abbr">EC</span> = EasyClocking</span><span><span class="legend-abbr">MN</span> = Manual</span></div>
         <div class="review-wrap"><table class="review" id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</table></div>
       </div>
     </div>`;
@@ -2130,12 +2275,6 @@ function clearIntake(idx){
   const ent=entities[idx];if(!ent.intake)return;
   ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];
   ent.intake.reviewRows=[];ent.intake.ocrDone=false;ent.intake.lastOcrError='';
-  renderIntake();
-}
-
-function setEntityBreak(idx,val){
-  const v=parseInt(val);
-  entities[idx].breakMinutes=(isNaN(v)||v<0)?0:v;
   renderIntake();
 }
 
@@ -2192,6 +2331,7 @@ async function runOcrForEntity(idx){
 
   const scheduleNames=ent.employees.map(e=>e.name).filter(Boolean);
   const scheduleWeek=(ent.dateLabels||[]).filter(Boolean);
+  const scheduleAnchors=buildScheduleAnchors(ent);
 
   const jobs=[
     ...tcFiles.map(f=>({name:f.name,kind:'TC',file:f,status:'queued',detail:''})),
@@ -2218,18 +2358,18 @@ async function runOcrForEntity(idx){
     try {
       let rows;
       if(job.kind==='TC'){
-        rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek);
+        rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek,scheduleAnchors);
         if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
           job.detail='low confidence → retrying with Pro';
           renderOcrFileList(idx,jobs);
           try{
-            const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek);
+            const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek,scheduleAnchors);
             rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
           }catch(e){/* keep original rows if Pro call fails */}
         }
         rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
       } else {
-        rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek);
+        rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
         rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
       }
       job.status='done';
@@ -2310,7 +2450,7 @@ async function prepareImageForOcr(file,maxEdge){
   }
 }
 
-function tcPrompt(scheduleNames,scheduleWeek){
+function tcPrompt(scheduleNames,scheduleWeek,scheduleAnchors){
   return `You are extracting data from a physical employee timecard image (TOPS 1256 or similar). The card has green-ink machine stamps showing dates and times, and a handwritten employee name at the top.
 
 EXTRACT each stamped punch pair (one clock-in, one clock-out) and return a JSON array.
@@ -2322,6 +2462,11 @@ RULES:
 4. Attribute each shift to the CLOCK-IN date.
 5. The employee name is handwritten at the top near "NAME". Return it as written. Known roster names for this entity: ${scheduleNames.join(', ')||'(none provided)'}
 6. Schedule dates for this week: ${scheduleWeek.join(', ')||'(none provided)'}
+
+SCHEDULE ANCHORS (use these to disambiguate AM/PM and overnight stamps — actuals usually come within ±60 min of scheduled start/end):
+${scheduleAnchors||'(none provided)'}
+
+IMPORTANT: when a stamp is ambiguous (e.g. AM vs PM is unclear, or it's unclear whether a shift runs overnight into the next day), pick the interpretation that is closest to the scheduled shift for that employee+date. Do NOT invent punches that are not on the card — if no stamp exists, leave the field empty. If your best-effort extraction disagrees with the schedule by more than ~90 minutes, keep the stamped value but lower confidence and add a note.
 
 RETURN a JSON array. Each element:
 {
@@ -2342,7 +2487,7 @@ One array element per date with punches. If a day has multiple in/out pairs (rar
 Return ONLY the JSON array, no prose.`;
 }
 
-function ecPrompt(scheduleNames,scheduleWeek){
+function ecPrompt(scheduleNames,scheduleWeek,scheduleAnchors){
   return `You are extracting data from an EasyClocking screenshot. The screenshot shows rows of clock-in/out events. Columns typically include: Name, Day (e.g., "Apr 12, Sun"), Time In, Time Out, Regular, OT, LBT, LBP, Location, Total.
 
 EXTRACT every row and return a JSON array. One row per punch pair. Do NOT try to combine multiple rows into one day — return them as-is and the app will merge them.
@@ -2354,6 +2499,9 @@ RULES:
 4. Convert all times to 24-hour HH:MM. "08:02 PM" → "20:02". "12:23 AM" → "00:23".
 5. Name field — use as written from the screenshot. It may include full name. Known roster first names: ${scheduleNames.join(', ')||'(none provided)'}
 6. Schedule dates for this week: ${scheduleWeek.join(', ')||'(none provided)'}
+
+SCHEDULE ANCHORS (cross-check Time In/Out against these — if an extracted punch is off by >90 min from the schedule, re-inspect the screenshot before finalizing):
+${scheduleAnchors||'(none provided)'}
 
 RETURN a JSON array. Each element:
 {
@@ -2372,9 +2520,34 @@ RETURN a JSON array. Each element:
 EasyClocking screenshots give us one pair per row — keep clockIn2/Out2/In3/Out3 empty. Return ONLY the JSON array, no prose.`;
 }
 
-async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek){
+// Build a compact per-employee/per-day anchor block. Returns a multi-line string like:
+//   BALU — Sun Apr 5: 3:00pm–10:15pm · Mon Apr 6: 3:15pm–12:15am (overnight) · Tue Apr 7: OFF …
+// Used to anchor OCR times so AM/PM and overnight calls can be disambiguated.
+function buildScheduleAnchors(ent){
+  if(!ent||!ent.employees||ent.employees.length===0)return '';
+  const dayLabels=(ent.dateLabels||[]).map(d=>d||'');
+  const lines=[];
+  ent.employees.forEach(emp=>{
+    if(!emp.name)return;
+    const parts=[];
+    for(let d=0;d<7;d++){
+      const raw=(emp.shifts&&emp.shifts[d])||'';
+      const dayHdr=(dayLabels[d]||DAYS[d]).replace(/\s*\(.*\)/,'');
+      if(!raw||/^\s*OFF\s*$/i.test(raw)){parts.push(`${dayHdr}: OFF`);continue;}
+      const s=parseShift(raw);
+      if(!s){parts.push(`${dayHdr}: ${raw}`);continue;}
+      const fmt=(h)=>{const hh=((h%24)+24)%24;const m=Math.round((hh-Math.floor(hh))*60);const H=Math.floor(hh);const ap=H>=12?'pm':'am';const dh=((H+11)%12)+1;return `${dh}:${String(m).padStart(2,'0')}${ap}`;};
+      const overnight=s.end>24;
+      parts.push(`${dayHdr}: ${fmt(s.start)}–${fmt(s.end)}${overnight?' (overnight)':''}`);
+    }
+    lines.push(`${emp.name} — ${parts.join(' · ')}`);
+  });
+  return lines.join('\n');
+}
+
+async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,scheduleAnchors){
   const {b64,mime}=await prepareImageForOcr(file,2048);
-  const prompt=kind==='TC'?tcPrompt(scheduleNames,scheduleWeek):ecPrompt(scheduleNames,scheduleWeek);
+  const prompt=kind==='TC'?tcPrompt(scheduleNames,scheduleWeek,scheduleAnchors):ecPrompt(scheduleNames,scheduleWeek,scheduleAnchors);
   const schema={
     type:'ARRAY',
     items:{
@@ -2421,7 +2594,7 @@ async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek){
 }
 
 function processReviewRow(r,ent){
-  // Ensure all fields exist and normalize
+  // Ensure all fields exist and normalize — keep raw values always (never blank on validation fail)
   const row={
     id:'r_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),
     source:r.source||'??',
@@ -2433,6 +2606,7 @@ function processReviewRow(r,ent){
     confidence:typeof r.confidence==='number'?r.confidence:0.8,
     notes:r.notes||'',
     originalName:r.originalName||'',
+    _lowConf:false,_gt2Pairs:false,_escalated:!!r._escalated,
     flags:[],needsReview:false,approved:false
   };
   // Day index from date
@@ -2440,30 +2614,27 @@ function processReviewRow(r,ent){
     const d=new Date(row.date+'T00:00:00');
     if(!isNaN(d))row.dayIdx=d.getDay();
   }
-  // Name matching
+  // Name matching: auto-apply exact, suggest for fuzzy (keep OCR text), flag unknown
   const match=matchEmployeeName(row.empName,ent);
   if(match.exact)row.empName=match.exact;
-  else if(match.suggestion){row.empName=match.suggestion;row.flags.push('Name auto-matched: "'+row.empName+'" → '+match.suggestion+' (verify)');}
-  else if(row.empName){row.flags.push('Name not on schedule — will be an orphan');}
-  else row.flags.push('Name missing');
-
-  // Flag low confidence
-  if(row.confidence<0.75)row.flags.push('Low OCR confidence ('+Math.round(row.confidence*100)+'%)');
-  if(row.notes)row.flags.push(row.notes);
-
-  // Flag missing punches
-  if(row.clockIn1&&!row.clockOut1)row.flags.push('Missing clock-out (pair 1)');
-  if(!row.clockIn1&&row.clockOut1)row.flags.push('Missing clock-in (pair 1)');
-  if(row.clockIn2&&!row.clockOut2)row.flags.push('Missing clock-out (pair 2)');
-  if(row.clockIn3&&!row.clockOut3)row.flags.push('Missing clock-out (pair 3)');
-
-  // Flag date outside schedule week
-  const weekIsos=(ent.dateLabels||[]).map(schedLabelToIso).filter(Boolean);
-  if(weekIsos.length>0&&row.date&&!weekIsos.includes(row.date)){
-    row.flags.push('Date outside schedule week');
+  else if(match.suggestion){
+    // Keep the original OCR name visible; pill will say "Name unsure"
+    row._suggestedName=match.suggestion;
   }
-  if(!row.date)row.flags.push('Date missing');
 
+  // Low-confidence sentinel
+  if(row.confidence<0.75)row._lowConf=true;
+
+  // Gemini should never return >2 pairs on any real card. If it does, keep the data (user: "don't break")
+  // but loudly flag the row for human review.
+  const pairCount=['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3']
+    .reduce((n,k,i)=>n+(i%2===0&&row[k]?1:0),0);
+  if(pairCount>2)row._gt2Pairs=true;
+
+  // Let the shared flag recomputer add the human-readable tight wording
+  recomputeRowFlags(row,ent);
+  // notes from Gemini — keep as extra flag if non-empty
+  if(r.notes)row.flags.push(r.notes);
   row.needsReview=row.flags.length>0;
   return row;
 }
@@ -2538,25 +2709,44 @@ function renderReviewSummary(ent){
   </div>`;
 }
 
+// Map a flag string to a CSS class for its pill color
+function flagPillClass(flag){
+  const f=(flag||'').toLowerCase();
+  if(/sequence|missing clock-out|missing clock-in|check clock|no clock-in|too many punch/.test(f))return 'err';
+  if(/not on schedule|orphan|outside/.test(f))return 'err';
+  if(/auto-matched|verify|low ocr/.test(f))return 'info';
+  return ''; // default amber
+}
+
+function renderFlagPills(flags){
+  if(!flags||flags.length===0)return '<span class="flag-pill ok">ok</span>';
+  return '<div class="flag-pills">'+flags.map(f=>`<span class="flag-pill ${flagPillClass(f)}">${escHtml(f)}</span>`).join('')+'</div>';
+}
+
 function renderReviewTableHtml(ent,idx){
   const rows=ent.intake.reviewRows;
   if(rows.length===0)return '<tbody><tr><td style="padding:14px;text-align:center;color:var(--text3)">No OCR results yet. Upload images and click Run OCR.</td></tr></tbody>';
   const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
-  let html='<thead><tr><th style="width:38px">Src</th><th>Employee</th><th>Date</th><th>In 1</th><th>Out 1</th><th>In 2</th><th>Out 2</th><th>In 3</th><th>Out 3</th><th>Flags</th><th>Actions</th></tr></thead><tbody>';
+  // Hide In3/Out3 columns by default; show only if any row actually has a 3rd pair
+  const show3=rows.some(r=>r.clockIn3||r.clockOut3);
+  let html='<thead><tr><th style="width:38px">Source</th><th>Employee</th><th>Date</th><th>In 1</th><th>Out 1</th><th>In 2</th><th>Out 2</th>';
+  if(show3)html+='<th>In 3</th><th>Out 3</th>';
+  html+='<th>Flags</th><th>Actions</th></tr></thead><tbody>';
   rows.forEach((r,ri)=>{
     const cls=r.approved?'approved':(r.needsReview?'needs-review':'');
-    const srcCls=r.source==='TC'?'tc':(r.source==='EC'?'ec':'');
-    html+=`<tr class="${cls}" data-row-id="${r.id}"><td><span class="src-chip ${srcCls}">${r.source}</span></td>`;
-    // Name as datalist for autocomplete
-    html+=`<td><input class="name-field" list="names_${idx}" value="${escHtml(r.empName)}" onchange="updateReviewField('${r.id}','empName',this.value)"></td>`;
+    const srcCls=r.source==='TC'?'tc':(r.source==='EC'?'ec':(r.source==='MN'?'mn':''));
+    html+=`<tr class="${cls}" data-row-id="${r.id}"><td><span class="src-chip ${srcCls}" title="${r.source==='TC'?'Timecard photo':(r.source==='EC'?'EasyClocking screenshot':'Manual entry')}">${r.source}</span></td>`;
+    // Name is editable (oninput for smooth feel, onblur commits + re-renders)
+    html+=`<td><input class="name-field" list="names_${idx}" value="${escHtml(r.empName)}" oninput="updateReviewFieldLight('${r.id}','empName',this.value)" onblur="updateReviewField('${r.id}','empName',this.value)"></td>`;
     html+=`<td><input class="date-field" type="date" value="${escHtml(r.date)}" onchange="updateReviewField('${r.id}','date',this.value)"></td>`;
-    ['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3'].forEach(k=>{
-      html+=`<td><input type="time" value="${escHtml(r[k])}" onchange="updateReviewField('${r.id}','${k}',this.value)"></td>`;
+    const timeFields=show3?['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3']:['clockIn1','clockOut1','clockIn2','clockOut2'];
+    timeFields.forEach(k=>{
+      html+=`<td><input type="time" value="${escHtml(r[k])}" oninput="updateReviewFieldLight('${r.id}','${k}',this.value)" onchange="updateReviewField('${r.id}','${k}',this.value)"></td>`;
     });
-    html+=`<td class="flag-cell">${r.flags.map(escHtml).join('<br>')||'<span style="color:var(--green)">ok</span>'}</td>`;
+    html+=`<td class="flag-cell">${renderFlagPills(r.flags)}</td>`;
     html+=`<td class="actions-cell">`;
-    if(!r.approved)html+=`<button class="mini-btn approve" onclick="approveReviewRow('${r.id}')">✓</button> `;
-    html+=`<button class="mini-btn reject" onclick="deleteReviewRow('${r.id}')">✕</button></td></tr>`;
+    if(!r.approved)html+=`<button class="mini-btn approve" onclick="approveReviewRow('${r.id}')" title="Approve this row">✓ Approve</button> `;
+    html+=`<button class="mini-btn reject" onclick="deleteReviewRow('${r.id}')" title="Delete row">✕</button></td></tr>`;
   });
   html+='</tbody>';
   // Add datalist for name autocomplete
@@ -2573,30 +2763,76 @@ function findReviewRow(id){
   return null;
 }
 
+// Light update: stores the value on the row without re-rendering (smooth typing).
+// Full flag recomputation + render happens on blur/change via updateReviewField.
+function updateReviewFieldLight(id,field,val){
+  const h=findReviewRow(id);if(!h)return;
+  h.row[field]=val;
+  // Nudge payroll recompute on next settle (debounced) so Payroll tab stays in sync
+  scheduleDynamicRecompute();
+}
+
+// Debounce handle for dynamic recompute
+let _dynamicRecomputeT=null;
+function scheduleDynamicRecompute(){
+  if(_dynamicRecomputeT)clearTimeout(_dynamicRecomputeT);
+  _dynamicRecomputeT=setTimeout(()=>{
+    _dynamicRecomputeT=null;
+    if(currentTab==='payroll'){syncActualsFromReview();renderPayroll();}
+  },250);
+}
+
 function updateReviewField(id,field,val){
   const h=findReviewRow(id);if(!h)return;
   h.row[field]=val;
-  // Recompute flags for this row
-  h.row.flags=[];
-  if(!h.row.empName)h.row.flags.push('Name missing');
-  else{
-    const schedNames=h.ent.employees.map(e=>e.name).filter(Boolean);
-    const exact=schedNames.find(s=>s.toLowerCase()===h.row.empName.toLowerCase());
-    if(!exact)h.row.flags.push('Name not on schedule — will be an orphan');
-  }
-  if(!h.row.date)h.row.flags.push('Date missing');
-  else{
-    const d=new Date(h.row.date+'T00:00:00');
-    if(!isNaN(d))h.row.dayIdx=d.getDay();
-    const weekIsos=(h.ent.dateLabels||[]).map(schedLabelToIso).filter(Boolean);
-    if(weekIsos.length>0&&!weekIsos.includes(h.row.date))h.row.flags.push('Date outside schedule week');
-  }
-  if(h.row.clockIn1&&!h.row.clockOut1)h.row.flags.push('Missing clock-out (pair 1)');
-  if(!h.row.clockIn1&&!h.row.clockIn2&&!h.row.clockIn3)h.row.flags.push('No clock-in recorded');
-  h.row.needsReview=h.row.flags.length>0;
-  if(!h.row.needsReview)h.row.approved=true;
-  // Re-render just the table for this entity
+  recomputeRowFlags(h.row,h.ent);
+  // If the row was previously approved and edits invalidate it, un-approve
+  if(h.row.needsReview)h.row.approved=false;
   refreshReviewTable(entities.indexOf(h.ent));
+  scheduleDynamicRecompute();
+}
+
+// Recompute flags for a single row against its entity. Shared between OCR ingest + manual edits.
+function recomputeRowFlags(row,ent){
+  row.flags=[];
+  if(!row.empName)row.flags.push('Name missing');
+  else{
+    const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
+    const exact=schedNames.find(s=>s.toLowerCase()===row.empName.toLowerCase());
+    if(!exact){
+      // Try fuzzy match
+      const m=matchEmployeeName(row.empName,ent);
+      if(m.suggestion&&m.suggestion.toLowerCase()!==row.empName.toLowerCase())row.flags.push('Name unsure');
+      else if(!m.suggestion)row.flags.push('Not on schedule');
+    }
+  }
+  if(!row.date)row.flags.push('Date missing');
+  else{
+    const d=new Date(row.date+'T00:00:00');
+    if(!isNaN(d))row.dayIdx=d.getDay();
+    const weekIsos=(ent.dateLabels||[]).map(schedLabelToIso).filter(Boolean);
+    if(weekIsos.length>0&&!weekIsos.includes(row.date))row.flags.push('Outside week');
+  }
+  if(row.clockIn1&&!row.clockOut1)row.flags.push('Check clock-out');
+  if(!row.clockIn1&&row.clockOut1)row.flags.push('Check clock-in');
+  if(row.clockIn2&&!row.clockOut2)row.flags.push('Check clock-out (pair 2)');
+  if(row.clockIn3&&!row.clockOut3)row.flags.push('Check clock-out (pair 3)');
+  if(!row.clockIn1&&!row.clockIn2&&!row.clockIn3)row.flags.push('No clock-in');
+  // Sequence check: each pair's duration must be positive after overnight adjustment
+  const pairs=[['clockIn1','clockOut1'],['clockIn2','clockOut2'],['clockIn3','clockOut3']];
+  pairs.forEach(([inK,outK],pi)=>{
+    if(row[inK]&&row[outK]){
+      const ih=parseClockTime(row[inK]),oh=parseClockTime(row[outK]);
+      if(ih===null||oh===null){row.flags.push('Sequence error (pair '+(pi+1)+')');return;}
+      let dur=oh-ih;if(dur<0)dur+=24;
+      if(dur<=0||dur>24)row.flags.push('Sequence error (pair '+(pi+1)+')');
+    }
+  });
+  // Low-confidence flag is preserved through normalization by processReviewRow; keep here if already present as _lowConf
+  if(row._lowConf)row.flags.push('Low OCR confidence ('+Math.round(row.confidence*100)+'%)');
+  if(row._gt2Pairs)row.flags.push('Too many punch pairs — verify');
+  if(row._escalated)row.flags.push('Escalated to Pro');
+  row.needsReview=row.flags.length>0;
 }
 
 function approveReviewRow(id){
