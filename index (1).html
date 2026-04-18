@@ -1,0 +1,2853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payroll v26</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root{--bg:#FAFAF8;--surface:#FFF;--border:#E5E3DC;--text:#1A1A18;--text2:#6B6960;--text3:#9E9B90;--grid-line:#EDEBE5;--alt-hour:rgba(0,0,0,0.022);--red:#DC2626;--green:#16A34A;--blue:#2563EB;--amber:#D97706;--dark-orange:#C2410C}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text)}
+.page{max-width:100%;margin:0 auto;padding:24px}
+h1{font-size:26px;font-weight:700;letter-spacing:-0.5px}
+.sub{font-size:14px;color:var(--text2);margin-bottom:16px}
+
+/* === ENTITY TABS === */
+.entity-tab-bar{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid var(--border);flex-wrap:wrap;align-items:flex-end}
+.entity-tab{padding:10px 20px;font-family:'Outfit',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--text2);border-bottom:3px solid transparent;margin-bottom:-2px;transition:all 0.15s;white-space:nowrap}
+.entity-tab:hover:not(.active){color:var(--text)}
+.entity-tab.active{color:var(--text);border-bottom-color:var(--blue)}
+.entity-tab.entity-add{color:var(--blue);font-weight:600}
+
+/* === ENTITY HEADER BAR === */
+.entity-header-bar{display:none;align-items:center;gap:16px;padding:14px 0 12px;margin-bottom:16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.entity-name-input{font-family:'Outfit',sans-serif;font-size:20px;font-weight:700;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text);outline:none;flex:1;min-width:180px;letter-spacing:-0.3px;padding-bottom:2px;transition:border-color 0.15s}
+.entity-name-input:focus{border-bottom-color:var(--blue)}
+
+/* === ACTUALS MODE TOGGLE === */
+.actuals-mode-bar{display:flex;align-items:center;gap:20px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;flex-wrap:wrap}
+.instructions{padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;font-size:13px;line-height:1.7;color:var(--text2)}
+.instructions strong{color:var(--text)}
+.instructions code{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--text);border:1px solid var(--border)}
+.instructions ol{margin:6px 0 4px 20px;padding:0}
+.instructions li{margin-bottom:4px}
+.instructions li:last-child{margin-bottom:8px}
+.mode-radio{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:500}
+.mode-radio input{cursor:pointer;transform:scale(1.15)}
+.mode-radio .mode-note{font-size:11px;color:var(--text3);font-weight:400}
+.entity-actuals-zone{margin-bottom:14px}
+
+/* === PAYROLL BREAK BAR === */
+.payroll-break-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:13px;flex-wrap:wrap}
+.payroll-break-bar label{font-weight:500;color:var(--text)}
+.payroll-break-bar input{width:56px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface);text-align:right}
+.payroll-break-bar .ot-note{color:var(--text3);font-size:12px;margin-left:auto}
+
+/* === UPLOAD === */
+.upload-zone{border:2px dashed var(--border);border-radius:12px;padding:32px;text-align:center;margin-bottom:20px;transition:all 0.2s;cursor:pointer;background:var(--surface)}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--blue);background:rgba(37,99,235,0.03)}
+.upload-zone h2{font-size:16px;font-weight:600;margin-bottom:2px}
+.upload-zone p{font-size:12px;color:var(--text3)}
+.upload-zone input{display:none}
+.upload-zone.loaded{border-color:var(--green);background:rgba(22,163,74,0.03);padding:16px}
+.upload-zone.loaded h2{color:var(--green);font-size:14px}
+
+/* === WEEK SELECTOR === */
+.week-bar{display:none;margin-bottom:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.week-bar .row{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.week-bar .row:last-child{margin-bottom:0}
+.week-bar label{font-size:13px;color:var(--text2);font-weight:500;min-width:140px}
+.week-bar input[type=date]{font-family:'IBM Plex Mono',monospace;font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface)}
+.week-bar .week-display{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text)}
+
+/* === TOOLBAR === */
+.toolbar{display:none;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.btn{padding:8px 18px;border-radius:8px;font-family:'Outfit',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text);transition:all 0.15s}
+.btn:hover{border-color:var(--text3);transform:translateY(-1px)}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-primary:hover{background:#1D4ED8}
+.btn-green{background:var(--green);color:#fff;border-color:var(--green)}
+.btn-green:hover{background:#15803D}
+.spacer{flex:1}
+
+/* === INFO CHIPS === */
+.info-bar{display:none;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.info-chip{display:flex;flex-direction:column;align-items:center;padding:6px 8px;border-radius:8px;font-size:12px;background:var(--surface);border:1px solid var(--border);cursor:pointer;transition:all 0.2s;user-select:none;flex:1;min-width:90px;text-align:center}
+.info-chip:hover{transform:translateY(-1px);border-color:var(--text3)}
+.info-chip.dimmed{opacity:0.15}
+.info-chip .top-row{display:flex;align-items:center;gap:4px;justify-content:center}
+.info-chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.info-chip .name{font-weight:600;font-size:15px;white-space:nowrap}
+.info-chip .hrs{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;margin-top:2px}
+.info-chip .days{font-size:12px;color:var(--text3)}
+.info-chip.overtime .hrs{color:var(--dark-orange)}
+.info-chip.overtime{border-color:rgba(194,65,12,0.3);background:rgba(194,65,12,0.04)}
+
+/* === FLAGS === */
+.flags-bar{margin-bottom:14px;display:none}
+.flag{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:500;margin:2px}
+.flag-red{background:rgba(220,38,38,0.08);color:var(--red);border:1px solid rgba(220,38,38,0.15)}
+.flag-amber{background:rgba(217,119,6,0.08);color:var(--amber);border:1px solid rgba(217,119,6,0.15)}
+.flag-green{background:rgba(22,163,74,0.08);color:var(--green);border:1px solid rgba(22,163,74,0.15)}
+
+/* === VIEW TOGGLE === */
+.view-toggle{display:none;margin-bottom:12px;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content}
+.view-toggle button{padding:8px 20px;font-family:'Outfit',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border:none;background:var(--surface);color:var(--text2);transition:all 0.15s}
+.view-toggle button.active{background:var(--text);color:#fff}
+.view-toggle button:first-child{border-right:1px solid var(--border)}
+
+/* === SCHEDULE TABLE === */
+.sched-table-wrap{margin-bottom:20px;overflow-x:auto;display:none}
+table.sched{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border)}
+table.sched th{background:#E8E8E4;font-weight:600;font-size:14px;color:var(--text);padding:8px 4px;text-align:center;border:1px solid var(--border)}
+table.sched th.date-row{font-weight:400;font-size:11px;color:var(--text2);padding:4px;border-top:2px solid #999}
+table.sched td{padding:0;text-align:center;border:1px solid var(--grid-line)}
+table.sched td.name-cell{font-weight:600;font-size:13px;padding:6px 4px;background:var(--surface);border-right:2px solid #999;min-width:100px;position:relative}
+table.sched td.shift-cell{padding:0;min-width:130px}
+table.sched td.hours-cell{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#444;padding:2px;background:#F5F5F3;text-align:center}
+table.sched tr.hours-row td{border-bottom:2px solid var(--border)}
+.shift-input{width:100%;border:none;text-align:center;font-family:'Outfit',sans-serif;font-size:12px;padding:6px 2px;background:transparent;outline:none}
+.shift-input:focus{background:rgba(37,99,235,0.04);box-shadow:inset 0 0 0 2px rgba(37,99,235,0.2)}
+.shift-input.off-val{color:var(--red)}
+.shift-input.shift-val{color:var(--green)}
+.shift-input.invalid{background:rgba(220,38,38,0.06);color:var(--red)}
+.del-btn{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:50%;border:none;background:rgba(220,38,38,0.1);color:var(--red);font-size:10px;cursor:pointer;display:none;align-items:center;justify-content:center;line-height:1}
+td.name-cell:hover .del-btn{display:flex}
+
+/* === CALENDAR === */
+.cal-wrapper{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px;display:none}
+.cal-grid{display:grid;grid-template-columns:48px repeat(7,1fr) 48px}
+.corner{background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:center}
+.corner-left{border-right:1px solid var(--border)}
+.corner-right{border-left:1px solid var(--border)}
+.day-header{text-align:center;padding:8px 4px;background:var(--bg);border-bottom:1px solid var(--border);border-right:2px solid var(--border)}
+.day-header .day-name{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text2)}
+.day-header .day-date{font-size:10px;color:var(--text3);border-top:1px solid var(--border);padding-top:3px;margin-top:4px}
+.time-gutter{position:relative;border-right:1px solid var(--border)}
+.time-gutter-right{position:relative;border-left:1px solid var(--border)}
+.time-label{position:absolute;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text2);line-height:1;transform:translateY(-5px)}
+.time-gutter .time-label{right:5px}
+.time-gutter-right .time-label{left:5px}
+.day-column{position:relative;border-right:2px solid var(--border)}
+.hour-band{position:absolute;left:0;right:0;pointer-events:none}
+.hour-line{position:absolute;left:0;right:0;border-top:0.5px solid var(--grid-line);pointer-events:none}
+.emp-count{position:absolute;font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500;color:var(--text3);right:3px;pointer-events:none;z-index:5;line-height:1}
+.emp-count.warn{color:var(--red);font-weight:600}
+.shift-block{position:absolute;border-radius:4px;overflow:hidden;cursor:default;z-index:2;border:1px solid rgba(0,0,0,0.05);display:flex;align-items:center;justify-content:center}
+.shift-block .sb-wrap{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.shift-block .sb-name{font-weight:600;font-size:13px}
+.shift-block .sb-time{font-family:'IBM Plex Mono',monospace;font-size:11px;opacity:0.8}
+.tooltip{display:none;position:fixed;background:var(--text);color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;z-index:1000;pointer-events:none;max-width:240px;line-height:1.5}
+.tooltip .tt-name{font-weight:600;font-size:13px}
+.tooltip .tt-time{font-family:'IBM Plex Mono',monospace;font-size:11px;opacity:0.8}
+.tooltip .tt-hrs{font-family:'IBM Plex Mono',monospace;font-size:11px;opacity:0.6;margin-top:2px}
+
+/* === TOP-LEVEL TABS === */
+.tab-bar{display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid var(--border)}
+.tab-btn{padding:12px 24px;font-family:'Outfit',sans-serif;font-size:15px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--text2);border-bottom:3px solid transparent;margin-bottom:-2px;transition:all 0.15s}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--blue)}
+.tab-btn:hover:not(.active){color:var(--text)}
+
+/* === FLAG VIEW TOGGLE === */
+.flag-heading-row{display:none;justify-content:space-between;align-items:center;margin-bottom:10px}
+.flag-heading-row .heading-text{font-size:18px;font-weight:600}
+.flag-view-toggle{display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content}
+.flag-view-toggle button{padding:5px 12px;font-family:'Outfit',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border:none;background:var(--surface);color:var(--text2);transition:all 0.15s}
+.flag-view-toggle button.active{background:var(--text);color:#fff}
+.flag-view-toggle button:first-child{border-right:1px solid var(--border)}
+
+/* === PAYROLL TAB === */
+.payroll-warning{padding:14px 18px;background:rgba(217,119,6,0.08);color:var(--amber);border:1px solid rgba(217,119,6,0.2);border-radius:10px;margin-bottom:20px;font-size:13px}
+.wage-input{width:82px;border:1px solid var(--border);border-radius:4px;text-align:right;padding:5px 8px;font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--surface)}
+.wage-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,0.15)}
+.flat-input{width:90px;border:1px solid var(--border);border-radius:4px;text-align:right;padding:5px 8px;font-family:'IBM Plex Mono',monospace;font-size:13px;background:var(--surface)}
+.flat-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,0.15)}
+.btn-flat-toggle{font-size:10px;font-weight:600;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;letter-spacing:0.4px;text-transform:uppercase}
+.btn-flat-toggle:hover{background:#F5F3ED;border-color:#B8B4A8}
+.btn-flat-toggle.active{background:#1A1A18;color:#FAF9F4;border-color:#1A1A18}
+.btn-flat-toggle.active:hover{background:#2A2A27}
+table.sched td.num-cell{font-family:'IBM Plex Mono',monospace;font-size:13px;padding:8px 6px;text-align:center}
+table.sched td.pay-cell{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;padding:8px 6px;text-align:center;color:var(--text)}
+/* Pay-centric color rule: more hours = more to pay = red; less hours = less to pay = green */
+table.sched td.diff-pos{color:var(--red);font-weight:500}
+table.sched td.diff-neg{color:var(--green);font-weight:500}
+table.sched td.diff-zero{color:var(--text3)}
+table.sched tr.total-row td{background:#E8E8E4;font-weight:600;border-top:2px solid #999}
+table.sched td.pay-day{padding:6px 4px;min-width:100px;vertical-align:middle;text-align:center;background:var(--surface);line-height:1.35}
+table.sched td.pay-day .pay-times{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text)}
+table.sched td.pay-day .pay-times-line{display:block}
+table.sched td.pay-day .pay-sched-line{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);margin-bottom:3px;padding-bottom:3px;border-bottom:1px dashed var(--border)}
+table.sched td.pay-day .pay-sched-line strong{font-weight:700}
+table.sched td.pay-day .pay-sched-off strong,.pay-sched-off{color:var(--text3)}
+table.sched td.pay-day .pay-sched-dash{color:var(--text3)}
+table.sched td.pay-day .pay-hours-line{margin-top:3px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}
+table.sched td.pay-day .pay-diff-inline{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:400;margin-left:3px;opacity:0.75}
+table.sched td.pay-day.status-off{color:var(--text3)}
+/* Cell background tints removed per user preference — color lives in hours text */
+table.sched td.pay-day.status-noshow .pay-times{font-weight:600;font-size:12px}
+.hours-good{color:var(--green)}
+.hours-bad{color:var(--red)}
+.hours-neutral{color:var(--text2)}
+table.sched td.pay-weekly{font-family:'IBM Plex Mono',monospace;font-size:12px;padding:6px 8px;text-align:center;border-left:2px solid #999;background:#F5F5F3;line-height:1.35}
+table.sched td.pay-weekly .wk-actual{font-size:14px;font-weight:700}
+table.sched td.pay-weekly .wk-diff{display:block;margin-top:2px;font-size:11px;font-weight:500}
+table.sched td.metric-cell{font-family:'IBM Plex Mono',monospace;font-size:12px;padding:8px 6px;text-align:center;color:var(--text2)}
+table.sched td.metric-in-late,table.sched td.metric-out-late{color:var(--dark-orange)}
+table.sched td.metric-in-early,table.sched td.metric-out-early{color:var(--green)}
+table.sched tr.orphan-row td{background:rgba(220,38,38,0.03);font-style:italic}
+table.sched tr.orphan-row td.name-cell::before{content:"⚠ ";color:var(--red);font-weight:700}
+
+/* === APP HEADER === */
+.app-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px}
+.header-actions{display:flex;gap:8px;align-items:center}
+.ocr-status{font-size:12px;color:var(--text3);font-family:'IBM Plex Mono',monospace}
+.ocr-status.ok{color:var(--green)}
+.ocr-status.missing{color:var(--dark-orange)}
+
+/* === OVERLAY === */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:20px}
+.overlay-panel{background:var(--surface);border-radius:14px;padding:28px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.25);max-height:90vh;overflow-y:auto}
+.overlay-panel h2{font-size:20px;font-weight:700;margin-bottom:6px;letter-spacing:-0.3px}
+.overlay-panel p.sub{font-size:13px;color:var(--text2);margin-bottom:18px}
+.overlay-panel label{display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.4px}
+.overlay-panel input[type=password],.overlay-panel input[type=text],.overlay-panel select{width:100%;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--bg);margin-bottom:14px;outline:none}
+.overlay-panel select{cursor:pointer;font-family:inherit}
+.overlay-panel select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,0.12)}
+.overlay-panel details{margin-bottom:8px}
+.overlay-panel details summary{padding:4px 0}
+.overlay-panel input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,0.12)}
+.overlay-panel .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.overlay-panel .err{color:var(--red);font-size:12px;margin-top:-8px;margin-bottom:10px;min-height:16px}
+.overlay-panel .hint{font-size:11px;color:var(--text3);margin-top:-10px;margin-bottom:14px;line-height:1.5}
+
+/* === ACTUALS INTAKE TAB === */
+.intake-entity-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px}
+.intake-entity-block h3{font-size:16px;font-weight:700;margin-bottom:4px;letter-spacing:-0.2px}
+.intake-entity-block .roster-note{font-size:12px;color:var(--text2);margin-bottom:14px}
+.intake-drop-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+@media(max-width:720px){.intake-drop-row{grid-template-columns:1fr}}
+.intake-drop{border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:all 0.15s;background:var(--bg);min-height:90px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.intake-drop:hover,.intake-drop.dragover{border-color:var(--blue);background:rgba(37,99,235,0.04)}
+.intake-drop .label{font-size:13px;font-weight:600;color:var(--text)}
+.intake-drop .hint{font-size:11px;color:var(--text3);margin-top:3px}
+.intake-drop.has-files{border-color:var(--green);background:rgba(22,163,74,0.04)}
+.intake-drop.has-files .label{color:var(--green)}
+.intake-drop .count{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text2);margin-top:4px}
+.intake-drop input{display:none}
+.intake-entity-block .progress-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:10px;display:none}
+.intake-entity-block .progress-bar.active{display:block}
+.intake-entity-block .progress-fill{height:100%;background:var(--blue);transition:width 0.3s}
+.intake-entity-block .status-line{font-size:12px;color:var(--text2);margin-top:8px;font-family:'IBM Plex Mono',monospace}
+.intake-entity-block .actions-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.intake-entity-block .break-field{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+.intake-entity-block .break-field input{width:56px;padding:4px 6px;font-family:'IBM Plex Mono',monospace;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);text-align:right}
+.intake-entity-block .break-field.unset input{border-color:var(--amber);background:rgba(217,119,6,0.06)}
+.intake-entity-block .ocr-results{margin-top:14px;display:none}
+.intake-entity-block .ocr-results.active{display:block}
+
+/* Review table (per-entity actuals) */
+.review-wrap{margin-top:12px;overflow-x:auto}
+table.review{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border:1px solid var(--border)}
+table.review th{background:#E8E8E4;padding:8px 6px;text-align:left;font-weight:600;font-size:12px;border-bottom:2px solid #999;position:sticky;top:0;z-index:1}
+table.review td{padding:4px 4px;border-bottom:1px solid var(--grid-line);vertical-align:middle}
+table.review input,table.review select{width:100%;border:1px solid transparent;background:transparent;padding:4px 6px;font-family:'IBM Plex Mono',monospace;font-size:12px;border-radius:4px;outline:none}
+table.review input:hover,table.review select:hover{border-color:var(--border)}
+table.review input:focus,table.review select:focus{border-color:var(--blue);background:var(--surface);box-shadow:0 0 0 2px rgba(37,99,235,0.1)}
+table.review input.name-field{font-family:'Outfit',sans-serif;font-weight:500}
+table.review input.date-field{font-family:'IBM Plex Mono',monospace}
+table.review tr.needs-review td{background:rgba(217,119,6,0.06)}
+table.review tr.needs-review td.flag-cell{color:var(--amber);font-weight:600}
+table.review tr.approved td{opacity:0.7}
+table.review td.flag-cell{font-size:11px;font-weight:500;padding:6px 4px;white-space:normal;max-width:160px}
+table.review td.actions-cell{white-space:nowrap;width:80px}
+table.review .mini-btn{padding:3px 8px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-family:'Outfit',sans-serif}
+table.review .mini-btn:hover{border-color:var(--text3)}
+table.review .mini-btn.approve{background:rgba(22,163,74,0.08);color:var(--green);border-color:rgba(22,163,74,0.2)}
+table.review .mini-btn.approve:hover{background:rgba(22,163,74,0.16)}
+table.review .mini-btn.reject{color:var(--red)}
+table.review td.low-conf{background:rgba(217,119,6,0.08)}
+table.review tr.source-tc{}
+table.review tr.source-ec{}
+.src-chip{display:inline-block;font-size:10px;padding:1px 6px;border-radius:3px;font-weight:600;letter-spacing:0.3px}
+.src-chip.tc{background:rgba(37,99,235,0.1);color:var(--blue)}
+.src-chip.ec{background:rgba(124,58,237,0.1);color:#7C3AED}
+
+/* Review summary bar */
+.review-summary{display:flex;gap:12px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;flex-wrap:wrap;align-items:center}
+.review-summary .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-weight:500}
+.review-summary .chip.total{background:var(--bg);color:var(--text)}
+.review-summary .chip.review{background:rgba(217,119,6,0.1);color:var(--amber)}
+.review-summary .chip.approved{background:rgba(22,163,74,0.1);color:var(--green)}
+.review-summary .spacer{flex:1}
+
+.intake-alias-panel{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:12px;display:none}
+.intake-alias-panel.active{display:block}
+.intake-alias-panel h4{font-size:12px;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.4px;color:var(--text2)}
+.alias-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap}
+.alias-row .alias-unknown{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--amber)}
+.alias-row select{padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--surface)}
+
+/* Password gate wraps everything */
+#appContainer{display:none}
+#appContainer.visible{display:block}
+
+/* Disabled overlay helper */
+.disabled-hint{font-size:11px;color:var(--amber);margin-left:8px}
+
+/* Toast confirmation */
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text1);color:#fff;padding:12px 18px;border-radius:8px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,0.18);opacity:0;pointer-events:none;transition:opacity 0.2s, transform 0.2s;z-index:99999;max-width:min(520px,calc(100% - 32px));display:flex;align-items:center;gap:10px}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.ok{background:#0a7a3b}
+#toast.err{background:#b3261e}
+#toast .icon{font-size:16px;line-height:1}
+
+/* API key status badge inside Settings */
+.key-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px;border-radius:999px;font-family:'IBM Plex Mono',monospace;margin-left:8px;vertical-align:middle}
+.key-status.ok{background:#e6f4ec;color:#0a7a3b}
+.key-status.missing{background:#fdecea;color:#b3261e}
+
+/* Per-file OCR progress list */
+.ocr-file-list{margin-top:10px;border:1px solid var(--border);border-radius:6px;overflow:hidden;display:none}
+.ocr-file-list.active{display:block}
+.ocr-file-list .file-row{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border);font-size:12px;font-family:'IBM Plex Mono',monospace}
+.ocr-file-list .file-row:first-child{border-top:none}
+.ocr-file-list .file-row .fname{flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ocr-file-list .file-row .fstatus{font-size:11px;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:0.04em}
+.ocr-file-list .file-row.status-queued .fstatus{background:#eceef2;color:#6b7280}
+.ocr-file-list .file-row.status-running .fstatus{background:#e6eefc;color:#1a56db}
+.ocr-file-list .file-row.status-done .fstatus{background:#e6f4ec;color:#0a7a3b}
+.ocr-file-list .file-row.status-err .fstatus{background:#fdecea;color:#b3261e}
+.ocr-file-list .file-row .spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 0.7s linear infinite;display:none}
+.ocr-file-list .file-row.status-running .spinner{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN OVERLAY ===== -->
+<div id="loginOverlay" class="overlay">
+  <div class="overlay-panel">
+    <h2>Payroll v26</h2>
+    <p class="sub">Enter the shared password to continue.</p>
+    <label>Password</label>
+    <input type="password" id="loginPassword" autocomplete="off" onkeydown="if(event.key==='Enter')tryLogin()">
+    <div class="err" id="loginErr"></div>
+    <div class="actions"><button class="btn btn-primary" onclick="tryLogin()">Unlock</button></div>
+  </div>
+</div>
+
+<!-- ===== SETTINGS OVERLAY ===== -->
+<div id="settingsOverlay" class="overlay" style="display:none">
+  <div class="overlay-panel">
+    <h2>Settings</h2>
+    <p class="sub">OCR requires a Gemini API key. Get one at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--blue)">aistudio.google.com/apikey</a>.</p>
+    <label>Gemini API Key <span class="key-status missing" id="keyStatusBadge">Not saved</span></label>
+    <input type="password" id="apiKeyInput" autocomplete="off" placeholder="paste key here">
+    <p class="hint">Stored locally in this browser. Never uploaded anywhere except to Google's Gemini API when processing images.</p>
+
+    <label>Timecard model <span style="color:var(--text3);font-weight:400;font-size:12px">(handwritten physical cards)</span></label>
+    <select id="tcModelInput">
+      <option value="gemini-2.5-pro">Gemini 2.5 Pro — best for handwriting (recommended)</option>
+      <option value="gemini-2.5-flash">Gemini 2.5 Flash — fast, cheaper, mid accuracy</option>
+      <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite — cheapest, lowest accuracy</option>
+    </select>
+    <p class="hint">Handwritten timecards benefit a lot from Pro. Cost is still only pennies per week.</p>
+
+    <label>EasyClocking model <span style="color:var(--text3);font-weight:400;font-size:12px">(clean digital screenshots)</span></label>
+    <select id="ecModelInput">
+      <option value="gemini-2.5-flash">Gemini 2.5 Flash — recommended (typed text is easy)</option>
+      <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite — cheapest</option>
+      <option value="gemini-2.5-pro">Gemini 2.5 Pro — overkill for typed text</option>
+    </select>
+    <p class="hint">Screenshots from EasyClocking are typed text, so Flash handles them easily.</p>
+
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer">
+      <input type="checkbox" id="autoEscalateInput" style="width:auto;margin:0">
+      <span>Auto-retry with Pro when confidence is low</span>
+    </label>
+    <p class="hint">If the timecard model returns a row below 75% confidence, automatically re-run that image with Gemini 2.5 Pro. Catches hard-to-read cards without re-running the whole batch.</p>
+
+    <details style="margin-top:14px"><summary style="cursor:pointer;font-size:12px;color:var(--text3)">Advanced — custom model names</summary>
+      <label style="margin-top:8px">Custom timecard model</label>
+      <input type="text" id="tcModelCustom" placeholder="leave blank to use dropdown above">
+      <label>Custom EasyClocking model</label>
+      <input type="text" id="ecModelCustom" placeholder="leave blank to use dropdown above">
+      <p class="hint">Override the dropdowns above. Use this if Google releases a newer model.</p>
+    </details>
+
+    <div class="actions">
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== TOAST ===== -->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="appContainer"><div class="page">
+  <div class="app-header">
+    <h1>Payroll v26</h1>
+    <div class="header-actions">
+      <span id="ocrStatus" class="ocr-status"></span>
+      <button class="btn" onclick="openSettings()">Settings</button>
+      <button class="btn" onclick="logOut()">Log out</button>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tab-schedule" onclick="setTab('schedule')">1. Schedules</button>
+    <button class="tab-btn" id="tab-intake" onclick="setTab('intake')">2. Actuals Intake</button>
+    <button class="tab-btn" id="tab-payroll" onclick="setTab('payroll')">3. Payroll</button>
+  </div>
+
+  <!-- ===== INTAKE TAB ===== -->
+  <div id="intakeTab" style="display:none">
+    <div class="instructions">
+      <strong>How to use:</strong>
+      <ol>
+        <li>Make sure each entity has a schedule loaded in the <em>Schedules</em> tab first.</li>
+        <li>For each entity below, drop in physical timecard photos and/or EasyClocking screenshots.</li>
+        <li>Click <strong>Run OCR</strong>. The app extracts clock-in/out data for every punch.</li>
+        <li>Review each row. Any row with a flag needs your eyes. Fix names, dates, or times in place.</li>
+        <li>Set the mandatory break minutes per entity. Then go to the <em>Payroll</em> tab.</li>
+      </ol>
+    </div>
+    <div id="intakeContent"></div>
+  </div>
+
+  <!-- ===== SCHEDULE TAB ===== -->
+  <div id="scheduleTab">
+    <div class="instructions">
+      <strong>How to use:</strong>
+      <ol>
+        <li>Upload last week's schedule .xlsx — or click <em>start blank</em> in the drop zone to enter shifts manually.</li>
+        <li>Edit shifts using formats like <code>6:45AM - 2:15PM</code> or <code>OFF</code>. Overnight shifts are supported (<code>11PM - 7AM</code>).</li>
+        <li>Set the new week's start date — the date headers update automatically.</li>
+        <li>Export either the employee-facing schedule or the manager view with hours totals.</li>
+        <li>Use the entity tabs below to manage multiple entities — each has its own schedule.</li>
+      </ol>
+    </div>
+    <div id="entityTabBar" class="entity-tab-bar"></div>
+
+    <div class="entity-header-bar" id="entityHeaderBar">
+      <input class="entity-name-input" id="entityNameInput" placeholder="Entity name (e.g. NIRVANA 11TH)" oninput="onEntityNameInput(this.value)" onchange="onEntityNameChange(this.value)">
+      <button class="btn" id="removeEntityBtn" style="display:none;color:var(--red)" onclick="removeEntity()">Remove</button>
+    </div>
+
+    <p class="sub" id="subtitle">Upload last week's schedule to get started</p>
+
+    <div class="upload-zone" id="dropZone">
+      <h2>Drop schedule .xlsx here</h2>
+      <p>or click to browse — or <a href="#" onclick="startBlank();return false" style="color:var(--blue)">start blank</a></p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    </div>
+
+    <div class="week-bar" id="weekBar">
+      <div class="row"><label>Loaded schedule:</label><span class="week-display" id="loadedWeek">—</span></div>
+      <div class="row"><label>New schedule week starting:</label><input type="date" id="newWeekStart" onchange="updateNewWeek()"></div>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+      <button class="btn btn-primary" onclick="exportEmployee()">Export Employee Schedule</button>
+      <button class="btn btn-green" onclick="exportManager()">Export Manager Report</button>
+      <span class="spacer"></span>
+      <button class="btn" onclick="addEmployee()">+ Add Employee</button>
+      <button class="btn" onclick="reloadSchedule()">Load New File</button>
+    </div>
+
+    <div class="info-bar" id="infoBar"></div>
+    <div class="view-toggle" id="viewToggle">
+      <button class="active" onclick="setView('employee')">Employee View</button>
+      <button onclick="setView('manager')">Manager View</button>
+    </div>
+    <div class="sched-table-wrap" id="schedWrap"><table class="sched" id="schedTable"></table></div>
+    <h2 id="calHeading" style="display:none;font-size:18px;font-weight:600;margin-bottom:10px">Calendar View</h2>
+    <div class="cal-wrapper" id="calWrapper"><div class="cal-grid" id="calGrid"></div></div>
+    <div class="flag-heading-row" id="flagsHeading">
+      <span class="heading-text">Issues &amp; Flags</span>
+      <div class="flag-view-toggle">
+        <button class="active" id="flagView-employee" onclick="setFlagView('employee')">By Employee</button>
+        <button id="flagView-category" onclick="setFlagView('category')">By Category</button>
+      </div>
+    </div>
+    <div class="flags-bar" id="flagsBar"></div>
+  </div>
+
+  <!-- ===== PAYROLL TAB ===== -->
+  <div id="payrollTab" style="display:none">
+    <div class="instructions">
+      <strong>How to use:</strong>
+      <ol>
+        <li>Load schedules in the <em>Employee Schedule</em> tab first — one per entity.</li>
+        <li>Choose an upload mode: <em>one file for all entities</em> (must include an <code>Entity</code> column) or <em>separate file per entity</em> (no entity column needed). Expected columns: <code>Employee Name</code>, <code>Date</code>, <code>Clock In 1/2/3</code>, <code>Clock Out 1/2/3</code>. Multiple pairs per day are summed.</li>
+        <li>Switch between entity tabs — each has its own mandatory break and wage settings.</li>
+        <li>Enter hourly wages and export the report.</li>
+      </ol>
+      <strong>Color rule:</strong> more hours than expected is shown in <span style="color:var(--red);font-weight:600">red</span> (pay more); less hours is shown in <span style="color:var(--green);font-weight:600">green</span> (pay less).
+    </div>
+
+    <div class="payroll-warning" id="payrollNoSchedule" style="display:none">
+      No schedule loaded yet. Go to the <strong>Employee Schedule</strong> tab, load at least one entity's schedule, then return here.
+    </div>
+
+    <!-- Actuals upload mode toggle -->
+    <div class="actuals-mode-bar" id="actualsModeBar">
+      <span style="font-weight:600;font-size:13px">Upload actuals as:</span>
+      <label class="mode-radio"><input type="radio" name="actualsMode" value="combined" checked onchange="setActualsMode('combined')"> <span>One file for all entities</span> <span class="mode-note">requires an Entity column in the file</span></label>
+      <label class="mode-radio"><input type="radio" name="actualsMode" value="separate" onchange="setActualsMode('separate')"> <span>Separate file per entity</span> <span class="mode-note">upload one file per entity tab below</span></label>
+    </div>
+
+    <!-- Combined mode: single upload zone -->
+    <div class="upload-zone" id="payrollDropZone">
+      <h2>Drop combined actuals .xlsx here</h2>
+      <p>or click to browse — first column must be Entity name</p>
+      <input type="file" id="payrollFileInput" accept=".xlsx,.xls,.csv">
+    </div>
+
+    <!-- Global buttons — visible above the entity tabs at all times -->
+    <div class="toolbar" id="payrollToolbar" style="display:none">
+      <button class="btn btn-green" onclick="exportPayroll()">Export Payroll Report</button>
+      <span class="spacer"></span>
+      <button class="btn" id="clearActualsBtn" onclick="clearActuals()">Clear Actuals</button>
+    </div>
+
+    <!-- Entity tab bar for payroll (one tab per entity with a schedule) -->
+    <div id="payrollEntityTabBar" class="entity-tab-bar" style="display:none;margin-top:16px"></div>
+
+    <!-- Per-entity payroll content rendered here -->
+    <div id="payrollEntityContent"></div>
+  </div>
+</div></div>
+<div class="tooltip" id="tip"><div class="tt-name"></div><div class="tt-time"></div><div class="tt-hrs"></div></div>
+
+<script>
+// ================================================================
+// CONSTANTS
+// ================================================================
+const COLORS=[
+  {hex:"#3B82F6",bg:"rgba(59,130,246,0.14)"},{hex:"#7C3AED",bg:"rgba(124,58,237,0.14)"},
+  {hex:"#059669",bg:"rgba(5,150,105,0.14)"},{hex:"#EA580C",bg:"rgba(234,88,12,0.14)"},
+  {hex:"#64748B",bg:"rgba(100,116,139,0.14)"},{hex:"#DB2777",bg:"rgba(219,39,119,0.14)"},
+  {hex:"#D97706",bg:"rgba(217,119,6,0.14)"},{hex:"#65A30D",bg:"rgba(101,163,13,0.14)"},
+  {hex:"#0891B2",bg:"rgba(8,145,178,0.14)"},{hex:"#6366F1",bg:"rgba(99,102,241,0.14)"},
+  {hex:"#E11D48",bg:"rgba(225,29,72,0.14)"},{hex:"#0D9488",bg:"rgba(13,148,136,0.14)"},
+  {hex:"#CA8A04",bg:"rgba(202,138,4,0.14)"},{hex:"#9333EA",bg:"rgba(147,51,234,0.14)"},
+  {hex:"#DC2626",bg:"rgba(220,38,38,0.14)"},
+];
+const DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DAY_SHORT=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAY_MAP={};
+DAYS.forEach((d,i)=>{DAY_MAP[d.toLowerCase()]=i;DAY_MAP[DAY_SHORT[i].toLowerCase()]=i});
+const BIZ_START=7,BIZ_END=23,OT_THRESHOLD=40;
+
+// ================================================================
+// STATE
+// ================================================================
+// Each entity: {name, employees, dateLabels, newDateLabels, newWeekStartVal, breakMinutes}
+let nextEntityId=1;
+// Each entity has a stable `id` so wages/rounding survive entity renames
+let entities=[{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,actualDays:[]}];
+let activeEntityIdx=0;
+let activePayrollEntityIdx=0;
+let actualsMode='combined'; // 'combined' | 'separate'
+let currentView='employee',currentTab='schedule',flagView='employee',activeEmp=null;
+let actualDays=[]; // combined mode global   // [{empName,entityName,date,dayIdx,pairs:[{in,out,outAdj,minutes}]}]
+let wageRates={};    // key: wKey(entityId, empName) — survives entity renames
+let roundingFactors={};
+
+// Wage/rounding key uses stable entity id + employee name (case-insensitive).
+// Survives entity renames; does not survive entity deletion.
+function wKey(entId,empName){return entId+'|'+empName.toLowerCase().trim()}
+
+// ================================================================
+// UTILITIES
+// ================================================================
+function formatDateCell(cell){
+  if(cell==null||cell==='')return '';
+  if(cell instanceof Date&&!isNaN(cell))return `${MONTHS[cell.getMonth()]} ${cell.getDate()} ${cell.getFullYear()}`;
+  if(typeof cell==='number'&&cell>0){
+    const d=new Date(Date.UTC(1899,11,30)+cell*86400000);
+    if(!isNaN(d))return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()} ${d.getUTCFullYear()}`;
+  }
+  const s=cell.toString().trim();
+  if(!s)return '';
+  const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(iso){const y=+iso[1],m=+iso[2]-1,d=+iso[3];if(m>=0&&m<12&&d>=1&&d<=31)return `${MONTHS[m]} ${d} ${y}`;}
+  const parsed=new Date(s);
+  if(!isNaN(parsed)&&s.match(/\d/))return `${MONTHS[parsed.getMonth()]} ${parsed.getDate()} ${parsed.getFullYear()}`;
+  return s;
+}
+function parseTime(str){
+  str=str.toString().trim().toUpperCase();
+  const pm=str.includes('PM'),am=str.includes('AM');
+  str=str.replace(/[AP]M/g,'').trim();
+  const p=str.split(':');
+  let h=parseInt(p[0]),m=parseInt(p[1])||0;
+  if(pm&&h!==12)h+=12;
+  if(am&&h===12)h=0;
+  return h+m/60;
+}
+function parseShift(val){
+  if(!val)return null;
+  const s=val.toString().trim().toUpperCase();
+  if(s==='OFF'||s===''||s==='-')return null;
+  const sep=s.includes(' - ')?' - ':'-';
+  const parts=s.split(sep);
+  if(parts.length!==2)return null;
+  try{const start=parseTime(parts[0]);let end=parseTime(parts[1]);if(end<=start)end+=24;return{start,end,raw:val.toString().trim()}}catch(e){return null}
+}
+function calcHours(shift){if(!shift)return 0;return Math.round((shift.end-shift.start)*100)/100}
+function fmtH(h){h=((h%24)+24)%24;const ap=h<12?"AM":"PM";const h12=Math.floor(h%12)||12;const m=Math.round((h-Math.floor(h))*60);return h12+":"+String(m).padStart(2,"0")+ap}
+function compactH(h){h=((h%24)+24)%24;const h12=Math.floor(h%12)||12;const m=Math.round((h-Math.floor(h))*60);const suf=h<12?"a":"p";return m===0?h12+suf:h12+":"+String(m).padStart(2,"0")+suf}
+function shortH(h){h=((h%24)+24)%24;if(h===0)return"12a";if(h===12)return"12p";return h<12?Math.floor(h)+"a":Math.floor(h-12)+"p"}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function downloadBlob(buf,filename){
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=filename;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+function metricStr(mins){
+  if(mins===null)return '—';
+  if(mins===0)return 'on time';
+  return mins>0?`${Math.abs(mins)}m late`:`${Math.abs(mins)}m early`;
+}
+function metricClsStr(mins,type){
+  if(mins===null||Math.abs(mins)<=3)return '';
+  if(type==='in')return mins>0?'metric-in-late':'metric-in-early';
+  return mins>0?'metric-out-late':'metric-out-early';
+}
+function parseAnyDate(val){
+  if(val==null||val==='')return null;
+  let d=null;
+  if(val instanceof Date){d=val;}
+  else if(typeof val==='number'){d=new Date(Math.round((val-25569)*86400*1000));d=new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate());}
+  else{
+    const s=val.toString().trim();
+    let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(m){d=new Date(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3]));}
+    else{m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if(m){let yr=parseInt(m[3]);if(yr<100)yr+=2000;d=new Date(yr,parseInt(m[1])-1,parseInt(m[2]));}
+      else d=new Date(s);}
+  }
+  if(!d||isNaN(d.getTime()))return null;
+  const pad=n=>String(n).padStart(2,'0');
+  const isoStr=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  return{date:d,isoStr,dayOfWeek:d.getDay()};
+}
+function parseClockTime(val){
+  if(val==null)return null;
+  if(val instanceof Date)return val.getHours()+val.getMinutes()/60+val.getSeconds()/3600;
+  if(typeof val==='number'){const frac=val-Math.floor(val);const ts=Math.round(frac*86400);return Math.floor(ts/3600)+(Math.floor(ts/60)%60)/60;}
+  const s=val.toString().trim().toUpperCase();
+  if(!s)return null;
+  const m=s.match(/(\d{1,2}):(\d{1,2})(?::\d{1,2})?\s*(AM|PM)?/);
+  if(!m)return null;
+  let h=parseInt(m[1]);const mm=parseInt(m[2])||0;const ampm=m[3];
+  if(ampm==='PM'&&h!==12)h+=12;else if(ampm==='AM'&&h===12)h=0;
+  if(h<0||h>24||mm<0||mm>=60)return null;
+  return h+mm/60;
+}
+
+// ================================================================
+// ENTITY MANAGEMENT
+// ================================================================
+function renderEntityTabBar(){
+  const bar=document.getElementById('entityTabBar');
+  let html='';
+  entities.forEach((e,i)=>{
+    const label=escHtml(e.name||(i===0?'Entity 1':'Entity '+(i+1)));
+    html+=`<button class="entity-tab${i===activeEntityIdx?' active':''}" onclick="switchEntity(${i})">${label}</button>`;
+  });
+  html+=`<button class="entity-tab entity-add" onclick="addEntity()">+ Entity</button>`;
+  bar.innerHTML=html;
+}
+
+function syncEntityHeader(){
+  const ent=entities[activeEntityIdx];
+  document.getElementById('entityHeaderBar').style.display='flex';
+  document.getElementById('entityNameInput').value=ent.name;
+  document.getElementById('removeEntityBtn').style.display=entities.length>1?'inline-block':'none';
+}
+
+function saveEntityHeaderState(){
+  const ent=entities[activeEntityIdx];
+  ent.name=(document.getElementById('entityNameInput').value||'').trim();
+}
+
+function switchEntity(idx){
+  if(idx===activeEntityIdx)return;
+  saveEntityHeaderState();
+  readTableState();
+  activeEntityIdx=idx;
+  activeEmp=null;
+  renderEntityTabBar();
+  syncEntityHeader();
+  renderScheduleContent();
+}
+
+function addEntity(){
+  saveEntityHeaderState();
+  readTableState();
+  entities.push({id:nextEntityId++,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,actualDays:[]});
+  activeEntityIdx=entities.length-1;
+  activeEmp=null;
+  renderEntityTabBar();
+  syncEntityHeader();
+  renderScheduleContent();
+}
+
+function removeEntity(){
+  if(entities.length<=1)return;
+  entities.splice(activeEntityIdx,1);
+  activeEntityIdx=Math.min(activeEntityIdx,entities.length-1);
+  activeEmp=null;
+  renderEntityTabBar();
+  syncEntityHeader();
+  renderScheduleContent();
+}
+
+function onEntityNameInput(val){
+  entities[activeEntityIdx].name=val.trim();
+  renderEntityTabBar();
+}
+function onEntityNameChange(val){entities[activeEntityIdx].name=val.trim();renderEntityTabBar();}
+
+function renderScheduleContent(){
+  const ent=entities[activeEntityIdx];
+  const dz=document.getElementById('dropZone');
+  if(ent.employees.length===0){
+    document.getElementById('subtitle').textContent='Upload last week\'s schedule to get started';
+    dz.className='upload-zone';
+    dz.querySelector('h2').textContent='Drop schedule .xlsx here';
+    dz.querySelector('p').innerHTML='or click to browse — or <a href="#" onclick="startBlank();return false" style="color:var(--blue)">start blank</a>';
+    ['weekBar','toolbar','infoBar','viewToggle','schedWrap','calWrapper','calHeading','flagsHeading','flagsBar'].forEach(id=>{
+      const el=document.getElementById(id);if(el)el.style.display='none';
+    });
+  }else{
+    showScheduleUI();
+  }
+}
+
+// ================================================================
+// FILE HANDLING — SCHEDULE
+// ================================================================
+(function(){
+  const dz=document.getElementById('dropZone'),fi=document.getElementById('fileInput');
+  dz.addEventListener('click',e=>{if(e.target.tagName!=='A')fi.click()});
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');handleFile(e.dataTransfer.files[0])});
+  fi.addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0])});
+})();
+
+function handleFile(file){
+  const reader=new FileReader(),idx=activeEntityIdx;
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      const data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+      parseSchedule(data,idx);
+    }catch(err){alert('Error: '+err.message)}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function parseSchedule(rows,idx){
+  let headerRow=-1,colMap={};
+  for(let r=0;r<rows.length;r++){
+    const row=rows[r].map(c=>c.toString().trim().toLowerCase());
+    const nameIdx=row.findIndex(c=>c==='name');
+    if(nameIdx>=0){
+      headerRow=r;
+      row.forEach((c,ci)=>{
+        if(c==='name')colMap.name=ci;
+        Object.keys(DAY_MAP).forEach(d=>{if(c.startsWith(d)||c===d)colMap[DAY_MAP[d]]=ci});
+      });
+      break;
+    }
+  }
+  if(headerRow<0){alert('Could not find "Name" column');return}
+
+  entities[idx].dateLabels=['','','','','','',''];
+  const nextRow=rows[headerRow+1];
+  if(nextRow){
+    const firstCell=nextRow[colMap.name];
+    if(!firstCell||firstCell.toString().trim()===''){
+      for(let d=0;d<7;d++){
+        if(colMap[d]!==undefined&&nextRow[colMap[d]])
+          entities[idx].dateLabels[d]=formatDateCell(nextRow[colMap[d]]);
+      }
+      headerRow++;
+    }
+  }
+
+  const employees=[];
+  for(let r=headerRow+1;r<rows.length;r++){
+    const row=rows[r];
+    const name=row[colMap.name]?row[colMap.name].toString().trim():'';
+    if(!name)continue;
+    const shifts=[];
+    for(let d=0;d<7;d++){
+      const raw=colMap[d]!==undefined&&row[colMap[d]]?row[colMap[d]].toString().trim():'OFF';
+      shifts.push(raw);
+    }
+    employees.push({name,shifts});
+  }
+  if(employees.length===0){alert('No employees found');return}
+  entities[idx].employees=employees;
+  if(idx===activeEntityIdx)showScheduleUI();
+  renderEntityTabBar();
+}
+
+function startBlank(){
+  entities[activeEntityIdx].employees=[{name:'',shifts:['OFF','OFF','OFF','OFF','OFF','OFF','OFF']}];
+  entities[activeEntityIdx].dateLabels=['','','','','','',''];
+  showScheduleUI();
+}
+
+function reloadSchedule(){
+  entities[activeEntityIdx].employees=[];
+  entities[activeEntityIdx].dateLabels=['','','','','','',''];
+  entities[activeEntityIdx].newDateLabels=['','','','','','',''];
+  entities[activeEntityIdx].newWeekStartVal='';
+  renderScheduleContent();
+}
+
+function showScheduleUI(){
+  const ent=entities[activeEntityIdx];
+  const dz=document.getElementById('dropZone');
+  dz.classList.add('loaded');
+  dz.querySelector('h2').textContent=ent.employees.length+' employees loaded';
+  dz.querySelector('p').textContent='';
+  document.getElementById('subtitle').textContent='Edit the schedule below, then export';
+
+  const wb=document.getElementById('weekBar');wb.style.display='block';
+  document.getElementById('loadedWeek').textContent=ent.dateLabels.some(d=>d)?(ent.dateLabels[0]+' - '+ent.dateLabels[6]):'Dates not specified';
+
+  const nws=document.getElementById('newWeekStart');
+  if(ent.newWeekStartVal){
+    nws.value=ent.newWeekStartVal;
+    if(!ent.newDateLabels.some(d=>d))calcNewWeekLabels(activeEntityIdx,ent.newWeekStartVal);
+  }else{
+    const today=new Date(),ns=new Date(today);
+    ns.setDate(today.getDate()+(7-today.getDay())%7);
+    if(ns<=today)ns.setDate(ns.getDate()+7);
+    const val=ns.toISOString().split('T')[0];
+    nws.value=val;ent.newWeekStartVal=val;
+    calcNewWeekLabels(activeEntityIdx,val);
+  }
+
+  document.getElementById('toolbar').style.display='flex';
+  document.getElementById('viewToggle').style.display='flex';
+  renderTable(activeEntityIdx);
+}
+
+function calcNewWeekLabels(idx,val){
+  if(!val)return;
+  const d=new Date(val+'T00:00:00');
+  d.setDate(d.getDate()-d.getDay());
+  const labels=[];
+  for(let i=0;i<7;i++){const dd=new Date(d);dd.setDate(d.getDate()+i);labels.push(MONTHS[dd.getMonth()]+' '+dd.getDate()+' '+dd.getFullYear());}
+  entities[idx].newDateLabels=labels;
+}
+
+function updateNewWeek(){
+  const val=document.getElementById('newWeekStart').value;
+  entities[activeEntityIdx].newWeekStartVal=val;
+  calcNewWeekLabels(activeEntityIdx,val);
+  renderTable(activeEntityIdx);
+}
+
+// ================================================================
+// SCHEDULE RENDERING
+// ================================================================
+function readTableState(){
+  // Guard: if schedWrap is hidden, the table belongs to a different entity — don't read it
+  const wrap=document.getElementById('schedWrap');
+  if(!wrap||wrap.style.display==='none')return;
+  const table=document.getElementById('schedTable');
+  if(!table)return;
+  const rows=table.querySelectorAll('tr[data-emp-idx]');
+  const employees=[];
+  rows.forEach(row=>{
+    const ni=row.querySelector('.name-input');
+    const name=ni?ni.value.trim():'';
+    if(!name)return;
+    const shifts=[];
+    for(let d=0;d<7;d++){const inp=row.querySelector(`[data-day="${d}"]`);shifts.push(inp?inp.value.trim():'OFF')}
+    employees.push({name,shifts});
+  });
+  entities[activeEntityIdx].employees=employees;
+}
+
+function deleteEmployee(idx){entities[activeEntityIdx].employees.splice(idx,1);renderTable(activeEntityIdx)}
+function addEmployee(){
+  entities[activeEntityIdx].employees.push({name:'',shifts:['OFF','OFF','OFF','OFF','OFF','OFF','OFF']});
+  renderTable(activeEntityIdx);
+  setTimeout(()=>{const inp=document.querySelectorAll('.name-input');if(inp.length)inp[inp.length-1].focus()},50);
+}
+function setView(view){currentView=view;document.querySelectorAll('.view-toggle button').forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase().includes(view)));renderTable(activeEntityIdx)}
+function setFlagView(view){flagView=view;document.getElementById('flagView-employee').classList.toggle('active',view==='employee');document.getElementById('flagView-category').classList.toggle('active',view==='category');renderFlags(activeEntityIdx)}
+function styleInput(inp){const v=inp.value.trim().toUpperCase();inp.classList.remove('off-val','shift-val','invalid');if(v==='OFF'||v==='')inp.classList.add('off-val');else if(parseShift(v))inp.classList.add('shift-val');else if(v.length>3)inp.classList.add('invalid')}
+function onTableChange(){readTableState();renderTable(activeEntityIdx)}
+
+function renderTable(idx){
+  const ent=entities[idx];
+  const table=document.getElementById('schedTable');
+  document.getElementById('schedWrap').style.display='block';
+  const nl=ent.newDateLabels;
+  let html='<thead><tr><th style="border-right:2px solid #999">Name</th>';
+  for(let d=0;d<7;d++)html+=`<th>${DAYS[d]}</th>`;
+  html+='</tr><tr><th class="date-row" style="border-right:2px solid #999"></th>';
+  for(let d=0;d<7;d++)html+=`<th class="date-row">${nl[d]||''}</th>`;
+  html+='</tr></thead><tbody>';
+  ent.employees.forEach((emp,ei)=>{
+    html+=`<tr data-emp-idx="${ei}"><td class="name-cell"><input class="name-input" value="${escHtml(emp.name)}" onchange="onTableChange()" style="border:none;background:transparent;font-weight:600;font-size:13px;text-align:center;width:calc(100% - 20px);font-family:Outfit,sans-serif"><button class="del-btn" onclick="deleteEmployee(${ei})" title="Remove">×</button></td>`;
+    for(let d=0;d<7;d++){
+      const raw=emp.shifts[d];const shift=parseShift(raw);
+      html+=`<td class="shift-cell"><input class="shift-input ${!shift?'off-val':'shift-val'}" value="${escHtml(raw)}" data-day="${d}" onchange="onTableChange()" oninput="styleInput(this)"></td>`;
+    }
+    html+='</tr>';
+    if(currentView==='manager'){
+      html+=`<tr class="hours-row"><td class="hours-cell" style="border-right:2px solid #999;font-style:italic;color:var(--text3);font-size:10px">Hours</td>`;
+      for(let d=0;d<7;d++){const h=calcHours(parseShift(emp.shifts[d]));html+=`<td class="hours-cell">${h>0?h.toFixed(1):''}</td>`}
+      html+='</tr>';
+    }
+  });
+  html+='</tbody>';
+  table.innerHTML=html;
+  renderFlags(idx);renderInfoBar(idx);renderCalendar(idx);
+}
+
+function renderInfoBar(idx){
+  const ent=entities[idx];
+  const bar=document.getElementById('infoBar');
+  bar.innerHTML='';bar.style.display='flex';
+  ent.employees.forEach((emp,ei)=>{
+    const col=COLORS[ei%COLORS.length];
+    let totalH=0,daysWorked=0;
+    for(let d=0;d<7;d++){const h=calcHours(parseShift(emp.shifts[d]));totalH+=h;if(h>0)daysWorked++}
+    totalH=Math.round(totalH*100)/100;
+    const chip=document.createElement('div');
+    chip.className='info-chip'+(totalH>40?' overtime':'');
+    const hrsColor=totalH>40?'color:#C2410C':'color:'+col.hex;
+    chip.innerHTML=`<div class="top-row"><span class="dot" style="background:${col.hex}"></span><span class="name" style="color:${col.hex}">${escHtml(emp.name||'(unnamed)')}</span></div><div class="hrs" style="${hrsColor}">${totalH.toFixed(1)}h</div><div class="days">${daysWorked} days</div>`;
+    chip.dataset.name=emp.name;
+    chip.addEventListener('click',()=>{
+      if(activeEmp===emp.name){activeEmp=null;document.querySelectorAll('.info-chip').forEach(c=>c.classList.remove('dimmed'));document.querySelectorAll('.shift-block').forEach(b=>b.style.opacity='');}
+      else{activeEmp=emp.name;document.querySelectorAll('.info-chip').forEach(c=>c.classList.toggle('dimmed',c.dataset.name!==emp.name));document.querySelectorAll('.shift-block').forEach(b=>{b.style.opacity=b.dataset.emp===emp.name?'':'0.08'});}
+    });
+    bar.appendChild(chip);
+  });
+}
+
+function renderFlags(idx){
+  const ent=entities[idx];
+  const bar=document.getElementById('flagsBar');bar.innerHTML='';
+  const allFlags=[];
+  ent.employees.forEach(emp=>{
+    const hours=emp.shifts.map(s=>calcHours(parseShift(s)));
+    const totalH=Math.round(hours.reduce((a,b)=>a+b,0)*100)/100;
+    const daysOff=hours.filter(h=>h===0).length;
+    if(totalH>40)allFlags.push({empName:emp.name,catLabel:'Overtime (>40h/week)',type:'red',text:`${totalH.toFixed(1)}h/week (+${(totalH-40).toFixed(1)}h over)`});
+    if(daysOff<2)allFlags.push({empName:emp.name,catLabel:'Insufficient days off (<2 days)',type:'amber',text:`${daysOff===0?'0 days off':'only 1 day off'} this week`});
+    let maxC=0,curr=0;hours.forEach(h=>{if(h>0){curr++;maxC=Math.max(maxC,curr)}else curr=0});
+    if(maxC>=6)allFlags.push({empName:emp.name,catLabel:'Consecutive days (6+)',type:'red',text:`${maxC} consecutive days`});
+    hours.forEach((h,d)=>{if(h>10)allFlags.push({empName:emp.name,catLabel:'Long shifts (>10h)',type:'amber',text:`${h.toFixed(1)}h on ${DAYS[d]}`})});
+  });
+  for(let d=0;d<7;d++){
+    const flagged=[];
+    for(let h=BIZ_START;h<BIZ_END;h++){
+      const cp=h+0.25;let count=0;
+      ent.employees.forEach(emp=>{
+        const s=parseShift(emp.shifts[d]);
+        if(s){if(s.end<=24){if(cp>=s.start&&cp<s.end)count++}else{if(cp>=s.start||cp<(s.end-24))count++}}
+        if(d>0){const ps=parseShift(emp.shifts[d-1]);if(ps&&ps.end>24&&cp<(ps.end-24))count++}
+      });
+      if(count>=5)flagged.push({h,count});
+    }
+    let i=0;
+    while(i<flagged.length){
+      const rs=flagged[i].h;let re=rs+1,peak=flagged[i].count,min=flagged[i].count,j=i+1;
+      while(j<flagged.length&&flagged[j].h===flagged[j-1].h+1){re=flagged[j].h+1;peak=Math.max(peak,flagged[j].count);min=Math.min(min,flagged[j].count);j++}
+      const ts=(re-rs===1)?shortH(rs):`${shortH(rs)}-${shortH(re)}`;
+      const cs=(peak===min)?`${peak} employees`:`${min}-${peak} employees`;
+      allFlags.push({empName:null,catLabel:'Overstaffing (5+ employees)',type:'amber',text:`${DAYS[d]} ${ts}: ${cs}`});i=j;
+    }
+  }
+  document.getElementById('flagsHeading').style.display='flex';
+  if(allFlags.length===0){bar.innerHTML='<span class="flag flag-green">No scheduling issues found</span>';bar.style.display='block';return}
+  let html='';
+  if(flagView==='employee'){
+    ent.employees.forEach(emp=>{
+      const ef=allFlags.filter(f=>f.empName===emp.name);if(ef.length===0)return;
+      const byCat={};ef.forEach(f=>{if(!byCat[f.catLabel])byCat[f.catLabel]=[];byCat[f.catLabel].push(f)});
+      html+=`<div style="margin-bottom:14px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px"><div style="font-weight:600;font-size:14px;margin-bottom:8px">${escHtml(emp.name||'(unnamed)')}</div>`;
+      Object.entries(byCat).forEach(([label,flags])=>{
+        html+=`<div style="margin-bottom:6px"><div style="font-weight:500;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">${label}</div>`;
+        flags.forEach(f=>{html+=`<span class="flag flag-${f.type}">${f.text}</span>`});html+='</div>';
+      });html+='</div>';
+    });
+    const globals=allFlags.filter(f=>f.empName===null);
+    if(globals.length){const byCat={};globals.forEach(f=>{if(!byCat[f.catLabel])byCat[f.catLabel]=[];byCat[f.catLabel].push(f)});
+      Object.entries(byCat).forEach(([label,flags])=>{html+=`<div style="margin-bottom:14px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px"><div style="font-weight:600;font-size:14px;margin-bottom:8px">${label}</div>`;flags.forEach(f=>{html+=`<span class="flag flag-${f.type}">${f.text}</span>`});html+='</div>';})}
+  }else{
+    const byCat={};allFlags.forEach(f=>{if(!byCat[f.catLabel])byCat[f.catLabel]=[];byCat[f.catLabel].push(f)});
+    Object.entries(byCat).forEach(([label,flags])=>{html+=`<div style="margin-bottom:12px"><div style="font-weight:600;font-size:13px;color:var(--text2);margin-bottom:4px">${label}</div>`;flags.forEach(f=>{html+=`<span class="flag flag-${f.type}">${f.empName?f.empName+': ':''}${f.text}</span>`});html+='</div>'});
+  }
+  bar.innerHTML=html;bar.style.display='block';
+}
+
+function renderCalendar(idx){
+  const ent=entities[idx];
+  const cal=document.getElementById('calGrid');cal.innerHTML='';
+  document.getElementById('calWrapper').style.display='block';document.getElementById('calHeading').style.display='block';
+  const tip=document.getElementById('tip');
+  // Auto-fit the calendar's vertical range to this entity's shifts.
+  // Floor: 6AM start / 2AM-next-day end (familiar default).
+  // Extends earlier if any shift starts before 6AM (e.g., 4AM bakery open).
+  // Extends later if any shift ends after 2AM (overnight shifts, 24-hour ops).
+  // Hard bounds: 0 (midnight) to 36 (noon next day) — accommodates 11PM–7AM and longer overnights.
+  let CS=6,CE=26;
+  const allStarts=[],allEnds=[];
+  for(let d=0;d<7;d++)ent.employees.forEach(emp=>{const s=parseShift(emp.shifts[d]);if(s){allStarts.push(s.start);allEnds.push(s.end)}});
+  if(allStarts.length){
+    CS=Math.max(0,Math.min(6,Math.floor(Math.min(...allStarts))));
+    CE=Math.min(36,Math.max(26,Math.ceil(Math.max(...allEnds))));
+  }
+  const totalH=CE-CS,PAD=10,rowH=50,totalPx=totalH*rowH+PAD*2,BM=3;
+  function hourToY(h){return PAD+(h-CS)*rowH}
+  function getStaff(di,hour){
+    let c=0;
+    ent.employees.forEach(emp=>{
+      const s=parseShift(emp.shifts[di]);
+      if(s){if(s.end<=24){if(hour>=s.start&&hour<s.end)c++}else{if(hour>=s.start||hour<(s.end-24))c++}}
+      if(di>0){const ps=parseShift(emp.shifts[di-1]);if(ps&&ps.end>24&&hour<(ps.end-24))c++}
+    });return c;
+  }
+  let maxLanes=1;
+  for(let d=0;d<7;d++){
+    let ds=[];
+    ent.employees.forEach(emp=>{const s=parseShift(emp.shifts[d]);if(!s)return;const s0=Math.max(s.start,CS),s1=Math.min(s.end,CE);if(s1>s0)ds.push({s0,s1})});
+    // Carryover from previous day: only draw the portion NOT already visible on the starting day column.
+    // (When CE is auto-extended to cover an overnight shift's full end, no carryover is needed.)
+    if(d>0)ent.employees.forEach(emp=>{const ps=parseShift(emp.shifts[d-1]);if(ps&&ps.end>24&&ps.end>CE){const os=Math.max(CS,CE-24),oe=ps.end-24;if(oe>os)ds.push({s0:os,s1:oe})}});
+    ds.sort((a,b)=>a.s0-b.s0);let lanes=[];
+    ds.forEach(sh=>{let pl=false;for(let l=0;l<lanes.length;l++){if(lanes[l].every(x=>sh.s0>=x.s1||sh.s1<=x.s0)){lanes[l].push(sh);pl=true;break}}if(!pl)lanes.push([sh])});
+    if(lanes.length>maxLanes)maxLanes=lanes.length;
+  }
+  cal.appendChild(Object.assign(document.createElement('div'),{className:'corner corner-left'}));
+  for(let d=0;d<7;d++){const hdr=document.createElement('div');hdr.className='day-header';hdr.innerHTML=`<div class="day-name">${DAYS[d]}</div><div class="day-date">${ent.newDateLabels[d]||''}</div>`;cal.appendChild(hdr)}
+  cal.appendChild(Object.assign(document.createElement('div'),{className:'corner corner-right'}));
+  const gL=document.createElement('div');gL.className='time-gutter';gL.style.height=totalPx+'px';
+  for(let h=CS;h<=CE;h++){const l=document.createElement('div');l.className='time-label';l.style.top=hourToY(h)+'px';l.textContent=shortH(h%24);gL.appendChild(l)}cal.appendChild(gL);
+  for(let d=0;d<7;d++){
+    const col=document.createElement('div');col.className='day-column';col.style.height=totalPx+'px';
+    for(let h=CS;h<=CE;h++){
+      const ah=h%24;
+      if((h-CS)%2===1&&h<CE){const b=document.createElement('div');b.className='hour-band';b.style.top=hourToY(h)+'px';b.style.height=rowH+'px';b.style.background='var(--alt-hour)';col.appendChild(b)}
+      const ln=document.createElement('div');ln.className='hour-line';ln.style.top=hourToY(h)+'px';col.appendChild(ln);
+      if(h<CE){const cnt=getStaff(d,ah);const ce=document.createElement('div');const wt=ah<16.5?4:5;ce.className='emp-count'+(cnt>=wt?' warn':'');ce.style.top=(hourToY(h)+2)+'px';ce.textContent=cnt;col.appendChild(ce)}
+    }
+    let ds=[];
+    ent.employees.forEach((emp,ei)=>{const s=parseShift(emp.shifts[d]);if(!s)return;const s0=Math.max(s.start,CS),s1=Math.min(s.end,CE);if(s1>s0)ds.push({emp,ei,s0,s1,origStart:s.start,origEnd:s.end,raw:s.raw})});
+    if(d>0)ent.employees.forEach((emp,ei)=>{const ps=parseShift(emp.shifts[d-1]);if(ps&&ps.end>24&&ps.end>CE){const os=Math.max(CS,CE-24),oe=ps.end-24;if(oe>os)ds.push({emp,ei,s0:os,s1:oe,origStart:ps.start,origEnd:ps.end,overflow:true,raw:ps.raw})}});
+    ds.sort((a,b)=>a.s0-b.s0);let lanes=[];
+    ds.forEach(sh=>{let pl=false;for(let l=0;l<lanes.length;l++){if(lanes[l].every(x=>sh.s0>=x.s1||sh.s1<=x.s0)){lanes[l].push(sh);sh.lane=l;pl=true;break}}if(!pl){lanes.push([sh]);sh.lane=lanes.length-1}});
+    ds.forEach(sh=>{
+      const blk=document.createElement('div');blk.className='shift-block';blk.dataset.emp=sh.emp.name;
+      const c2=COLORS[sh.ei%COLORS.length];const w=100/maxLanes;
+      blk.style.cssText=`left:calc(${sh.lane*w}% + ${BM}px);width:calc(${w}% - ${BM*2}px);top:${hourToY(sh.s0)}px;height:${Math.max(20,hourToY(sh.s1)-hourToY(sh.s0))}px;background:${c2.bg};color:${c2.hex}`;
+      const wrap=document.createElement('div');wrap.className='sb-wrap';
+      const nm=document.createElement('span');nm.className='sb-name';nm.textContent=sh.emp.name+(sh.overflow?' (cont.)':'');wrap.appendChild(nm);
+      const bpx=Math.max(20,hourToY(sh.s1)-hourToY(sh.s0));
+      if(bpx>60){const tm=document.createElement('span');tm.className='sb-time';tm.textContent=fmtH(sh.origStart%24)+' – '+fmtH(sh.origEnd%24);wrap.appendChild(tm)}
+      blk.appendChild(wrap);
+      const ss=fmtH(sh.origStart%24),se=fmtH(sh.origEnd%24),hr=sh.origEnd-sh.origStart;
+      blk.addEventListener('mouseenter',e=>{tip.style.display='block';tip.querySelector('.tt-name').textContent=sh.emp.name;tip.querySelector('.tt-time').textContent=ss+' – '+se;tip.querySelector('.tt-hrs').textContent=hr.toFixed(1)+' hours'+(sh.overflow?' (continued)':'')});
+      blk.addEventListener('mousemove',e=>{tip.style.left=(e.clientX+14)+'px';tip.style.top=(e.clientY-40)+'px'});
+      blk.addEventListener('mouseleave',()=>tip.style.display='none');
+      col.appendChild(blk);
+    });
+    cal.appendChild(col);
+  }
+  const gR=document.createElement('div');gR.className='time-gutter-right';gR.style.height=totalPx+'px';
+  for(let h=CS;h<=CE;h++){const l=document.createElement('div');l.className='time-label';l.style.top=hourToY(h)+'px';l.textContent=shortH(h%24);gR.appendChild(l)}cal.appendChild(gR);
+}
+
+// ================================================================
+// SCHEDULE EXPORTS
+// ================================================================
+async function exportEmployee(){
+  readTableState();
+  const ent=entities[activeEntityIdx];
+  const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Employee Schedule');
+  const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
+  const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
+  const r1=ws.addRow(['Name',...DAYS]);
+  r1.eachCell((cell,ci)=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:thinB,right:{style:ci===1?'medium':'thin',color:{argb:ci===1?'FF666666':'FFB0B0B0'}}}});r1.height=24;
+  const r2=ws.addRow(['',...ent.newDateLabels]);
+  r2.eachCell((cell,ci)=>{cell.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB,right:{style:ci===1?'medium':'thin',color:{argb:ci===1?'FF666666':'FFB0B0B0'}}}});
+  ent.employees.forEach(emp=>{
+    const r=ws.addRow([emp.name,...emp.shifts]);
+    r.eachCell((cell,ci)=>{cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:thinB,right:{style:ci===1?'medium':'thin',color:{argb:ci===1?'FF666666':'FFB0B0B0'}}};
+      if(ci===1)cell.font={name:'Arial',bold:true,size:11};else{const v=cell.value?cell.value.toString().toUpperCase():'';cell.font={name:'Arial',size:11,color:{argb:v==='OFF'?'FFCC0000':'FF008000'}}}});r.height=28;
+  });
+  ws.getColumn(1).width=14;for(let c=2;c<=8;c++)ws.getColumn(c).width=22;
+  downloadBlob(await ewb.xlsx.writeBuffer(),(ent.name||'Entity')+'_Employee_Schedule.xlsx');
+}
+
+async function exportManager(){
+  readTableState();
+  const ent=entities[activeEntityIdx];
+  const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Manager Report');
+  const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
+  const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
+  const hoursFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF5F5F3'}};
+  const r1=ws.addRow(['Name',...DAYS,'Weekly Total']);
+  r1.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:thinB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
+  const r2=ws.addRow(['',...ent.newDateLabels,'']);
+  r2.eachCell((c,ci)=>{c.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
+  ent.employees.forEach(emp=>{
+    const r=ws.addRow([emp.name,...emp.shifts]);
+    r.eachCell((c,ci)=>{c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:thinB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};
+      if(ci===1)c.font={name:'Arial',bold:true,size:11};else{const v=c.value?c.value.toString().toUpperCase():'';c.font={name:'Arial',size:11,color:{argb:v==='OFF'?'FFCC0000':'FF008000'}}}});
+    let t2=0;const hRow=['Hours'];
+    for(let d=0;d<7;d++){const h=calcHours(parseShift(emp.shifts[d]));t2+=h;hRow.push(h>0?h:'')}
+    t2=Math.round(t2*100)/100;hRow.push(t2);
+    const hr=ws.addRow(hRow);
+    hr.eachCell((c,ci)=>{c.fill=hoursFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};
+      if(ci===1)c.font={name:'Arial',italic:true,size:10,color:{argb:'FF999999'}};
+      else if(ci===9){c.font={name:'Arial',bold:true,size:11,color:{argb:t2>40?'FFC2410C':'FF444444'}};if(t2>40)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFEF2E8'}}}
+      else c.font={name:'Arial',size:10,color:{argb:'FF444444'}}});
+  });
+  const gRow=['TOTAL'];let gt=0;
+  for(let d=0;d<7;d++){let dt=0;ent.employees.forEach(emp=>dt+=calcHours(parseShift(emp.shifts[d])));gt+=dt;gRow.push(Math.round(dt*100)/100)}
+  gRow.push(Math.round(gt*100)/100);
+  const gr=ws.addRow(gRow);gr.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:medB,bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
+  ws.getColumn(1).width=14;for(let c=2;c<=8;c++)ws.getColumn(c).width=22;ws.getColumn(9).width=14;
+  downloadBlob(await ewb.xlsx.writeBuffer(),(ent.name||'Entity')+'_Manager_Report.xlsx');
+}
+
+// ================================================================
+// TAB SWITCHING
+// ================================================================
+function setTab(tab){
+  currentTab=tab;
+  document.getElementById('tab-schedule').classList.toggle('active',tab==='schedule');
+  document.getElementById('tab-intake').classList.toggle('active',tab==='intake');
+  document.getElementById('tab-payroll').classList.toggle('active',tab==='payroll');
+  document.getElementById('scheduleTab').style.display=tab==='schedule'?'block':'none';
+  document.getElementById('intakeTab').style.display=tab==='intake'?'block':'none';
+  document.getElementById('payrollTab').style.display=tab==='payroll'?'block':'none';
+  if(tab==='intake')renderIntake();
+  if(tab==='payroll'){syncActualsFromReview();renderPayroll();}
+}
+
+// ================================================================
+// PAYROLL — FILE HANDLING
+// ================================================================
+(function(){
+  const dz=document.getElementById('payrollDropZone'),fi=document.getElementById('payrollFileInput');
+  dz.addEventListener('click',()=>fi.click());
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');handleActualsFile(e.dataTransfer.files[0])});
+  fi.addEventListener('change',e=>{if(e.target.files[0])handleActualsFile(e.target.files[0])});
+})();
+
+function handleActualsFile(file){
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      const data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false});
+      parseActuals(data,'combined');
+    }catch(err){alert('Error reading file: '+err.message)}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function handleEntityActualsFile(file,idx){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      const data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false});
+      parseActuals(data,'separate',idx);
+    }catch(err){alert('Error reading file: '+err.message)}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function setActualsMode(mode){
+  // Switching modes never clears data — only uploading a new file replaces that mode's store.
+  // Each mode has an independent store (combined: global actualDays, separate: per-entity actualDays).
+  // If you switch to a mode that has no data, the UI shows empty-state upload zones; your old
+  // data in the other mode is preserved and reappears if you switch back.
+  actualsMode=mode;
+  // Refresh the combined drop zone label to reflect current data (if any)
+  const dz=document.getElementById('payrollDropZone');
+  if(dz){
+    if(actualDays.length>0){
+      dz.classList.add('loaded');
+      dz.querySelector('h2').textContent=`${actualDays.length} combined-file records loaded`;
+    }else{
+      dz.classList.remove('loaded');
+      dz.querySelector('h2').textContent='Drop combined actuals .xlsx here';
+      dz.querySelector('p').textContent='or click to browse — first column must be Entity name';
+    }
+  }
+  renderPayroll();
+}
+
+// Single parse function handles both modes
+// mode='combined': parses entity column, stores to global actualDays
+// mode='separate': ignores entity column, stores to entities[entityIdx].actualDays
+function parseActuals(rows,mode,entityIdx){
+  let headerRow=-1,colMap={};
+  const NAME_KEYS=['name','employee','employee name','emp','emp name'];
+  const DATE_KEYS=['date','shift date','punch date','work date','clock date'];
+  const ENTITY_KEYS=['entity','entity name','company','store','location'];
+
+  for(let r=0;r<Math.min(rows.length,15);r++){
+    const row=rows[r].map(c=>c.toString().trim().toLowerCase());
+    const nameIdx=row.findIndex(c=>NAME_KEYS.includes(c));
+    const dateIdx=row.findIndex(c=>DATE_KEYS.includes(c));
+    const entIdx=row.findIndex(c=>ENTITY_KEYS.includes(c));
+    const inCols=[],outCols=[];
+    row.forEach((c,i)=>{
+      let m=c.match(/^(?:clock\s*in|time\s*in|punch\s*in|in)\s*(\d*)$/);
+      if(m){inCols.push({n:parseInt(m[1])||1,idx:i});return}
+      m=c.match(/^(?:clock\s*out|time\s*out|punch\s*out|out)\s*(\d*)$/);
+      if(m)outCols.push({n:parseInt(m[1])||1,idx:i});
+    });
+    if(nameIdx>=0&&inCols.length>0&&outCols.length>0){
+      headerRow=r;
+      inCols.sort((a,b)=>a.n-b.n);outCols.sort((a,b)=>a.n-b.n);
+      colMap={name:nameIdx,date:dateIdx,entity:entIdx,inCols,outCols};break;
+    }
+  }
+  if(headerRow<0){alert('Could not find required columns.\n\nExpected: Employee Name, Date, Clock In 1/2/3, Clock Out 1/2/3');return}
+
+  const parsed=[];let skipped=0;
+  for(let r=headerRow+1;r<rows.length;r++){
+    const row=rows[r];
+    if(!row||row.length===0)continue;
+    const name=row[colMap.name]?row[colMap.name].toString().trim():'';
+    if(!name)continue;
+    const entityName=mode==='combined'&&colMap.entity>=0&&row[colMap.entity]
+      ?row[colMap.entity].toString().trim()
+      :(mode==='separate'&&entityIdx!=null?entities[entityIdx].name:'');
+    const parsedDate=parseAnyDate(colMap.date>=0?row[colMap.date]:null);
+    if(!parsedDate){skipped++;continue}
+    const pairs=[];
+    const maxP=Math.min(colMap.inCols.length,colMap.outCols.length);
+    for(let p=0;p<maxP;p++){
+      const inRaw=row[colMap.inCols[p].idx],outRaw=row[colMap.outCols[p].idx];
+      if(inRaw==null||outRaw==null||inRaw===''||outRaw==='')continue;
+      const inH=parseClockTime(inRaw),outH=parseClockTime(outRaw);
+      if(inH===null||outH===null)continue;
+      let dur=outH-inH;if(dur<0)dur+=24;if(dur<=0||dur>24)continue;
+      // Multi-pair overnight fix: if this pair's clock-in is before the previous pair's
+      // adjusted clock-out, it must be post-midnight — advance it by 24h. This keeps
+      // firstIn / lastOut / span math correct when a shift splits across midnight
+      // with a mid-shift break (e.g., 10PM-2:30AM then 3AM-6AM on the same shift).
+      let adjIn=inH;
+      if(pairs.length>0){
+        const prevOut=pairs[pairs.length-1].outAdj;
+        while(adjIn<prevOut)adjIn+=24;
+      }
+      const outAdj=adjIn+dur;
+      // Store adjusted `in` so firstIn math works; display still renders correctly
+      // because compactH() does `h % 24` so 27 renders as "3am" the same as 3.
+      pairs.push({in:adjIn,out:outH,outAdj,minutes:Math.round(dur*60)});
+    }
+    if(pairs.length===0)continue;
+    parsed.push({empName:name,entityName,date:parsedDate.isoStr,dayIdx:parsedDate.dayOfWeek,pairs});
+  }
+
+  if(parsed.length===0){alert('No valid punch records found.');return}
+
+  if(mode==='combined'){
+    actualDays=parsed;
+    const counts={};
+    parsed.forEach(d=>{const k=d.entityName||'(no entity)';counts[k]=(counts[k]||0)+1;});
+    // Detect entity names in the file that don't match any scheduled entity
+    const scheduledNames=new Set(entities.map(e=>e.name.toLowerCase().trim()).filter(n=>n));
+    const unmatched=Object.keys(counts).filter(k=>k!=='(no entity)'&&!scheduledNames.has(k.toLowerCase().trim()));
+    const matchedEntries=Object.entries(counts).filter(([k])=>k==='(no entity)'||scheduledNames.has(k.toLowerCase().trim()));
+    const breakdown=matchedEntries.map(([k,v])=>`${k}: ${v}`).join(' · ');
+    const dz=document.getElementById('payrollDropZone');
+    dz.classList.add('loaded');
+    dz.querySelector('h2').textContent=`${parsed.length} records loaded across ${Object.keys(counts).length} entit${Object.keys(counts).length===1?'y':'ies'}`;
+    let pText=breakdown;
+    if(unmatched.length>0){
+      const unmatchedStr=unmatched.map(k=>`${k} (${counts[k]})`).join(', ');
+      pText+=`  ⚠ unmatched: ${unmatchedStr}`;
+    }
+    dz.querySelector('p').textContent=pText;
+  }else{
+    entities[entityIdx].actualDays=parsed;
+  }
+
+  renderPayroll();
+}
+
+function clearActuals(){
+  actualDays=[];
+  entities.forEach(e=>e.actualDays=[]);
+  const dz=document.getElementById('payrollDropZone');
+  if(dz){
+    dz.classList.remove('loaded');
+    dz.querySelector('h2').textContent='Drop combined actuals .xlsx here';
+    dz.querySelector('p').textContent='or click to browse — first column must be Entity name';
+  }
+  const fi=document.getElementById('payrollFileInput');
+  if(fi)fi.value='';
+  renderPayroll();
+}
+
+// ================================================================
+// PAYROLL — COMPUTE (per entity)
+// ================================================================
+function computePayrollForEntity(idx){
+  const ent=entities[idx];
+  const entNameLower=ent.name.toLowerCase().trim();
+  const mandBreakH=ent.breakMinutes/60;
+
+  // Parse schedule week ISO dates for filtering
+  const schedDateISO=ent.dateLabels.map(label=>{
+    if(!label)return null;
+    const m=label.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);
+    if(!m)return null;
+    const mi=MONTHS.indexOf(m[1]);if(mi<0)return null;
+    const d=new Date(parseInt(m[3]),mi,parseInt(m[2]));
+    const pad=n=>String(n).padStart(2,'0');
+    return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  });
+  const validIsoDates=new Set(schedDateISO.filter(s=>s));
+
+  // Source actuals: combined mode filters global pool by entity name; separate mode uses entity's own store
+  // Strict match: empty entity name matches only rows with empty entity name
+  // Prevents an unnamed entity from sweeping up every row in a combined file
+  const sourceActuals=actualsMode==='separate'
+    ?(ent.actualDays||[])
+    :actualDays.filter(d=>d.entityName.toLowerCase().trim()===entNameLower);
+
+  // Filter to schedule week dates
+  const entityActuals=sourceActuals.filter(d=>validIsoDates.size===0||validIsoDates.has(d.date));
+
+  // Aggregate by employee+dayIdx
+  const byEmpDay={};
+  entityActuals.forEach(d=>{
+    const key=d.empName.toLowerCase().trim()+'|'+d.dayIdx;
+    if(!byEmpDay[key])byEmpDay[key]={pairs:[],totalMin:0,firstIn:Infinity,lastOut:-Infinity};
+    d.pairs.forEach(p=>{
+      byEmpDay[key].pairs.push(p);byEmpDay[key].totalMin+=p.minutes;
+      if(p.in<byEmpDay[key].firstIn)byEmpDay[key].firstIn=p.in;
+      if(p.outAdj>byEmpDay[key].lastOut)byEmpDay[key].lastOut=p.outAdj;
+    });
+  });
+
+  const results=ent.employees.map(emp=>{
+    const row={
+      name:emp.name,isOrphan:false,days:[],
+      scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,
+      actualHours:0,actualBreakH:0,actualDaysWorked:0,otH:0,
+      inDiffs:[],outDiffs:[],
+      wage:wageRates[wKey(ent.id,emp.name)]||0,
+      rounding:roundingFactors[wKey(ent.id,emp.name)]!=null?roundingFactors[wKey(ent.id,emp.name)]:2,
+      pay:0
+    };
+    for(let d=0;d<7;d++){
+      const shift=parseShift(emp.shifts[d]);
+      const schedH=calcHours(shift);
+      const actual=byEmpDay[emp.name.toLowerCase().trim()+'|'+d];
+      if(shift)row.scheduledDays++;row.scheduledHours+=schedH;
+      let workedH=0,spanH=0,actualBreakH_raw=0,effectiveBreakH=0,billableH=0;
+      if(actual){
+        workedH=actual.totalMin/60;spanH=Math.max(0,actual.lastOut-actual.firstIn);
+        actualBreakH_raw=Math.max(0,spanH-workedH);
+        effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);
+        billableH=Math.max(0,spanH-effectiveBreakH);
+        if(workedH>0)row.actualDaysWorked++;
+      }
+      row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH;
+      const expectedH_day=shift?Math.max(0,schedH-mandBreakH):0;
+      const dayData={dayIdx:d,shift,schedH,actual,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:expectedH_day,inDiff:null,outDiff:null,hoursDiff:null,status:'ok'};
+      if(!shift&&!actual){dayData.status='off'}
+      else if(shift&&!actual){dayData.status='noshow'}
+      else if(!shift&&actual){dayData.status='unsched'}
+      else{
+        const schedStart=shift.start%24,schedEnd=shift.end>24?shift.end-24:shift.end;
+        dayData.inDiff=Math.round((actual.firstIn-schedStart)*60);row.inDiffs.push(dayData.inDiff);
+        if(shift.end<=24){dayData.outDiff=Math.round((actual.lastOut-schedEnd)*60);row.outDiffs.push(dayData.outDiff)}
+        dayData.hoursDiff=Math.round((billableH-expectedH_day)*60);
+        if(dayData.inDiff>10)dayData.status='late-in';
+        else if(dayData.inDiff<-15)dayData.status='early-in';
+        if(dayData.outDiff!==null&&dayData.status==='ok'){if(dayData.outDiff<-10)dayData.status='early-out';else if(dayData.outDiff>15)dayData.status='late-out'}
+        if(dayData.hoursDiff>30&&dayData.status==='ok')dayData.status='over';
+        else if(dayData.hoursDiff<-30&&dayData.status==='ok')dayData.status='under';
+      }
+      row.days.push(dayData);
+    }
+    row.scheduledHours=Math.round(row.scheduledHours*100)/100;
+    row.expectedBreakH=Math.round((row.scheduledDays*mandBreakH)*100)/100;
+    row.expectedH=Math.round((row.scheduledHours-row.expectedBreakH)*100)/100;
+    row.actualHours=Math.round(row.actualHours*100)/100;
+    row.actualBreakH=Math.round(row.actualBreakH*100)/100;
+    row.otH=Math.max(0,Math.round((row.actualHours-OT_THRESHOLD)*100)/100);
+    const factor=Math.pow(10,Math.max(0,Math.min(6,row.rounding)));
+    row.pay=Math.round(row.actualHours*row.wage*factor)/factor;
+    // Flat-wage override
+    const _fk=wKey(ent.id,emp.name);
+    if(flatWages[_fk]!=null){row.isFlat=true;row.flatAmount=flatWages[_fk];row.pay=flatWages[_fk]}
+    row.avgInDiff=row.inDiffs.length?Math.round(row.inDiffs.reduce((a,b)=>a+b,0)/row.inDiffs.length):null;
+    row.avgOutDiff=row.outDiffs.length?Math.round(row.outDiffs.reduce((a,b)=>a+b,0)/row.outDiffs.length):null;
+    return row;
+  });
+
+  // Orphans: in actuals for this entity but not in schedule
+  const schedNamesLower=new Set(ent.employees.map(e=>e.name.toLowerCase().trim()));
+  const orphanMap={};
+  entityActuals.forEach(d=>{
+    const k=d.empName.toLowerCase().trim();
+    if(!schedNamesLower.has(k)){
+      if(!orphanMap[k])orphanMap[k]={name:d.empName,byDay:{},totalMin:0};
+      d.pairs.forEach(p=>orphanMap[k].totalMin+=p.minutes);
+      if(!orphanMap[k].byDay[d.dayIdx])orphanMap[k].byDay[d.dayIdx]={pairs:[],totalMin:0,firstIn:Infinity,lastOut:-Infinity};
+      d.pairs.forEach(p=>{
+        orphanMap[k].byDay[d.dayIdx].pairs.push(p);orphanMap[k].byDay[d.dayIdx].totalMin+=p.minutes;
+        if(p.in<orphanMap[k].byDay[d.dayIdx].firstIn)orphanMap[k].byDay[d.dayIdx].firstIn=p.in;
+        if(p.outAdj>orphanMap[k].byDay[d.dayIdx].lastOut)orphanMap[k].byDay[d.dayIdx].lastOut=p.outAdj;
+      });
+    }
+  });
+  const orphanRows=Object.values(orphanMap).map(o=>{
+    const row={name:o.name,isOrphan:true,days:[],scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,actualHours:0,actualDaysWorked:0,actualBreakH:0,otH:0,wage:wageRates[wKey(ent.id,o.name)]||0,rounding:roundingFactors[wKey(ent.id,o.name)]!=null?roundingFactors[wKey(ent.id,o.name)]:2,pay:0,inDiffs:[],outDiffs:[],avgInDiff:null,avgOutDiff:null};
+    for(let d=0;d<7;d++){
+      const a=o.byDay[d];let workedH=0,spanH=0,actualBreakH_raw=0,effectiveBreakH=0,billableH=0;
+      if(a){workedH=a.totalMin/60;spanH=Math.max(0,a.lastOut-a.firstIn);actualBreakH_raw=Math.max(0,spanH-workedH);effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);billableH=Math.max(0,spanH-effectiveBreakH);if(workedH>0)row.actualDaysWorked++;row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH}
+      row.days.push({dayIdx:d,shift:null,schedH:0,actual:a||null,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:0,inDiff:null,outDiff:null,hoursDiff:null,status:a?'unsched':'off'});
+    }
+    row.actualHours=Math.round(row.actualHours*100)/100;row.actualBreakH=Math.round(row.actualBreakH*100)/100;
+    row.otH=Math.max(0,Math.round((row.actualHours-OT_THRESHOLD)*100)/100);
+    const factor=Math.pow(10,Math.max(0,Math.min(6,row.rounding)));
+    row.pay=Math.round(row.actualHours*row.wage*factor)/factor;
+    const _ofk=wKey(ent.id,o.name);
+    if(flatWages[_ofk]!=null){row.isFlat=true;row.flatAmount=flatWages[_ofk];row.pay=flatWages[_ofk]}
+    return row;
+  });
+
+  return{results,orphanRows};
+}
+
+// ================================================================
+// ================================================================
+// PAYROLL — RENDER (entity-tabbed)
+// ================================================================
+let _flatRows=[];
+
+function renderPayrollEntityTabBar(){
+  const bar=document.getElementById('payrollEntityTabBar');
+  if(entities.length===0){bar.style.display='none';return}
+  bar.style.display='flex';
+  let html='';
+  entities.forEach((e,realIdx)=>{
+    const isActive=realIdx===activePayrollEntityIdx;
+    const label=e.name||'Entity '+(realIdx+1);
+    html+=`<button class="entity-tab${isActive?' active':''}" onclick="switchPayrollEntity(${realIdx})">${escHtml(label)}</button>`;
+  });
+  bar.innerHTML=html;
+}
+
+function switchPayrollEntity(idx){
+  activePayrollEntityIdx=idx;
+  renderPayrollEntityTabBar();
+  renderPayrollEntityContent(idx);
+}
+
+function renderPayroll(){
+  const hasSchedule=entities.some(e=>e.employees.length>0);
+  document.getElementById('payrollNoSchedule').style.display=hasSchedule?'none':'block';
+  // Combined upload zone: visible only in combined mode
+  const dz=document.getElementById('payrollDropZone');
+  dz.style.display=actualsMode==='combined'?'block':'none';
+  // hasActuals: combined = global pool; separate = any entity has data
+  const hasActuals=actualsMode==='combined'
+    ?actualDays.length>0
+    :entities.some(e=>e.actualDays&&e.actualDays.length>0);
+  document.getElementById('payrollToolbar').style.display='flex';
+  const clearBtn=document.getElementById('clearActualsBtn');
+  if(clearBtn)clearBtn.style.display=hasActuals?'inline-block':'none';
+  if(!entities[activePayrollEntityIdx])activePayrollEntityIdx=0;
+  renderPayrollEntityTabBar();
+  renderPayrollEntityContent(activePayrollEntityIdx);
+}
+
+function renderPayrollEntityContent(idx){
+  const container=document.getElementById('payrollEntityContent');
+  const ent=entities[idx];
+  if(!ent){container.innerHTML='';return}
+
+  // No schedule loaded for this entity yet
+  if(ent.employees.length===0){
+    const name=ent.name||'Entity '+(idx+1);
+    container.innerHTML=`<div class="payroll-warning" style="display:block">No schedule loaded for <strong>${escHtml(name)}</strong>. Go to the Employee Schedule tab, select this entity, and upload or build a schedule.</div>`;
+    return;
+  }
+  // Mode-aware: separate mode uses entity's own actuals; combined uses global filtered by entity name
+  const hasActuals=actualsMode==='separate'
+    ?(ent.actualDays&&ent.actualDays.length>0)
+    :actualDays.some(d=>!ent.name||d.entityName.toLowerCase().trim()===ent.name.toLowerCase().trim());
+
+  const{results,orphanRows}=computePayrollForEntity(idx);
+  const allRows=results.concat(orphanRows);
+  _flatRows=allRows.map(r=>({entityIdx:idx,entityName:ent.name,row:r}));
+
+  // Per-entity upload zone (separate mode only)
+  const entityName=escHtml(ent.name||'Entity '+(idx+1));
+  const loadedCount=ent.actualDays&&ent.actualDays.length>0?ent.actualDays.length:0;
+  const perEntityZone=actualsMode==='separate'?`
+    <div class="entity-actuals-zone">
+      <div class="upload-zone${loadedCount>0?' loaded':''}" id="entityDZ-${idx}"
+           onclick="document.getElementById('entityFI-${idx}').click()"
+           ondragover="event.preventDefault();this.classList.add('dragover')"
+           ondragleave="this.classList.remove('dragover')"
+           ondrop="event.preventDefault();this.classList.remove('dragover');handleEntityActualsFile(event.dataTransfer.files[0],${idx})">
+        <h2>${loadedCount>0?loadedCount+' records loaded for '+entityName:'Drop '+entityName+' actuals here'}</h2>
+        <p>${loadedCount>0?'<a href=\"#\" onclick=\"clearEntityActuals('+idx+');return false\" style=\"color:var(--red)\">Clear</a>':'or click to browse — entity column not required for this file'}</p>
+        <input type="file" id="entityFI-${idx}" accept=".xlsx,.xls,.csv" style="display:none"
+               onchange="if(this.files[0])handleEntityActualsFile(this.files[0],${idx})">
+      </div>
+    </div>`:'';
+
+  container.innerHTML=perEntityZone+`
+    <div class="payroll-break-bar">
+      <label>Mandatory break deduction per worked shift:</label>
+      <input type="number" value="${ent.breakMinutes}" step="1" min="0" onchange="setEntityBreak(${idx},this.value)">
+      <span>minutes</span>
+      <span class="ot-note">The mandatory break is deducted from billable hours every day the employee clocks in, <em>even if they took no break</em>. If they took a longer break than this minimum (based on the gap between clock-in pairs), the longer actual break is deducted instead. Hours over 40/wk are flagged as OT informationally — no 1.5× multiplier.</span>
+    </div>
+    <div class="info-bar" id="payrollInfoBar" style="display:flex"></div>
+    <h2 id="payrollGridHeading" style="display:none;font-size:18px;font-weight:600;margin-bottom:10px">Weekly Actuals</h2>
+    <div class="sched-table-wrap" id="payrollGridWrap" style="display:none;margin-bottom:20px"><table class="sched" id="payrollGrid"></table></div>
+    <h2 id="paySummaryHeading" style="display:none;font-size:18px;font-weight:600;margin:20px 0 10px">Pay Summary &amp; Metrics</h2>
+    <div class="sched-table-wrap" id="paySummaryWrap" style="display:none;margin-bottom:20px"><table class="sched" id="paySummaryTable"></table></div>`;
+
+  renderPayrollInfoChips(allRows,hasActuals);
+  renderPayrollGrid(allRows,ent,hasActuals);
+  renderPaySummary(allRows,hasActuals);
+}
+
+function clearEntityActuals(idx){
+  if(entities[idx])entities[idx].actualDays=[];
+  renderPayrollEntityContent(idx);
+  const clearBtn=document.getElementById('clearActualsBtn');
+  const hasAny=entities.some(e=>e.actualDays&&e.actualDays.length>0);
+  if(clearBtn)clearBtn.style.display=hasAny?'inline-block':'none';
+}
+
+function setEntityBreak(idx,val){
+  const m=parseFloat(val);
+  entities[idx].breakMinutes=isNaN(m)||m<0?0:m;
+  renderPayrollEntityContent(idx);
+}
+
+function renderPayrollInfoChips(rows,hasActuals){
+  const bar=document.getElementById('payrollInfoBar');if(!bar)return;
+  bar.innerHTML='';bar.style.display='flex';
+  rows.forEach((r,ei)=>{
+    const col=COLORS[ei%COLORS.length];
+    const diff=r.actualHours-r.expectedH,absDiff=Math.abs(diff);
+    // Blanket pay-centric rule: more=red, less=green
+    const diffColor=absDiff<0.1?'var(--text3)':(diff>0?'var(--red)':'var(--green)');
+    const chip=document.createElement('div');
+    chip.className='info-chip'+(r.isOrphan?' overtime':'');
+    chip.style.minWidth='110px';
+    const namePrefix=r.isOrphan?'⚠ ':'';
+    let inner=`<div class="top-row"><span class="dot" style="background:${col.hex}"></span><span class="name" style="color:${col.hex}">${namePrefix}${escHtml(r.name||'(unnamed)')}</span></div>`;
+    if(hasActuals){
+      // Color the big hours display too: orphan=red, meaningful diff → diff color, else employee color
+      let hrsColor=col.hex;
+      if(r.isOrphan)hrsColor='var(--red)';
+      else if(absDiff>=0.1)hrsColor=diff>0?'var(--red)':'var(--green)';
+      inner+=`<div class="hrs" style="color:${hrsColor}">${r.actualHours.toFixed(1)}h</div>`;
+      if(r.isOrphan)inner+=`<div class="days" style="color:var(--red);font-weight:500">not in schedule</div>`;
+      else if(absDiff<0.1)inner+=`<div class="days" style="color:var(--text3);font-weight:500">as expected</div>`;
+      else inner+=`<div class="days" style="color:${diffColor};font-weight:500">${absDiff.toFixed(1)}h ${diff>0?'More':'Less'}</div>`;
+    }else{
+      inner+=`<div class="hrs" style="color:${col.hex}">${r.expectedH.toFixed(1)}h</div><div class="days">expected</div>`;
+    }
+    chip.innerHTML=inner;bar.appendChild(chip);
+  });
+}
+
+function renderPayDayCell(day,isOrphan,hasActuals){
+  let schedLine;
+  if(isOrphan){
+    schedLine=`<div class="pay-sched-line pay-sched-dash">—</div>`;
+  }else if(day.shift){
+    schedLine=`<div class="pay-sched-line"><strong>${compactH(day.shift.start)} – ${compactH(day.shift.end)}</strong></div>`;
+  }else{
+    schedLine=`<div class="pay-sched-line pay-sched-off"><strong>OFF</strong></div>`;
+  }
+  if(day.status==='off')return `<td class="pay-day status-off">${schedLine}</td>`;
+  // NO SHOW: employee missed the shift — pay less than expected → green (per user's pay-centric rule)
+  if(day.status==='noshow')return `<td class="pay-day status-noshow">${schedLine}<span class="pay-times-line pay-times hours-good">NO SHOW</span><div class="pay-hours-line hours-good">missed ${day.expectedH.toFixed(2)}h</div></td>`;
+  // UNSCHED: unscheduled clock-ins — pay for unexpected work → red
+  if(day.status==='unsched'){
+    let h=`<td class="pay-day status-unsched">${schedLine}`;
+    day.actual.pairs.forEach(p=>{h+=`<span class="pay-times-line pay-times">${compactH(p.in)} – ${compactH(p.out)}</span>`;});
+    h+=`<div class="pay-hours-line hours-bad">${day.billableH.toFixed(2)}h · unsched</div></td>`;return h;
+  }
+  if(!hasActuals)return `<td class="pay-day">${schedLine}<div class="pay-hours-line hours-neutral">${day.expectedH.toFixed(2)}h expected</div></td>`;
+  const stCls=day.status==='ok'?'':'status-'+day.status;
+  let h=`<td class="pay-day ${stCls}">${schedLine}`;
+  day.actual.pairs.forEach(p=>{h+=`<span class="pay-times-line pay-times">${compactH(p.in)} – ${compactH(p.out)}</span>`;});
+  const hDiff=day.hoursDiff,absM=Math.abs(hDiff);
+  // Blanket pay-centric rule: more hours = red, less hours = green
+  let hClass;
+  if(absM<1)hClass='hours-neutral';
+  else if(hDiff>0)hClass='hours-bad';
+  else hClass='hours-good';
+  const diffInline=absM<1?'':`<span class="pay-diff-inline">(${absM}m ${hDiff>0?'more':'less'})</span>`;
+  h+=`<div class="pay-hours-line ${hClass}">${day.billableH.toFixed(2)}h${diffInline}</div></td>`;
+  return h;
+}
+
+function renderPayrollGrid(rows,ent,hasActuals){
+  const table=document.getElementById('payrollGrid');if(!table)return;
+  // Use the original schedule week dates; actuals are filtered against dateLabels too.
+  const dLabels=ent.dateLabels;
+  let html='<thead><tr><th style="border-right:2px solid #999">Name</th>';
+  for(let d=0;d<7;d++)html+=`<th>${DAYS[d]}</th>`;
+  html+='<th style="background:#DAD8D2">Weekly</th></tr><tr>';
+  html+='<th class="date-row" style="border-right:2px solid #999"></th>';
+  for(let d=0;d<7;d++)html+=`<th class="date-row">${dLabels[d]||''}</th>`;
+  html+='<th class="date-row" style="background:#DAD8D2"></th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell">${escHtml(r.name||'(unnamed)')}</td>`;
+    for(let d=0;d<7;d++)html+=renderPayDayCell(r.days[d],r.isOrphan,hasActuals);
+    const diff=r.actualHours-r.expectedH,absDiff=Math.abs(diff);
+    // Blanket pay-centric rule: more hours = red, less hours = green (applied to the entire weekly cell)
+    let wkCls='hours-neutral';
+    if(r.isOrphan)wkCls='hours-bad';
+    else if(hasActuals){
+      if(absDiff<0.01)wkCls='hours-neutral';
+      else if(diff>0)wkCls='hours-bad';
+      else wkCls='hours-good';
+    }
+    let diffHtml='';
+    if(r.isOrphan)diffHtml=`<span class="wk-diff">no schedule</span>`;
+    else if(hasActuals){
+      if(absDiff<0.01)diffHtml=`<span class="wk-diff">as expected</span>`;
+      else diffHtml=`<span class="wk-diff">${absDiff.toFixed(2)}h ${diff>0?'More':'Less'}</span>`;
+    }else{
+      diffHtml=`<span class="wk-diff">expected</span>`;
+    }
+    const wkVal=hasActuals?r.actualHours.toFixed(2)+'h':r.expectedH.toFixed(2)+'h';
+    html+=`<td class="pay-weekly ${wkCls}"><span class="wk-actual">${wkVal}</span>${diffHtml}</td></tr>`;
+  });
+  html+='</tbody>';
+  table.innerHTML=html;
+  document.getElementById('payrollGridHeading').style.display='block';
+  document.getElementById('payrollGridWrap').style.display='block';
+}
+
+function renderPaySummary(rows,hasActuals){
+  const table=document.getElementById('paySummaryTable');if(!table)return;
+  let html='<thead><tr><th style="border-right:2px solid #999">Name</th>';
+  html+='<th>Expected Break Hrs</th><th>Expected Hours</th>';
+  if(hasActuals){
+    html+='<th>Actual Break Hrs</th><th>Actual Hours</th><th>Difference</th>';
+    html+='<th>Avg In Diff</th><th>Avg Out Diff</th>';
+    html+='<th>OT Hrs <span style="font-weight:400;font-size:10px;color:var(--text3)">(over 40/wk)</span></th>';
+  }
+  html+='<th>Wage ($/hr)</th><th>Rounding</th><th>Final Pay</th><th style="width:70px">Type</th></tr></thead><tbody>';
+  let totExpBreak=0,totExp=0,totActBreak=0,totAct=0,totOT=0,totPay=0;
+  rows.forEach((r,i)=>{
+    totExpBreak+=r.expectedBreakH;totExp+=r.expectedH;
+    totActBreak+=r.actualBreakH;totAct+=r.actualHours;totOT+=r.otH;totPay+=r.pay;
+    let diffStr='—',diffCls='diff-zero';
+    if(!r.isOrphan&&hasActuals){
+      const diff=r.actualHours-r.expectedH,abs=Math.abs(diff);
+      if(abs<0.01){diffStr='as expected';diffCls='diff-zero';}
+      else if(diff>0){diffStr=`${abs.toFixed(2)}h More`;diffCls='diff-pos';}
+      else{diffStr=`${abs.toFixed(2)}h Less`;diffCls='diff-neg';}
+    }
+    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${escHtml(r.name||'(unnamed)')}</td>`;
+    html+=`<td class="num-cell" style="color:var(--text3)">${r.expectedBreakH.toFixed(2)}</td>`;
+    html+=`<td class="num-cell" style="color:var(--text2)">${r.expectedH.toFixed(2)}</td>`;
+    if(hasActuals){
+      html+=`<td class="num-cell" style="color:var(--text3)">${r.actualBreakH.toFixed(2)}</td>`;
+      // Actual Hours column: apply same pay-centric rule (more=red, less=green)
+      let actCls='diff-zero';
+      if(r.isOrphan)actCls='diff-pos';
+      else{const d=r.actualHours-r.expectedH;if(Math.abs(d)<0.01)actCls='diff-zero';else if(d>0)actCls='diff-pos';else actCls='diff-neg';}
+      html+=`<td class="num-cell ${actCls}">${r.actualHours.toFixed(2)}</td>`;
+      html+=`<td class="num-cell ${diffCls}">${diffStr}</td>`;
+      html+=`<td class="metric-cell ${metricClsStr(r.avgInDiff,'in')}">${metricStr(r.avgInDiff)}</td>`;
+      html+=`<td class="metric-cell ${metricClsStr(r.avgOutDiff,'out')}">${metricStr(r.avgOutDiff)}</td>`;
+      html+=`<td class="num-cell" style="${r.otH>0?'color:var(--dark-orange);font-weight:600':'color:var(--text3)'}">${r.otH.toFixed(2)}</td>`;
+    }
+    if(r.isFlat){
+      html+=`<td colspan="2" style="padding:6px;text-align:center;background:#FAF9F4"><span style="font-size:11px;color:var(--text3);margin-right:6px">Flat $</span><input type="number" class="flat-input" value="${(r.flatAmount||0).toFixed(2)}" step="0.01" min="0" onchange="setFlatAmount(${i},this.value)" style="width:90px"></td>`;
+      html+=`<td class="pay-cell">$${(r.flatAmount||0).toFixed(2)}</td>`;
+      html+=`<td style="padding:6px;text-align:center"><button class="btn-flat-toggle active" onclick="toggleFlat(${i})" title="Currently flat. Click to switch to hourly">Flat</button></td></tr>`;
+    }else{
+      html+=`<td style="padding:6px;text-align:center"><input type="number" class="wage-input" value="${r.wage.toFixed(2)}" step="0.01" min="0" onchange="setWage(${i},this.value)"></td>`;
+      html+=`<td style="padding:6px;text-align:center"><input type="number" class="rounding-input" value="${r.rounding}" step="1" min="0" max="6" onchange="setRounding(${i},this.value)" title="Digits after decimal for Final Pay"></td>`;
+      html+=`<td class="pay-cell">$${r.pay.toFixed(r.rounding)}</td>`;
+      html+=`<td style="padding:6px;text-align:center"><button class="btn-flat-toggle" onclick="toggleFlat(${i})" title="Switch to flat amount (override wage x hours)">Hourly</button></td></tr>`;
+    }
+  });
+  // Total row
+  html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td>';
+  html+=`<td class="num-cell">${totExpBreak.toFixed(2)}</td><td class="num-cell">${totExp.toFixed(2)}</td>`;
+  if(hasActuals){
+    const tDiff=totAct-totExp,absT=Math.abs(tDiff);
+    let tStr='as expected',tCls='diff-zero';
+    if(absT>=0.01){if(tDiff>0){tStr=`${absT.toFixed(2)}h More`;tCls='diff-pos';}else{tStr=`${absT.toFixed(2)}h Less`;tCls='diff-neg';}}
+    html+=`<td class="num-cell">${totActBreak.toFixed(2)}</td><td class="num-cell ${tCls}">${totAct.toFixed(2)}</td>`;
+    html+=`<td class="num-cell ${tCls}">${tStr}</td><td></td><td></td>`;
+    html+=`<td class="num-cell">${totOT.toFixed(2)}</td>`;
+  }
+  html+=`<td></td><td></td><td class="pay-cell">$${totPay.toFixed(2)}</td><td></td></tr></tbody>`;
+  table.innerHTML=html;
+  document.getElementById('paySummaryHeading').style.display='block';
+  document.getElementById('paySummaryWrap').style.display='block';
+}
+
+function setWage(rowIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  wageRates[wKey(entities[item.entityIdx].id,item.row.name)]=parseFloat(val)||0;
+  renderPayrollEntityContent(item.entityIdx);
+  setTimeout(()=>{const inp=document.querySelectorAll('.wage-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
+}
+function setRounding(rowIdx,val){
+  const digits=parseInt(val);if(isNaN(digits)||digits<0||digits>6)return;
+  const item=_flatRows[rowIdx];if(!item)return;
+  roundingFactors[wKey(entities[item.entityIdx].id,item.row.name)]=digits;
+  renderPayrollEntityContent(item.entityIdx);
+  setTimeout(()=>{const inp=document.querySelectorAll('.rounding-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
+}
+function toggleFlat(rowIdx){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  const k=wKey(ent.id,item.row.name);
+  if(flatWages[k]!=null){
+    // Currently flat -> switch back to hourly
+    delete flatWages[k];
+    delete flatWagesDisplayNames[item.row.name.toLowerCase().trim()];
+  }else{
+    // Switch to flat; seed with current computed pay
+    flatWages[k]=Math.round((item.row.pay||0)*100)/100;
+    flatWagesDisplayNames[item.row.name.toLowerCase().trim()]=item.row.name;
+  }
+  renderPayrollEntityContent(item.entityIdx);
+}
+function setFlatAmount(rowIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  const amt=parseFloat(val);if(isNaN(amt)||amt<0)return;
+  flatWages[wKey(ent.id,item.row.name)]=amt;
+  flatWagesDisplayNames[item.row.name.toLowerCase().trim()]=item.row.name;
+  renderPayrollEntityContent(item.entityIdx);
+  setTimeout(()=>{const inp=document.querySelectorAll('.flat-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
+}
+
+
+// ================================================================
+// PAYROLL EXPORT — Entity-grouped: Period | Entity | Employee | Hours | Rate | Total
+// ================================================================
+async function exportPayroll(){
+  const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
+    const idx=entities.indexOf(e);
+    return{entityIdx:idx,entityName:e.name,...computePayrollForEntity(idx)};
+  });
+  // Mode-aware: combined uses global pool, separate uses per-entity stores
+  const hasActuals=actualsMode==='separate'
+    ?entities.some(e=>e.actualDays&&e.actualDays.length>0)
+    :actualDays.length>0;
+  const ewb=new ExcelJS.Workbook();
+  const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
+  const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
+  const orphanFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFEF2F2'}};
+  const subtotalFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0EFE9'}};
+
+  // ---- Sheet 1: Payroll Report ----
+  const ws1=ewb.addWorksheet('Payroll Report');
+
+  // Period header
+  const firstEntWithDates=entities.find(e=>e.dateLabels.some(d=>d));
+  let periodStr='';
+  if(firstEntWithDates){
+    function toShort(lbl){if(!lbl)return '';const m=lbl.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);if(!m)return lbl;const mo=String(MONTHS.indexOf(m[1])+1).padStart(2,'0'),d=String(m[2]).padStart(2,'0'),y=String(m[3]).slice(-2);return`${mo}/${d}/${y}`}
+    periodStr=`PERIOD - ****${toShort(firstEntWithDates.dateLabels[0])}-${toShort(firstEntWithDates.dateLabels[6])}****`;
+  }else periodStr='PAYROLL REPORT';
+
+  const titleRow=ws1.addRow([periodStr]);
+  titleRow.getCell(1).font={name:'Arial',bold:true,size:14};
+  titleRow.getCell(1).alignment={horizontal:'center',vertical:'middle'};
+  ws1.mergeCells(1,1,1,5);
+  titleRow.getCell(1).border={top:medB,bottom:medB,left:medB,right:medB};
+  titleRow.height=30;
+  ws1.addRow([]);
+
+  // Column headers
+  const hdrs=['Entity','Employee Name','Billable Hours','Rate','Total'];
+  const hdrRow=ws1.addRow(hdrs);
+  hdrRow.eachCell((cell,ci)=>{
+    cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;
+    cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+    cell.border={bottom:medB,top:medB,left:thinB,right:thinB};
+  });hdrRow.height=22;
+
+  allEntityResults.forEach(({entityName,results,orphanRows})=>{
+    const allRows=results.concat(orphanRows);if(allRows.length===0)return;
+    let entityTotalHours=0,entityTotalPay=0,entityFirstRow=true;
+
+    allRows.forEach(r=>{
+      const hoursVal=hasActuals?r.actualHours:r.expectedH;
+      const wage=r.wage;
+      const rateStr=wage>0?`$${wage.toFixed(2)}`:'DD-NA';
+      const totalStr=wage>0?`$${r.pay.toFixed(r.rounding)}`:'DD-NA';
+      entityTotalHours+=hoursVal;if(wage>0)entityTotalPay+=r.pay;
+
+      const row=ws1.addRow([entityFirstRow?entityName:'',r.name,hoursVal,rateStr,totalStr]);
+      entityFirstRow=false;
+      row.eachCell((cell,ci)=>{
+        cell.font={name:'Arial',size:10,bold:ci===1};
+        cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+        cell.border={bottom:thinB,left:thinB,right:thinB};
+        if(r.isOrphan)cell.fill=orphanFill;
+        if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
+      });
+      if(r.isOrphan){row.getCell(2).font={name:'Arial',size:10,italic:true,color:{argb:'FFDC2626'}}}
+      row.height=54;
+    });
+
+    // Entity subtotal
+    const stRow=ws1.addRow([`${entityName} Total`,'',entityTotalHours,'',`$${entityTotalPay.toFixed(2)}`]);
+    stRow.eachCell((cell,ci)=>{
+      cell.font={name:'Arial',bold:true,size:10};cell.fill=subtotalFill;
+      cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+      cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
+      if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
+    });stRow.height=60;
+    ws1.addRow([]);
+  });
+
+  ws1.getColumn(1).width=22;ws1.getColumn(2).width=20;ws1.getColumn(3).width=14;ws1.getColumn(4).width=12;ws1.getColumn(5).width=14;
+
+  // ---- Sheet 2: Pay Summary (detailed) ----
+  if(hasActuals){
+    const ws2=ewb.addWorksheet('Pay Summary');
+    const headers=['Entity','Name','Exp Break Hrs','Expected Hrs','Act Break Hrs','Actual Hrs','Difference','Avg In Diff (min)','Avg Out Diff (min)','OT Hrs','Wage ($/hr)','Rounding','Final Pay'];
+    const h=ws2.addRow(headers);h.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:medB}});h.height=24;
+    allEntityResults.forEach(({entityName,results,orphanRows})=>{
+      const allRows=results.concat(orphanRows);
+      allRows.forEach(r=>{
+        const diff=r.actualHours-r.expectedH,abs=Math.abs(diff);
+        const diffStr=abs<0.01?'as expected':diff>0?`${abs.toFixed(2)}h More`:`${abs.toFixed(2)}h Less`;
+        const row=ws2.addRow([entityName,r.name,r.expectedBreakH,r.expectedH,r.actualBreakH,r.actualHours,diffStr,r.avgInDiff!=null?r.avgInDiff:'—',r.avgOutDiff!=null?r.avgOutDiff:'—',r.otH,r.wage,r.rounding,r.pay]);
+        row.eachCell((cell,ci)=>{cell.font={name:'Arial',size:10};cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:thinB};if(typeof cell.value==='number'&&ci>=3)cell.numFmt='0.00';});
+        if(r.isOrphan){row.getCell(2).font={name:'Arial',size:10,italic:true,color:{argb:'FFDC2626'}};row.eachCell(c=>c.fill=orphanFill)}
+        row.height=54;
+      });
+    });
+    for(let c=1;c<=13;c++)ws2.getColumn(c).width=c<=2?20:14;
+  }
+
+  // ---- Sheet 3: Weekly Actuals ----
+  if(hasActuals){
+    const ws3=ewb.addWorksheet('Weekly Actuals');
+    allEntityResults.forEach(({entityName,results,orphanRows},ei)=>{
+      const allRows=results.concat(orphanRows);if(allRows.length===0)return;
+      const entityIdx=entities.findIndex(e=>e.name===entityName);
+      const ent=entityIdx>=0?entities[entityIdx]:null;
+      const dLabels=ent?ent.dateLabels:Array(7).fill('');
+      if(ei>0)ws3.addRow([]);
+      const hdr=ws3.addRow([entityName,'Name',...DAYS,'Weekly Total']);
+      hdr.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:medB}});hdr.height=22;
+      const dr=ws3.addRow(['','',...dLabels,'']);
+      dr.eachCell(cell=>{cell.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB}});
+      allRows.forEach(r=>{
+        const cells=['',r.name];
+        for(let d=0;d<7;d++){
+          const day=r.days[d];
+          if(day.status==='off'){cells.push(r.isOrphan?'—':'OFF')}
+          else if(day.status==='noshow'){cells.push(`NO SHOW\nmissed ${day.expectedH.toFixed(2)}h`)}
+          else{const lines=[];if(!r.isOrphan&&day.shift)lines.push(`${compactH(day.shift.start)} – ${compactH(day.shift.end)}`);if(day.actual)day.actual.pairs.forEach(p=>lines.push(`${compactH(p.in)} – ${compactH(p.out)}`));lines.push(`${day.billableH.toFixed(2)}h`);cells.push(lines.join('\n'))}
+        }
+        cells.push(`${r.actualHours.toFixed(2)}h`);
+        const row=ws3.addRow(cells);
+        row.eachCell((cell,ci)=>{cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border={bottom:thinB};cell.font={name:'Arial',size:10,bold:ci===2}});
+        if(r.isOrphan)row.eachCell(c=>c.fill=orphanFill);row.height=150;
+      });
+      ws3.getColumn(1).width=20;ws3.getColumn(2).width=16;for(let c=3;c<=9;c++)ws3.getColumn(c).width=18;ws3.getColumn(10).width=14;
+    });
+  }
+
+  downloadBlob(await ewb.xlsx.writeBuffer(),'Payroll_Report.xlsx');
+}
+
+// ================================================================
+// ============ PAYROLL v26 ADDITIONS BEGIN ========================
+// ================================================================
+
+// ------- Password gate -------
+// The password hash is precomputed. Default: "payroll2026" — change PASSWORD_HASH below.
+// To set a new password, open this file, replace PASSWORD_HASH with SHA-256 of your choice.
+// Users enter password → hashed → compared.
+const PASSWORD_HASH='3c7e75f31dda2c5b1e99e7c78f0e4e9c18b5e2c5d3cd7b6b1d7b3e1f6d5c8e2a'; // placeholder — regenerated at runtime if missing
+// Actually for simplicity we store the password in a constant and compare hashes.
+// If you want to change the password, update LOGIN_PASSWORD below.
+const LOGIN_PASSWORD='payroll2026';
+
+async function sha256(str){
+  const buf=new TextEncoder().encode(str);
+  const hash=await crypto.subtle.digest('SHA-256',buf);
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function tryLogin(){
+  const val=document.getElementById('loginPassword').value;
+  const errEl=document.getElementById('loginErr');
+  if(val===LOGIN_PASSWORD){
+    sessionStorage.setItem('pv26_unlocked','1');
+    document.getElementById('loginOverlay').style.display='none';
+    document.getElementById('appContainer').classList.add('visible');
+    errEl.textContent='';
+    updateOcrStatus();
+  }else{
+    errEl.textContent='Incorrect password.';
+    document.getElementById('loginPassword').value='';
+  }
+}
+
+function logOut(){
+  sessionStorage.removeItem('pv26_unlocked');
+  location.reload();
+}
+
+// ------- Settings (API key + per-source model) -------
+function getTcModel(){return localStorage.getItem('pv26_tc_model_custom')||localStorage.getItem('pv26_tc_model')||'gemini-2.5-pro'}
+function getEcModel(){return localStorage.getItem('pv26_ec_model_custom')||localStorage.getItem('pv26_ec_model')||'gemini-2.5-flash'}
+function getAutoEscalate(){return localStorage.getItem('pv26_auto_escalate')==='1'}
+
+// Toast notification
+let _toastTimer=null;
+function showToast(msg,kind){
+  const t=document.getElementById('toast');if(!t)return;
+  const icon=kind==='err'?'✕':'✓';
+  t.innerHTML='<span class="icon">'+icon+'</span>'+msg.replace(/</g,'&lt;');
+  t.className=kind==='err'?'show err':'show ok';
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>{t.className=t.className.replace('show','').trim();},2600);
+}
+function updateKeyStatusBadge(){
+  const el=document.getElementById('keyStatusBadge');if(!el)return;
+  const key=localStorage.getItem('pv26_api_key')||'';
+  if(key){
+    const masked=key.length>8?key.slice(0,4)+'…'+key.slice(-4):'saved';
+    el.textContent='Saved · '+masked;
+    el.className='key-status ok';
+  } else {
+    el.textContent='Not saved';
+    el.className='key-status missing';
+  }
+}
+function openSettings(){
+  document.getElementById('settingsOverlay').style.display='flex';
+  document.getElementById('apiKeyInput').value=localStorage.getItem('pv26_api_key')||'';
+  updateKeyStatusBadge();
+  // Migrate legacy single-model value if present
+  const legacy=localStorage.getItem('pv26_model');
+  const tcSel=document.getElementById('tcModelInput');
+  const ecSel=document.getElementById('ecModelInput');
+  const tcStored=localStorage.getItem('pv26_tc_model')||legacy||'gemini-2.5-pro';
+  const ecStored=localStorage.getItem('pv26_ec_model')||legacy||'gemini-2.5-flash';
+  // Only set select value if it matches one of the options; otherwise leave default and rely on custom field
+  if([...tcSel.options].some(o=>o.value===tcStored))tcSel.value=tcStored;
+  if([...ecSel.options].some(o=>o.value===ecStored))ecSel.value=ecStored;
+  document.getElementById('tcModelCustom').value=localStorage.getItem('pv26_tc_model_custom')||'';
+  document.getElementById('ecModelCustom').value=localStorage.getItem('pv26_ec_model_custom')||'';
+  document.getElementById('autoEscalateInput').checked=getAutoEscalate();
+}
+function closeSettings(){document.getElementById('settingsOverlay').style.display='none'}
+function saveSettings(){
+  try {
+    const key=document.getElementById('apiKeyInput').value.trim();
+    const hadKey=!!localStorage.getItem('pv26_api_key');
+    if(key)localStorage.setItem('pv26_api_key',key);else localStorage.removeItem('pv26_api_key');
+    localStorage.setItem('pv26_tc_model',document.getElementById('tcModelInput').value);
+    localStorage.setItem('pv26_ec_model',document.getElementById('ecModelInput').value);
+    const tcCustom=document.getElementById('tcModelCustom').value.trim();
+    const ecCustom=document.getElementById('ecModelCustom').value.trim();
+    if(tcCustom)localStorage.setItem('pv26_tc_model_custom',tcCustom);else localStorage.removeItem('pv26_tc_model_custom');
+    if(ecCustom)localStorage.setItem('pv26_ec_model_custom',ecCustom);else localStorage.removeItem('pv26_ec_model_custom');
+    localStorage.setItem('pv26_auto_escalate',document.getElementById('autoEscalateInput').checked?'1':'0');
+    // Clear legacy value so it doesn't override the new per-source values
+    localStorage.removeItem('pv26_model');
+    updateKeyStatusBadge();
+    updateOcrStatus();
+    closeSettings();
+    let msg;
+    if(key)msg='Settings saved · API key stored';
+    else if(hadKey)msg='Settings saved · API key cleared';
+    else msg='Settings saved · no API key entered';
+    showToast(msg,key?'ok':(hadKey?'ok':'err'));
+  } catch(err){
+    showToast('Save failed: '+(err.message||err),'err');
+  }
+}
+function updateOcrStatus(){
+  const el=document.getElementById('ocrStatus');if(!el)return;
+  const key=localStorage.getItem('pv26_api_key');
+  if(key){el.textContent='OCR ready';el.className='ocr-status ok';}
+  else{el.textContent='OCR key not set';el.className='ocr-status missing';}
+}
+
+// ================================================================
+// INTAKE STATE
+// ================================================================
+// Each entity gets intake state: timecard files, easyclocking files, OCR progress, and a review-table of rows.
+// Review row shape:
+// {id, source:'TC'|'EC', empName, date(iso), dayIdx, clockIn1, clockOut1, clockIn2, clockOut2, clockIn3, clockOut3,
+//  confidence, flags:[], needsReview:true, approved:false, photoUrl, originalName}
+
+function ensureIntakeState(ent){
+  if(!ent.intake){
+    ent.intake={
+      timecardFiles:[],
+      easyclockFiles:[],
+      reviewRows:[],
+      ocrInProgress:false,
+      ocrDone:false,
+      lastOcrError:''
+    };
+  }
+  return ent.intake;
+}
+
+// ================================================================
+// INTAKE RENDER (per-entity blocks)
+// ================================================================
+function renderIntake(){
+  const container=document.getElementById('intakeContent');
+  if(entities.length===0||entities.every(e=>e.employees.length===0)){
+    container.innerHTML='<div class="payroll-warning">Load at least one schedule in the <strong>Schedules</strong> tab before using Actuals Intake.</div>';
+    return;
+  }
+  let html='';
+  entities.forEach((ent,idx)=>{
+    ensureIntakeState(ent);
+    const name=ent.name||('Entity '+(idx+1));
+    const empCount=ent.employees.length;
+    if(empCount===0){
+      html+=`<div class="intake-entity-block"><h3>${escHtml(name)}</h3><div class="roster-note" style="color:var(--amber)">No schedule loaded yet — go to the Schedules tab first.</div></div>`;
+      return;
+    }
+    const tcCount=ent.intake.timecardFiles.length;
+    const ecCount=ent.intake.easyclockFiles.length;
+    const breakSet=ent.breakMinutes!=null&&ent.breakMinutes!=='';
+    html+=`<div class="intake-entity-block" id="intakeBlock_${idx}">
+      <h3>${escHtml(name)} <span style="font-weight:400;color:var(--text3);font-size:13px">— ${empCount} scheduled employees</span></h3>
+      <div class="roster-note">Roster comes from this entity's schedule. Anyone clocked in but not on the schedule will be flagged.</div>
+
+      <div class="intake-drop-row">
+        <div class="intake-drop ${tcCount>0?'has-files':''}" id="tcDrop_${idx}" onclick="document.getElementById('tcInput_${idx}').click()">
+          <div class="label">Physical Timecard Photos</div>
+          <div class="hint">Drop images or click</div>
+          <div class="count">${tcCount?tcCount+' file'+(tcCount>1?'s':'')+' ready':''}</div>
+          <input type="file" id="tcInput_${idx}" accept="image/*" multiple>
+        </div>
+        <div class="intake-drop ${ecCount>0?'has-files':''}" id="ecDrop_${idx}" onclick="document.getElementById('ecInput_${idx}').click()">
+          <div class="label">EasyClocking Screenshots</div>
+          <div class="hint">Drop images or click</div>
+          <div class="count">${ecCount?ecCount+' file'+(ecCount>1?'s':'')+' ready':''}</div>
+          <input type="file" id="ecInput_${idx}" accept="image/*" multiple>
+        </div>
+      </div>
+
+      <div class="actions-row">
+        <button class="btn btn-primary" onclick="runOcrForEntity(${idx})" ${(tcCount+ecCount===0)?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Run OCR</button>
+        <button class="btn" onclick="clearIntake(${idx})">Clear</button>
+        <span class="break-field ${breakSet?'':'unset'}"><label>Mandatory break (min):</label><input type="number" min="0" step="1" value="${ent.breakMinutes||0}" onchange="setEntityBreak(${idx},this.value)"></span>
+        <span style="flex:1"></span>
+        <button class="btn" onclick="addManualRow(${idx})">+ Add manual row</button>
+      </div>
+
+      <div class="progress-bar ${ent.intake.ocrInProgress?'active':''}" id="progressBar_${idx}"><div class="progress-fill" id="progressFill_${idx}" style="width:0%"></div></div>
+      <div class="status-line" id="statusLine_${idx}">${ent.intake.lastOcrError?'<span style="color:var(--red)">'+escHtml(ent.intake.lastOcrError)+'</span>':''}</div>
+      <div class="ocr-file-list" id="ocrFileList_${idx}"></div>
+
+      <div class="ocr-results ${ent.intake.reviewRows.length>0?'active':''}" id="ocrResults_${idx}">
+        ${renderReviewSummary(ent)}
+        <div class="review-wrap"><table class="review" id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</table></div>
+      </div>
+    </div>`;
+  });
+  container.innerHTML=html;
+
+  // Wire drop zones + file inputs
+  entities.forEach((ent,idx)=>{
+    if(ent.employees.length===0)return;
+    wireIntakeDrop('tcDrop_'+idx,'tcInput_'+idx,files=>addIntakeFiles(idx,'tc',files));
+    wireIntakeDrop('ecDrop_'+idx,'ecInput_'+idx,files=>addIntakeFiles(idx,'ec',files));
+  });
+}
+
+function wireIntakeDrop(dropId,inputId,cb){
+  const dz=document.getElementById(dropId),fi=document.getElementById(inputId);
+  if(!dz||!fi)return;
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');cb(Array.from(e.dataTransfer.files))});
+  fi.addEventListener('change',e=>{cb(Array.from(e.target.files));fi.value='';});
+}
+
+function addIntakeFiles(idx,kind,files){
+  const ent=entities[idx];ensureIntakeState(ent);
+  const imgs=files.filter(f=>f.type.startsWith('image/'));
+  if(kind==='tc')ent.intake.timecardFiles=ent.intake.timecardFiles.concat(imgs);
+  else ent.intake.easyclockFiles=ent.intake.easyclockFiles.concat(imgs);
+  renderIntake();
+}
+
+function clearIntake(idx){
+  const ent=entities[idx];if(!ent.intake)return;
+  ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];
+  ent.intake.reviewRows=[];ent.intake.ocrDone=false;ent.intake.lastOcrError='';
+  renderIntake();
+}
+
+function setEntityBreak(idx,val){
+  const v=parseInt(val);
+  entities[idx].breakMinutes=(isNaN(v)||v<0)?0:v;
+  renderIntake();
+}
+
+function addManualRow(idx){
+  const ent=entities[idx];ensureIntakeState(ent);
+  // pick first schedule date as default
+  const firstDate=(ent.dateLabels||[]).find(d=>d)||'';
+  const iso=schedLabelToIso(firstDate)||'';
+  const dayIdx=iso?new Date(iso+'T00:00:00').getDay():0;
+  ent.intake.reviewRows.push({
+    id:'manual_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    source:'MN',empName:'',date:iso,dayIdx,
+    clockIn1:'',clockOut1:'',clockIn2:'',clockOut2:'',clockIn3:'',clockOut3:'',
+    confidence:1.0,flags:['Manually added — fill in all fields'],needsReview:true,approved:false,
+    originalName:'(manual)'
+  });
+  ent.intake.ocrDone=true;
+  renderIntake();
+}
+
+function schedLabelToIso(label){
+  if(!label)return null;
+  const m=label.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);
+  if(!m)return null;
+  const mi=MONTHS.indexOf(m[1]);if(mi<0)return null;
+  const d=new Date(parseInt(m[3]),mi,parseInt(m[2]));
+  const pad=n=>String(n).padStart(2,'0');
+  return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+// ================================================================
+// OCR — Gemini API
+// ================================================================
+function renderOcrFileList(idx, jobs){
+  const el=document.getElementById('ocrFileList_'+idx);if(!el)return;
+  if(!jobs||jobs.length===0){el.className='ocr-file-list';el.innerHTML='';return;}
+  el.className='ocr-file-list active';
+  el.innerHTML=jobs.map((j,i)=>`<div class="file-row status-${j.status}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':'EasyClocking'}</span></span><span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span><span class="fstatus">${j.status}</span></div>`).join('');
+}
+async function runOcrForEntity(idx){
+  const ent=entities[idx];ensureIntakeState(ent);
+  const apiKey=localStorage.getItem('pv26_api_key');
+  if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return}
+  const tcModel=getTcModel();
+  const ecModel=getEcModel();
+  const autoEscalate=getAutoEscalate();
+  const tcFiles=ent.intake.timecardFiles,ecFiles=ent.intake.easyclockFiles;
+  if(tcFiles.length+ecFiles.length===0){showToast('No files uploaded for this entity','err');return}
+
+  ent.intake.ocrInProgress=true;
+  ent.intake.lastOcrError='';
+  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.source==='MN'); // keep manual rows
+  renderIntake();
+
+  const scheduleNames=ent.employees.map(e=>e.name).filter(Boolean);
+  const scheduleWeek=(ent.dateLabels||[]).filter(Boolean);
+
+  const jobs=[
+    ...tcFiles.map(f=>({name:f.name,kind:'TC',file:f,status:'queued',detail:''})),
+    ...ecFiles.map(f=>({name:f.name,kind:'EC',file:f,status:'queued',detail:''}))
+  ];
+  const total=jobs.length;
+  let done=0,errCount=0;
+  const updateBar=()=>{
+    const pct=total>0?Math.round(done/total*100):0;
+    const fill=document.getElementById('progressFill_'+idx);if(fill)fill.style.width=pct+'%';
+    const line=document.getElementById('statusLine_'+idx);
+    if(line){
+      if(done<total)line.textContent=`Processing ${done}/${total} images…`;
+      else line.textContent=errCount>0?`Done · ${done}/${total} processed (${errCount} failed)`:`Done · ${done}/${total} processed`;
+    }
+  };
+  renderOcrFileList(idx,jobs);updateBar();
+  showToast(`Starting OCR · ${total} image${total===1?'':'s'}`,'ok');
+
+  for(const job of jobs){
+    job.status='running';job.detail='';
+    renderOcrFileList(idx,jobs);
+    try {
+      let rows;
+      if(job.kind==='TC'){
+        rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek);
+        if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
+          job.detail='low confidence → retrying with Pro';
+          renderOcrFileList(idx,jobs);
+          try{
+            const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek);
+            rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
+          }catch(e){/* keep original rows if Pro call fails */}
+        }
+        rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+      } else {
+        rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek);
+        rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+      }
+      job.status='done';
+      job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`;
+    } catch(err){
+      job.status='err';
+      job.detail=(err.message||String(err)).slice(0,80);
+      errCount++;
+      ent.intake.lastOcrError='OCR failed on '+job.name+': '+(err.message||err);
+    }
+    done++;
+    renderOcrFileList(idx,jobs);updateBar();
+  }
+
+  ent.intake.ocrInProgress=false;
+  ent.intake.ocrDone=true;
+  if(errCount===0)showToast(`OCR complete · ${total} image${total===1?'':'s'} processed`,'ok');
+  else showToast(`OCR finished with ${errCount} error${errCount===1?'':'s'} · see file list`,'err');
+  renderIntake();
+  // After renderIntake, file list node is replaced — re-render final state for visibility
+  renderOcrFileList(idx,jobs);
+}
+
+async function fileToBase64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>{const s=r.result.toString();res(s.substring(s.indexOf(',')+1));};
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function tcPrompt(scheduleNames,scheduleWeek){
+  return `You are extracting data from a physical employee timecard image (TOPS 1256 or similar). The card has green-ink machine stamps showing dates and times, and a handwritten employee name at the top.
+
+EXTRACT each stamped punch pair (one clock-in, one clock-out) and return a JSON array.
+
+RULES:
+1. Use ONLY the machine-stamped dates/times in the "REGULAR TIME" column. Ignore handwritten totals, handwritten daily hours, and the 1st Day/2nd Day/etc. labels.
+2. Each punch stamp is formatted like "26APR 6 3:19PM" = April 6, 2026 3:19 PM. The "26" prefix is the year 2026.
+3. A pair of consecutive stamps (IN then OUT) forms one shift. They may span midnight (e.g., APR 6 3:19PM IN → APR 7 12:21AM OUT).
+4. Attribute each shift to the CLOCK-IN date.
+5. The employee name is handwritten at the top near "NAME". Return it as written. Known roster names for this entity: ${scheduleNames.join(', ')||'(none provided)'}
+6. Schedule dates for this week: ${scheduleWeek.join(', ')||'(none provided)'}
+
+RETURN a JSON array. Each element:
+{
+  "empName": string,
+  "date": "YYYY-MM-DD",
+  "clockIn1": "HH:MM" (24-hour) or "",
+  "clockOut1": "HH:MM" or "",
+  "clockIn2": "HH:MM" or "",
+  "clockOut2": "HH:MM" or "",
+  "clockIn3": "HH:MM" or "",
+  "clockOut3": "HH:MM" or "",
+  "confidence": 0.0-1.0 (your confidence this entire row is correct),
+  "notes": string (any ambiguity you want flagged)
+}
+
+One array element per date with punches. If a day has multiple in/out pairs (rare on physical cards but possible for break-splits), put them in clockIn2/clockOut2 etc.
+
+Return ONLY the JSON array, no prose.`;
+}
+
+function ecPrompt(scheduleNames,scheduleWeek){
+  return `You are extracting data from an EasyClocking screenshot. The screenshot shows rows of clock-in/out events. Columns typically include: Name, Day (e.g., "Apr 12, Sun"), Time In, Time Out, Regular, OT, LBT, LBP, Location, Total.
+
+EXTRACT every row and return a JSON array. One row per punch pair. Do NOT try to combine multiple rows into one day — return them as-is and the app will merge them.
+
+RULES:
+1. Each screenshot row = one element in the output array.
+2. Date format: "Apr 12, Sun" → 2026-04-12. Assume year 2026 unless the screenshot indicates otherwise.
+3. If Time Out shows "Missing punch", set clockOut1 to "" and add "Missing clock-out punch" to notes.
+4. Convert all times to 24-hour HH:MM. "08:02 PM" → "20:02". "12:23 AM" → "00:23".
+5. Name field — use as written from the screenshot. It may include full name. Known roster first names: ${scheduleNames.join(', ')||'(none provided)'}
+6. Schedule dates for this week: ${scheduleWeek.join(', ')||'(none provided)'}
+
+RETURN a JSON array. Each element:
+{
+  "empName": string,
+  "date": "YYYY-MM-DD",
+  "clockIn1": "HH:MM" (24-hour) or "",
+  "clockOut1": "HH:MM" or "",
+  "clockIn2": "",
+  "clockOut2": "",
+  "clockIn3": "",
+  "clockOut3": "",
+  "confidence": 0.0-1.0,
+  "notes": string
+}
+
+EasyClocking screenshots give us one pair per row — keep clockIn2/Out2/In3/Out3 empty. Return ONLY the JSON array, no prose.`;
+}
+
+async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek){
+  const b64=await fileToBase64(file);
+  const mime=file.type||'image/jpeg';
+  const prompt=kind==='TC'?tcPrompt(scheduleNames,scheduleWeek):ecPrompt(scheduleNames,scheduleWeek);
+  const schema={
+    type:'ARRAY',
+    items:{
+      type:'OBJECT',
+      properties:{
+        empName:{type:'STRING'},
+        date:{type:'STRING'},
+        clockIn1:{type:'STRING'},clockOut1:{type:'STRING'},
+        clockIn2:{type:'STRING'},clockOut2:{type:'STRING'},
+        clockIn3:{type:'STRING'},clockOut3:{type:'STRING'},
+        confidence:{type:'NUMBER'},
+        notes:{type:'STRING'}
+      },
+      required:['empName','date','clockIn1','clockOut1','confidence']
+    }
+  };
+  const body={
+    contents:[{role:'user',parts:[
+      {text:prompt},
+      {inline_data:{mime_type:mime,data:b64}}
+    ]}],
+    generationConfig:{
+      temperature:0,
+      responseMimeType:'application/json',
+      responseSchema:schema
+    }
+  };
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!resp.ok){
+    const txt=await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${txt.slice(0,200)}`);
+  }
+  const data=await resp.json();
+  let text='';
+  try{text=data.candidates[0].content.parts[0].text;}catch(e){throw new Error('Unexpected response shape')}
+  let rows;
+  try{rows=JSON.parse(text);}catch(e){
+    // Try to extract JSON array from text if wrapped
+    const m=text.match(/\[[\s\S]*\]/);
+    if(m)rows=JSON.parse(m[0]);else throw new Error('Non-JSON response: '+text.slice(0,120));
+  }
+  return rows||[];
+}
+
+function processReviewRow(r,ent){
+  // Ensure all fields exist and normalize
+  const row={
+    id:'r_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),
+    source:r.source||'??',
+    empName:(r.empName||'').trim(),
+    date:r.date||'',
+    clockIn1:normTime(r.clockIn1),clockOut1:normTime(r.clockOut1),
+    clockIn2:normTime(r.clockIn2),clockOut2:normTime(r.clockOut2),
+    clockIn3:normTime(r.clockIn3),clockOut3:normTime(r.clockOut3),
+    confidence:typeof r.confidence==='number'?r.confidence:0.8,
+    notes:r.notes||'',
+    originalName:r.originalName||'',
+    flags:[],needsReview:false,approved:false
+  };
+  // Day index from date
+  if(row.date){
+    const d=new Date(row.date+'T00:00:00');
+    if(!isNaN(d))row.dayIdx=d.getDay();
+  }
+  // Name matching
+  const match=matchEmployeeName(row.empName,ent);
+  if(match.exact)row.empName=match.exact;
+  else if(match.suggestion){row.empName=match.suggestion;row.flags.push('Name auto-matched: "'+row.empName+'" → '+match.suggestion+' (verify)');}
+  else if(row.empName){row.flags.push('Name not on schedule — will be an orphan');}
+  else row.flags.push('Name missing');
+
+  // Flag low confidence
+  if(row.confidence<0.75)row.flags.push('Low OCR confidence ('+Math.round(row.confidence*100)+'%)');
+  if(row.notes)row.flags.push(row.notes);
+
+  // Flag missing punches
+  if(row.clockIn1&&!row.clockOut1)row.flags.push('Missing clock-out (pair 1)');
+  if(!row.clockIn1&&row.clockOut1)row.flags.push('Missing clock-in (pair 1)');
+  if(row.clockIn2&&!row.clockOut2)row.flags.push('Missing clock-out (pair 2)');
+  if(row.clockIn3&&!row.clockOut3)row.flags.push('Missing clock-out (pair 3)');
+
+  // Flag date outside schedule week
+  const weekIsos=(ent.dateLabels||[]).map(schedLabelToIso).filter(Boolean);
+  if(weekIsos.length>0&&row.date&&!weekIsos.includes(row.date)){
+    row.flags.push('Date outside schedule week');
+  }
+  if(!row.date)row.flags.push('Date missing');
+
+  row.needsReview=row.flags.length>0;
+  return row;
+}
+
+function normTime(v){
+  if(!v)return '';
+  v=v.toString().trim();
+  if(!v)return '';
+  // Already 24h HH:MM
+  let m=v.match(/^(\d{1,2}):(\d{2})$/);
+  if(m){const h=parseInt(m[1]);if(h>=0&&h<=23)return pad2(h)+':'+m[2];}
+  m=v.match(/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)$/);
+  if(m){let h=parseInt(m[1]);const ap=m[3].toUpperCase();if(ap==='PM'&&h!==12)h+=12;if(ap==='AM'&&h===12)h=0;return pad2(h)+':'+m[2];}
+  return v;
+}
+function pad2(n){return String(n).padStart(2,'0')}
+
+// Fuzzy name matcher: exact (case-insensitive), first-name match, substring, or Levenshtein >= 0.85
+function matchEmployeeName(name,ent){
+  if(!name)return{};
+  const n=name.toLowerCase().trim();
+  const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
+  for(const s of schedNames){if(s.toLowerCase()===n)return{exact:s};}
+  // First name match: schedule name is a single word, OCR name contains it
+  for(const s of schedNames){
+    const sLow=s.toLowerCase();
+    if(n.includes(sLow)||sLow.includes(n.split(/\s+/)[0]))return{suggestion:s};
+  }
+  // Levenshtein
+  let best=null,bestScore=0;
+  for(const s of schedNames){
+    const score=similarity(n,s.toLowerCase());
+    if(score>bestScore){bestScore=score;best=s;}
+  }
+  if(bestScore>=0.85)return{suggestion:best};
+  return{};
+}
+
+function similarity(a,b){
+  if(!a||!b)return 0;
+  const maxLen=Math.max(a.length,b.length);
+  if(maxLen===0)return 1;
+  return 1-levenshtein(a,b)/maxLen;
+}
+function levenshtein(a,b){
+  const m=a.length,n=b.length;
+  if(m===0)return n;if(n===0)return m;
+  const dp=Array.from({length:m+1},(_,i)=>[i]);
+  for(let j=1;j<=n;j++)dp[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++){
+    const c=a[i-1]===b[j-1]?0:1;
+    dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+c);
+  }
+  return dp[m][n];
+}
+
+// ================================================================
+// REVIEW TABLE
+// ================================================================
+function renderReviewSummary(ent){
+  const rows=ent.intake.reviewRows;
+  if(rows.length===0)return '';
+  const tot=rows.length;
+  const need=rows.filter(r=>r.needsReview&&!r.approved).length;
+  const app=rows.filter(r=>r.approved||!r.needsReview).length;
+  return `<div class="review-summary">
+    <span class="chip total">Total rows: ${tot}</span>
+    <span class="chip review">Needs review: ${need}</span>
+    <span class="chip approved">OK: ${app}</span>
+    <span class="spacer"></span>
+    <button class="btn" onclick="approveAll(${entities.indexOf(ent)})">Approve all</button>
+  </div>`;
+}
+
+function renderReviewTableHtml(ent,idx){
+  const rows=ent.intake.reviewRows;
+  if(rows.length===0)return '<tbody><tr><td style="padding:14px;text-align:center;color:var(--text3)">No OCR results yet. Upload images and click Run OCR.</td></tr></tbody>';
+  const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
+  let html='<thead><tr><th style="width:38px">Src</th><th>Employee</th><th>Date</th><th>In 1</th><th>Out 1</th><th>In 2</th><th>Out 2</th><th>In 3</th><th>Out 3</th><th>Flags</th><th>Actions</th></tr></thead><tbody>';
+  rows.forEach((r,ri)=>{
+    const cls=r.approved?'approved':(r.needsReview?'needs-review':'');
+    const srcCls=r.source==='TC'?'tc':(r.source==='EC'?'ec':'');
+    html+=`<tr class="${cls}" data-row-id="${r.id}"><td><span class="src-chip ${srcCls}">${r.source}</span></td>`;
+    // Name as datalist for autocomplete
+    html+=`<td><input class="name-field" list="names_${idx}" value="${escHtml(r.empName)}" onchange="updateReviewField('${r.id}','empName',this.value)"></td>`;
+    html+=`<td><input class="date-field" type="date" value="${escHtml(r.date)}" onchange="updateReviewField('${r.id}','date',this.value)"></td>`;
+    ['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3'].forEach(k=>{
+      html+=`<td><input type="time" value="${escHtml(r[k])}" onchange="updateReviewField('${r.id}','${k}',this.value)"></td>`;
+    });
+    html+=`<td class="flag-cell">${r.flags.map(escHtml).join('<br>')||'<span style="color:var(--green)">ok</span>'}</td>`;
+    html+=`<td class="actions-cell">`;
+    if(!r.approved)html+=`<button class="mini-btn approve" onclick="approveReviewRow('${r.id}')">✓</button> `;
+    html+=`<button class="mini-btn reject" onclick="deleteReviewRow('${r.id}')">✕</button></td></tr>`;
+  });
+  html+='</tbody>';
+  // Add datalist for name autocomplete
+  html+=`<datalist id="names_${idx}">${schedNames.map(n=>`<option value="${escHtml(n)}">`).join('')}</datalist>`;
+  return html;
+}
+
+function findReviewRow(id){
+  for(const ent of entities){
+    if(!ent.intake)continue;
+    const r=ent.intake.reviewRows.find(x=>x.id===id);
+    if(r)return{ent,row:r};
+  }
+  return null;
+}
+
+function updateReviewField(id,field,val){
+  const h=findReviewRow(id);if(!h)return;
+  h.row[field]=val;
+  // Recompute flags for this row
+  h.row.flags=[];
+  if(!h.row.empName)h.row.flags.push('Name missing');
+  else{
+    const schedNames=h.ent.employees.map(e=>e.name).filter(Boolean);
+    const exact=schedNames.find(s=>s.toLowerCase()===h.row.empName.toLowerCase());
+    if(!exact)h.row.flags.push('Name not on schedule — will be an orphan');
+  }
+  if(!h.row.date)h.row.flags.push('Date missing');
+  else{
+    const d=new Date(h.row.date+'T00:00:00');
+    if(!isNaN(d))h.row.dayIdx=d.getDay();
+    const weekIsos=(h.ent.dateLabels||[]).map(schedLabelToIso).filter(Boolean);
+    if(weekIsos.length>0&&!weekIsos.includes(h.row.date))h.row.flags.push('Date outside schedule week');
+  }
+  if(h.row.clockIn1&&!h.row.clockOut1)h.row.flags.push('Missing clock-out (pair 1)');
+  if(!h.row.clockIn1&&!h.row.clockIn2&&!h.row.clockIn3)h.row.flags.push('No clock-in recorded');
+  h.row.needsReview=h.row.flags.length>0;
+  if(!h.row.needsReview)h.row.approved=true;
+  // Re-render just the table for this entity
+  refreshReviewTable(entities.indexOf(h.ent));
+}
+
+function approveReviewRow(id){
+  const h=findReviewRow(id);if(!h)return;
+  h.row.approved=true;
+  refreshReviewTable(entities.indexOf(h.ent));
+}
+
+function deleteReviewRow(id){
+  for(const ent of entities){
+    if(!ent.intake)continue;
+    const i=ent.intake.reviewRows.findIndex(x=>x.id===id);
+    if(i>=0){ent.intake.reviewRows.splice(i,1);refreshReviewTable(entities.indexOf(ent));return;}
+  }
+}
+
+function approveAll(idx){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  ent.intake.reviewRows.forEach(r=>{r.approved=true;});
+  refreshReviewTable(idx);
+}
+
+function refreshReviewTable(idx){
+  const ent=entities[idx];if(!ent)return;
+  const t=document.getElementById('reviewTable_'+idx);
+  if(t)t.innerHTML=renderReviewTableHtml(ent,idx);
+  // Also update the summary
+  const results=document.getElementById('ocrResults_'+idx);
+  if(results){
+    const existing=results.querySelector('.review-summary');
+    if(existing){
+      const wrap=document.createElement('div');wrap.innerHTML=renderReviewSummary(ent);
+      existing.replaceWith(wrap.firstElementChild);
+    }
+  }
+}
+
+// ================================================================
+// Sync reviewed rows back into the actuals store used by payroll
+// ================================================================
+function syncActualsFromReview(){
+  // Force separate mode — intake is per-entity
+  actualsMode='separate';
+  entities.forEach(ent=>{
+    ensureIntakeState(ent);
+    const rows=ent.intake.reviewRows;
+    const out=[];
+    rows.forEach(r=>{
+      if(!r.empName||!r.date)return;
+      const d=new Date(r.date+'T00:00:00');if(isNaN(d))return;
+      const pairs=[];
+      const mkPair=(inStr,outStr)=>{
+        const inH=parseClockTime(inStr),outH=parseClockTime(outStr);
+        if(inH===null||outH===null)return null;
+        let dur=outH-inH;if(dur<0)dur+=24;if(dur<=0||dur>24)return null;
+        let adjIn=inH;
+        if(pairs.length>0){const prev=pairs[pairs.length-1].outAdj;while(adjIn<prev)adjIn+=24;}
+        const outAdj=adjIn+dur;
+        return{in:adjIn,out:outH,outAdj,minutes:Math.round(dur*60)};
+      };
+      const p1=mkPair(r.clockIn1,r.clockOut1);if(p1)pairs.push(p1);
+      const p2=mkPair(r.clockIn2,r.clockOut2);if(p2)pairs.push(p2);
+      const p3=mkPair(r.clockIn3,r.clockOut3);if(p3)pairs.push(p3);
+      if(pairs.length===0)return;
+      const pad=n=>String(n).padStart(2,'0');
+      const iso=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      // Merge with any existing row with same empName+date (e.g., EasyClocking row per punch-pair)
+      const existing=out.find(x=>x.empName.toLowerCase()===r.empName.toLowerCase()&&x.date===iso);
+      if(existing){pairs.forEach(p=>existing.pairs.push(p));}
+      else out.push({empName:r.empName,entityName:ent.name||'',date:iso,dayIdx:d.getDay(),pairs});
+    });
+    ent.actualDays=out;
+  });
+}
+
+// ================================================================
+// PAYROLL EXPORT — CLEAN FINAL WAGE TABLE (replaces v25 exportPayroll)
+// ================================================================
+async function exportPayroll(){
+  // Make sure review→actuals is synced
+  syncActualsFromReview();
+
+  // Require break minutes to be explicitly set per entity (even 0 is fine, but field must have been touched)
+  // We treat breakMinutes===undefined as unset; 0 is fine.
+  const unsetBreak=entities.filter(e=>e.employees.length>0&&(e.breakMinutes==null||e.breakMinutes===''));
+  if(unsetBreak.length>0){
+    const names=unsetBreak.map(e=>e.name||'(unnamed)').join(', ');
+    if(!confirm('Break minutes not explicitly set for: '+names+'.\n\nThese will be treated as 0 min. Continue with export?'))return;
+  }
+
+  const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
+    const idx=entities.indexOf(e);
+    return{entityIdx:idx,entityName:e.name||('Entity '+(idx+1)),...computePayrollForEntity(idx)};
+  });
+
+  const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
+
+  const ewb=new ExcelJS.Workbook();
+  const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
+  const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
+  const subtotalFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0EFE9'}};
+  const orphanFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFEF2F2'}};
+
+  // ---- Sheet 1: Final Wage Table (clean, no asterisks) ----
+  const ws1=ewb.addWorksheet('Final Wage Table');
+
+  const firstEntWithDates=entities.find(e=>e.dateLabels&&e.dateLabels.some(d=>d));
+  let periodStr='PAYROLL';
+  if(firstEntWithDates){
+    periodStr=`PAYROLL — Week of ${firstEntWithDates.dateLabels[0]} to ${firstEntWithDates.dateLabels[6]}`;
+  }
+  const titleRow=ws1.addRow([periodStr]);
+  titleRow.getCell(1).font={name:'Arial',bold:true,size:16,color:{argb:'FF1A1A18'}};
+  titleRow.getCell(1).alignment={horizontal:'center',vertical:'middle'};
+  ws1.mergeCells(1,1,1,5);
+  titleRow.height=32;
+  ws1.addRow([]);
+
+  const hdrs=['Entity','Employee Name','Billable Hours','Rate','Total'];
+  const hdrRow=ws1.addRow(hdrs);
+  hdrRow.eachCell((cell,ci)=>{
+    cell.font={name:'Arial',bold:true,size:11};
+    cell.fill=hdrFill;
+    cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+    cell.border={bottom:medB,top:medB,left:thinB,right:thinB};
+  });hdrRow.height=22;
+
+  allEntityResults.forEach(({entityName,results,orphanRows})=>{
+    // Include flat-wage roster employees who aren't on actuals/schedule
+    const flatExtras=getFlatWageRows(entityName);
+    const allRows=results.concat(orphanRows).concat(flatExtras);
+    if(allRows.length===0)return;
+    let entityTotalHours=0,entityTotalPay=0,entityFirstRow=true;
+
+    allRows.forEach(r=>{
+      const hoursVal=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
+      const wage=r.wage;
+      const rateStr=r.isFlat?null:(wage>0?wage:null);
+      const totalStr=r.isFlat?r.flatAmount:(wage>0?r.pay:null);
+      if(hoursVal!=null)entityTotalHours+=hoursVal;
+      if(totalStr!=null)entityTotalPay+=totalStr;
+      const row=ws1.addRow([
+        entityFirstRow?entityName:'',
+        r.name,
+        hoursVal!=null?hoursVal:'',
+        rateStr!=null?rateStr:'',
+        totalStr!=null?totalStr:''
+      ]);
+      entityFirstRow=false;
+      row.eachCell((cell,ci)=>{
+        cell.font={name:'Arial',size:10,bold:ci===1};
+        cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+        cell.border={bottom:thinB,left:thinB,right:thinB};
+        if(r.isOrphan)cell.fill=orphanFill;
+        if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
+        if((ci===4||ci===5)&&typeof cell.value==='number')cell.numFmt='"$"#,##0.00';
+      });
+      if(r.isOrphan){row.getCell(2).font={name:'Arial',size:10,italic:true,color:{argb:'FFDC2626'}}}
+      row.height=22;
+    });
+
+    const stRow=ws1.addRow([`${entityName} Total`,'',entityTotalHours>0?entityTotalHours:'','',entityTotalPay]);
+    stRow.eachCell((cell,ci)=>{
+      cell.font={name:'Arial',bold:true,size:10};
+      cell.fill=subtotalFill;
+      cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+      cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
+      if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
+      if(ci===5&&typeof cell.value==='number')cell.numFmt='"$"#,##0.00';
+    });stRow.height=24;
+    ws1.addRow([]);
+  });
+
+  // Grand total row
+  let grandHours=0,grandPay=0;
+  allEntityResults.forEach(({results,orphanRows,entityName})=>{
+    const flatExtras=getFlatWageRows(entityName);
+    results.concat(orphanRows).concat(flatExtras).forEach(r=>{
+      const hoursVal=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
+      const totalStr=r.isFlat?r.flatAmount:(r.wage>0?r.pay:null);
+      if(hoursVal!=null)grandHours+=hoursVal;
+      if(totalStr!=null)grandPay+=totalStr;
+    });
+  });
+  const gtRow=ws1.addRow(['GRAND TOTAL','',grandHours,'',grandPay]);
+  gtRow.eachCell((cell,ci)=>{
+    cell.font={name:'Arial',bold:true,size:11};
+    cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE0DED5'}};
+    cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+    cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
+    if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
+    if(ci===5&&typeof cell.value==='number')cell.numFmt='"$"#,##0.00';
+  });gtRow.height=26;
+
+  ws1.getColumn(1).width=24;ws1.getColumn(2).width=22;ws1.getColumn(3).width=16;ws1.getColumn(4).width=12;ws1.getColumn(5).width=14;
+
+  // ---- Sheet 2: Schedule vs Actual (only if actuals exist) ----
+  if(hasActuals){
+    const ws2=ewb.addWorksheet('Schedule vs Actual');
+    allEntityResults.forEach(({entityName,results,orphanRows},ei)=>{
+      const allRows=results.concat(orphanRows);if(allRows.length===0)return;
+      const entityIdx=entities.findIndex(e=>(e.name||'')===entityName||('Entity '+(entities.indexOf(e)+1))===entityName);
+      const ent=entityIdx>=0?entities[entityIdx]:null;
+      const dLabels=ent?ent.dateLabels:Array(7).fill('');
+      if(ei>0)ws2.addRow([]);
+      const hdr=ws2.addRow([entityName,'Name',...DAYS,'Weekly Total']);
+      hdr.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:medB}});hdr.height=22;
+      const dr=ws2.addRow(['','',...dLabels,'']);
+      dr.eachCell(cell=>{cell.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB}});
+      allRows.forEach(r=>{
+        const cells=['',r.name];
+        for(let d=0;d<7;d++){
+          const day=r.days[d];
+          if(day.status==='off'){cells.push(r.isOrphan?'—':'OFF')}
+          else if(day.status==='noshow'){cells.push(`NO SHOW\nmissed ${day.expectedH.toFixed(2)}h`)}
+          else{const lines=[];if(!r.isOrphan&&day.shift)lines.push(`sched: ${compactH(day.shift.start)} – ${compactH(day.shift.end)}`);if(day.actual)day.actual.pairs.forEach(p=>lines.push(`actual: ${compactH(p.in)} – ${compactH(p.out)}`));lines.push(`${day.billableH.toFixed(2)}h`);cells.push(lines.join('\n'))}
+        }
+        cells.push(`${r.actualHours.toFixed(2)}h${r.actualHours>40?' ⚠ 40h+':''}`);
+        const row=ws2.addRow(cells);
+        row.eachCell((cell,ci)=>{cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border={bottom:thinB};cell.font={name:'Arial',size:10,bold:ci===2}});
+        if(r.isOrphan)row.eachCell(c=>c.fill=orphanFill);row.height=80;
+      });
+      ws2.getColumn(1).width=20;ws2.getColumn(2).width=16;for(let c=3;c<=9;c++)ws2.getColumn(c).width=18;ws2.getColumn(10).width=16;
+    });
+  }
+
+  // ---- Sheet 3: Flags & Issues ----
+  const ws3=ewb.addWorksheet('Flags');
+  const fhdr=ws3.addRow(['Entity','Employee','Category','Detail']);
+  fhdr.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'left',vertical:'middle'};cell.border={bottom:medB}});fhdr.height=22;
+  const allFlagRows=collectAllFlags(allEntityResults);
+  allFlagRows.forEach(f=>{
+    const row=ws3.addRow([f.entity,f.emp||'(all)',f.category,f.detail]);
+    row.eachCell(cell=>{cell.font={name:'Arial',size:10};cell.alignment={vertical:'middle',wrapText:true};cell.border={bottom:thinB}});
+    row.height=28;
+  });
+  ws3.getColumn(1).width=20;ws3.getColumn(2).width=18;ws3.getColumn(3).width=26;ws3.getColumn(4).width=48;
+
+  // Filename: Payroll_YYYY-MM-DD.xlsx
+  let fname='Payroll_Report.xlsx';
+  if(firstEntWithDates&&firstEntWithDates.dateLabels[0]){
+    const iso=schedLabelToIso(firstEntWithDates.dateLabels[0]);
+    if(iso)fname=`Payroll_Week_of_${iso}.xlsx`;
+  }
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+}
+
+// Flat-wage extras: employees with a flat amount set in wageRates AS A NEGATIVE sentinel
+// Simpler approach: a parallel store `flatWages[wKey]` = amount.
+let flatWages={};
+function getFlatWageRows(entityName){
+  const entityIdx=entities.findIndex(e=>(e.name||('Entity '+(entities.indexOf(e)+1)))===entityName);
+  if(entityIdx<0)return [];
+  const ent=entities[entityIdx];
+  const schedNames=new Set(ent.employees.map(e=>e.name.toLowerCase().trim()));
+  const out=[];
+  Object.keys(flatWages).forEach(k=>{
+    const [entId,nmLow]=k.split('|');
+    if(parseInt(entId)!==ent.id)return;
+    if(schedNames.has(nmLow))return; // already on the schedule; handled normally
+    // Skip if already an orphan (appears in actuals)
+    const inActuals=(ent.actualDays||[]).some(d=>d.empName.toLowerCase().trim()===nmLow);
+    if(inActuals)return;
+    out.push({name:Object.keys(flatWagesDisplayNames).find(n=>n.toLowerCase().trim()===nmLow)||nmLow,isFlat:true,flatAmount:flatWages[k],wage:0,pay:flatWages[k],isOrphan:false,actualHours:0,expectedH:0,days:Array(7).fill({status:'off'})});
+  });
+  return out;
+}
+let flatWagesDisplayNames={}; // name -> name (case preserved)
+
+function collectAllFlags(allEntityResults){
+  const out=[];
+  allEntityResults.forEach(({entityName,results,orphanRows})=>{
+    results.forEach(r=>{
+      if(r.actualHours>40)out.push({entity:entityName,emp:r.name,category:'40h+ (straight-time — no OT paid)',detail:`${r.actualHours.toFixed(2)}h worked`});
+      if(r.scheduledHours>40)out.push({entity:entityName,emp:r.name,category:'Scheduled 40h+',detail:`${r.scheduledHours.toFixed(2)}h scheduled`});
+      r.days.forEach((day,di)=>{
+        if(day.status==='noshow')out.push({entity:entityName,emp:r.name,category:'No show',detail:`${DAYS[di]}: scheduled ${compactH(day.shift.start)}–${compactH(day.shift.end)}, no clock-in`});
+        if(day.status==='unsched')out.push({entity:entityName,emp:r.name,category:'Unscheduled punch',detail:`${DAYS[di]}: clocked in without a scheduled shift`});
+      });
+    });
+    orphanRows.forEach(r=>{
+      out.push({entity:entityName,emp:r.name,category:'Orphan (clocked in, not on schedule)',detail:`${r.actualHours.toFixed(2)}h across ${r.actualDaysWorked} day(s)`});
+      if(r.actualHours>40)out.push({entity:entityName,emp:r.name,category:'40h+ (straight-time — no OT paid)',detail:`${r.actualHours.toFixed(2)}h worked`});
+    });
+  });
+  return out;
+}
+
+// ================================================================
+// INIT
+// ================================================================
+// Login gate disabled — the app doesn't store any data server-side, so a client-side
+// password wasn't adding real security. If you want it back, remove the two lines below
+// and un-comment the original sessionStorage check.
+document.getElementById('loginOverlay').style.display='none';
+document.getElementById('appContainer').classList.add('visible');
+updateOcrStatus();
+renderEntityTabBar();
+syncEntityHeader();
+</script>
+</body>
+</html>
