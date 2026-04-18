@@ -2209,9 +2209,10 @@ async function runOcrForEntity(idx){
     }
   };
   renderOcrFileList(idx,jobs);updateBar();
-  showToast(`Starting OCR · ${total} image${total===1?'':'s'}`,'ok');
+  const CONCURRENCY=3;
+  showToast(`Starting OCR · ${total} image${total===1?'':'s'} (${CONCURRENCY} at a time)`,'ok');
 
-  for(const job of jobs){
+  async function runOne(job){
     job.status='running';job.detail='';
     renderOcrFileList(idx,jobs);
     try {
@@ -2235,13 +2236,26 @@ async function runOcrForEntity(idx){
       job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`;
     } catch(err){
       job.status='err';
-      job.detail=(err.message||String(err)).slice(0,80);
+      job.detail=(err.message||String(err)).slice(0,120);
       errCount++;
       ent.intake.lastOcrError='OCR failed on '+job.name+': '+(err.message||err);
     }
     done++;
     renderOcrFileList(idx,jobs);updateBar();
   }
+
+  // Pool of CONCURRENCY workers pulling from the jobs queue
+  const queue=jobs.slice();
+  async function worker(){
+    while(queue.length){
+      const job=queue.shift();
+      if(!job)break;
+      await runOne(job);
+    }
+  }
+  const workers=[];
+  for(let i=0;i<Math.min(CONCURRENCY,total);i++)workers.push(worker());
+  await Promise.all(workers);
 
   ent.intake.ocrInProgress=false;
   ent.intake.ocrDone=true;
@@ -2259,6 +2273,41 @@ async function fileToBase64(file){
     r.onerror=rej;
     r.readAsDataURL(file);
   });
+}
+
+// Downscale large images to reduce upload size and speed up Gemini calls.
+// Preserves aspect ratio. Long edge capped at MAX_EDGE (2048px by default).
+async function prepareImageForOcr(file,maxEdge){
+  const ME=maxEdge||2048;
+  try {
+    const bitmap=await createImageBitmap(file);
+    const w=bitmap.width, h=bitmap.height;
+    if(w<=ME && h<=ME && file.size<1_500_000){
+      // small enough, send as-is
+      bitmap.close && bitmap.close();
+      const b64=await fileToBase64(file);
+      return {b64, mime:file.type||'image/jpeg'};
+    }
+    const scale=Math.min(1, ME/Math.max(w,h));
+    const nw=Math.round(w*scale), nh=Math.round(h*scale);
+    const canvas=document.createElement('canvas');
+    canvas.width=nw; canvas.height=nh;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(bitmap,0,0,nw,nh);
+    bitmap.close && bitmap.close();
+    const blob=await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.88));
+    const b64=await new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=()=>{const s=r.result.toString();res(s.substring(s.indexOf(',')+1));};
+      r.onerror=rej;
+      r.readAsDataURL(blob);
+    });
+    return {b64, mime:'image/jpeg'};
+  } catch(e){
+    // Fallback: send original
+    const b64=await fileToBase64(file);
+    return {b64, mime:file.type||'image/jpeg'};
+  }
 }
 
 function tcPrompt(scheduleNames,scheduleWeek){
@@ -2324,8 +2373,7 @@ EasyClocking screenshots give us one pair per row — keep clockIn2/Out2/In3/Out
 }
 
 async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek){
-  const b64=await fileToBase64(file);
-  const mime=file.type||'image/jpeg';
+  const {b64,mime}=await prepareImageForOcr(file,2048);
   const prompt=kind==='TC'?tcPrompt(scheduleNames,scheduleWeek):ecPrompt(scheduleNames,scheduleWeek);
   const schema={
     type:'ARRAY',
