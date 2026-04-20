@@ -412,6 +412,31 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
 /* === Template download button on intake === */
 .template-download{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;color:var(--text2);text-decoration:none}
 .template-download:hover{border-color:var(--blue);color:var(--blue)}
+
+/* === Payroll sub-tabs (Time Card Data / Payroll Calculation) === */
+.payroll-subtab-bar{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--border);margin:12px 0 0 0;padding:0}
+.payroll-subtab{padding:8px 16px;font-family:'Outfit',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--text2);border-radius:6px 6px 0 0;margin-bottom:-1px;transition:all 0.12s}
+.payroll-subtab:hover:not(.active){color:var(--text);background:var(--surface)}
+.payroll-subtab.active{color:var(--text);background:var(--surface);border-color:var(--border);border-bottom-color:var(--surface);font-weight:600}
+.payroll-subtab-content{padding:14px 0}
+
+/* === Pay method toggle === */
+.paymethod-toggle{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:11px}
+.paymethod-toggle button{padding:5px 10px;background:var(--surface);color:var(--text3);border:none;cursor:pointer;font-weight:600;font-family:'Outfit',sans-serif;letter-spacing:0.3px;text-transform:uppercase}
+.paymethod-toggle button+button{border-left:1px solid var(--border)}
+.paymethod-toggle button:hover{background:#F0EEE6}
+.paymethod-toggle button.selected{background:#1A1A18;color:#FAF9F4}
+.paymethod-toggle button.selected:hover{background:#2A2A27}
+.split-input{width:86px;border:1px solid var(--border);border-radius:4px;text-align:right;padding:5px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface)}
+.split-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,0.15)}
+.cash-display{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text2);font-weight:500}
+
+/* Export groups */
+.export-group-section{margin-top:20px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.export-group-section h4{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text1);text-transform:uppercase;letter-spacing:0.5px}
+.export-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
+.export-row .export-label{font-size:12px;font-weight:500;min-width:170px;color:var(--text2)}
+.ot-flag-inline{color:var(--dark-orange);font-weight:600;font-size:11px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -589,10 +614,14 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div id="payrollEntityContent"></div>
 
     <!-- Export buttons — moved to the BOTTOM so the all-entity preview sits just above them. -->
-    <div class="toolbar" id="payrollToolbar" style="display:none;margin-top:16px">
-      <div class="export-group">
-        <button class="btn btn-green" onclick="exportPayroll()">Export as Excel</button>
-        <button class="btn" onclick="exportPayrollPdf()">Export as PDF</button>
+    <div class="toolbar" id="payrollToolbar" style="display:none;margin-top:16px;flex-direction:column;align-items:stretch;gap:8px">
+      <div class="export-group-section">
+        <div class="export-row"><div class="export-label">Cash-Only Report</div><button class="btn btn-green" onclick="exportCashExcel()">Excel</button><button class="btn" onclick="exportCashPdf()">PDF</button></div>
+        <div class="export-row"><div class="export-label">Deposit-Only Report</div><button class="btn btn-green" onclick="exportDepositExcel()">Excel</button><button class="btn" onclick="exportDepositPdf()">PDF</button></div>
+        <div class="export-row"><div class="export-label">Combined Report</div><button class="btn btn-green" onclick="exportCombinedExcel()">Excel</button><button class="btn" onclick="exportCombinedPdf()">PDF</button></div>
+        <div class="export-row"><div class="export-label">Time Card Data</div><button class="btn btn-green" onclick="exportTimecardExcel()">Excel</button><button class="btn" onclick="exportTimecardPdf()">PDF</button></div>
+        <div class="export-row"><div class="export-label">Payroll Calculation</div><button class="btn btn-green" onclick="exportPayrollCalcExcel()">Excel</button><button class="btn" onclick="exportPayrollCalcPdf()">PDF</button></div>
+        <div class="export-row"><div class="export-label">Full Report</div><button class="btn btn-green" onclick="exportFullExcel()">Excel</button><button class="btn" onclick="exportFullPdf()">PDF</button></div>
       </div>
     </div>
   </div>
@@ -633,7 +662,42 @@ let actualsMode='separate'; // always 'separate' now (uploads moved to Intake ta
 let currentView='employee',currentTab='schedule',flagView='employee',activeEmp=null;
 let actualDays=[]; // combined mode global   // [{empName,entityName,date,dayIdx,pairs:[{in,out,outAdj,minutes}]}]
 let wageRates={};    // key: wKey(entityId, empName) — survives entity renames
-let roundingFactors={};
+let roundingFactors={}; // legacy — no-op retained for back-compat
+let payMethod={};     // key: wKey(entId, empName) -> 'deposit' | 'cash' | 'both'
+let splitAmounts={};  // key: wKey -> {deposit: number}
+let activePayrollSubTab={}; // key: entityIdx -> 'timecard' | 'payroll'
+
+function getPayMethod(entId,empName){return payMethod[wKey(entId,empName)]||'deposit'}
+function setPayMethod(entId,empName,method){
+  const k=wKey(entId,empName);
+  payMethod[k]=method;
+  if(method!=='both')delete splitAmounts[k];
+}
+function getSplitDeposit(entId,empName){const s=splitAmounts[wKey(entId,empName)];return s?s.deposit:0}
+function setSplitDeposit(entId,empName,amt){
+  const k=wKey(entId,empName);
+  if(!splitAmounts[k])splitAmounts[k]={deposit:0};
+  splitAmounts[k].deposit=amt;
+}
+// Rounding rules: cash = 0dp, deposit = 2dp, both = deposit 2dp + cash 0dp
+function roundCash(n){return Math.round(n||0)}
+function roundDeposit(n){return Math.round((n||0)*100)/100}
+function computePayBreakdown(row,entId){
+  const method=row.isOrphan?getPayMethod(entId,row.schedName||row.name):getPayMethod(entId,row.schedName||row.name);
+  const total=row.pay||0;
+  if(method==='cash'){
+    const cash=roundCash(total);
+    return{method,total,deposit:0,cash,final:cash};
+  }
+  if(method==='deposit'){
+    const deposit=roundDeposit(total);
+    return{method,total,deposit,cash:0,final:deposit};
+  }
+  // both: deposit typed by user (2dp), cash = round(total - deposit)
+  const deposit=roundDeposit(getSplitDeposit(entId,row.schedName||row.name));
+  const cash=roundCash(total-deposit);
+  return{method,total,deposit,cash,final:roundDeposit(deposit)+cash};
+}
 
 // Wage/rounding key uses stable entity id + employee name (case-insensitive).
 // Survives entity renames; does not survive entity deletion.
@@ -1608,6 +1672,8 @@ function renderPayrollEntityContent(idx){
   const entityName=escHtml(ent.name||'Entity '+(idx+1));
   const empCount=ent.employees.length;
 
+  const activeSub=activePayrollSubTab[idx]||'timecard';
+
   container.innerHTML=`
     <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px">
       <strong style="font-size:15px">${entityName}</strong>
@@ -1618,17 +1684,25 @@ function renderPayrollEntityContent(idx){
       <input type="number" value="${ent.breakMinutes}" step="1" min="0" onchange="setEntityBreak(${idx},this.value)">
       <span>minutes</span>
       ${ent.breakMinutesSet?'<span class="break-confirmed" title="Break minutes confirmed">✓ confirmed</span>':`<button class="btn btn-small break-confirm-btn" onclick="confirmEntityBreak(${idx})" title="Confirm this entity's break minutes">Confirm ${ent.breakMinutes} min</button>`}
-      <span class="ot-note">The mandatory break is deducted from billable hours every day the employee clocks in, <em>even if they took no break</em>. If they took a longer break than this minimum (based on the gap between clock-in pairs), the longer actual break is deducted instead. Hours over 40/wk are flagged as OT informationally — no 1.5× multiplier.</span>
+      <span class="ot-note">Mandatory break is deducted from billable hours every day the employee clocks in. If their actual break (gap between clock-in pairs) is longer, the longer actual break is deducted instead. Hours over 40/wk are flagged informationally — straight-time only, no OT billing.</span>
     </div>
     <div class="info-bar" id="payrollInfoBar" style="display:flex"></div>
     <h2 id="payrollGridHeading" style="display:none;font-size:18px;font-weight:600;margin-bottom:10px">Weekly Actuals</h2>
     <div class="sched-table-wrap" id="payrollGridWrap" style="display:none;margin-bottom:20px"><table class="sched" id="payrollGrid"></table></div>
-    <h2 id="paySummaryHeading" style="display:none;font-size:18px;font-weight:600;margin:20px 0 10px">Pay Summary &amp; Metrics</h2>
-    <div class="sched-table-wrap" id="paySummaryWrap" style="display:none;margin-bottom:20px"><table class="sched" id="paySummaryTable"></table></div>`;
+
+    <div class="payroll-subtab-bar" role="tablist">
+      <button class="payroll-subtab${activeSub==='timecard'?' active':''}" onclick="setPayrollSubTab(${idx},'timecard')">Time Card Data</button>
+      <button class="payroll-subtab${activeSub==='payroll'?' active':''}" onclick="setPayrollSubTab(${idx},'payroll')">Payroll Calculation</button>
+    </div>
+    <div class="payroll-subtab-content">
+      <div id="timecardDataWrap" style="display:${activeSub==='timecard'?'block':'none'}"><div class="sched-table-wrap"><table class="sched" id="timecardDataTable"></table></div></div>
+      <div id="payrollCalcWrap" style="display:${activeSub==='payroll'?'block':'none'}"><div class="sched-table-wrap"><table class="sched" id="payrollCalcTable"></table></div></div>
+    </div>`;
 
   renderPayrollInfoChips(allRows,hasActuals);
   renderPayrollGrid(allRows,ent,hasActuals);
-  renderPaySummary(allRows,hasActuals);
+  renderTimeCardData(allRows,hasActuals,ent);
+  renderPayrollCalc(allRows,hasActuals,ent);
   renderAllEntityPreview();
 }
 
@@ -1650,30 +1724,38 @@ function renderAllEntityPreview(){
     return{entityIdx:realIdx,entityName:e.name||('Entity '+(realIdx+1)),...computePayrollForEntity(realIdx)};
   });
   if(entityResults.length===0){host.innerHTML='';return;}
-  let grandH=0,grandPay=0;
-  let html='<div class="all-entity-preview"><h3>All-entity preview — final export</h3><table><thead><tr><th>Entity</th><th>Employee</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Total</th></tr></thead><tbody>';
-  entityResults.forEach(({entityName,results,orphanRows})=>{
+  let grandH=0,grandPay=0,grandDep=0,grandCash=0;
+  let html='<div class="all-entity-preview"><h3>All-entity preview — final export</h3><table><thead><tr><th>Entity</th><th>Employee</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Total</th><th>Method</th><th class="num">Deposit</th><th class="num">Cash</th><th class="num">Final</th></tr></thead><tbody>';
+  entityResults.forEach(({entityIdx,entityName,results,orphanRows})=>{
+    const ent=entities[entityIdx];
     const flatExtras=getFlatWageRows(entityName);
     const allRows=results.concat(orphanRows).concat(flatExtras);
     if(allRows.length===0)return;
-    let entH=0,entPay=0;
-    // Render employee rows first, then prepend the merged entity cell to the first one.
-    // rowspan covers every employee row PLUS the subtotal row (+1).
+    let entH=0,entPay=0,entDep=0,entCash=0;
     const spanCount=allRows.length+1;
     allRows.forEach((r,i)=>{
+      const empName=r.schedName||r.name;
       const hrs=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
-      const rate=r.isFlat?'—':(r.wage>0?'$'+r.wage.toFixed(2):'—');
+      const rate=r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—');
       const totalN=r.isFlat?r.flatAmount:(r.wage>0?r.pay:null);
+      const method=getPayMethod(ent.id,empName);
+      let dep=0,cash=0,finalPay=0;
+      if(totalN!=null){
+        if(method==='cash'){cash=roundCash(totalN);finalPay=cash;}
+        else if(method==='deposit'){dep=roundDeposit(totalN);finalPay=dep;}
+        else{dep=roundDeposit(getSplitDeposit(ent.id,empName));cash=roundCash(totalN-dep);finalPay=roundDeposit(dep)+cash;}
+      }
       if(hrs!=null)entH+=hrs;
-      if(totalN!=null)entPay+=totalN;
+      if(totalN!=null){entPay+=totalN;entDep+=dep;entCash+=cash;}
+      const methodLbl=method==='cash'?'Cash':method==='deposit'?'Deposit':'Both';
       const rowCls=r.isOrphan?' class="orphan"':'';
       const entityCell=(i===0)?`<td class="entity-col" rowspan="${spanCount}">${escHtml(entityName)}</td>`:'';
-      html+=`<tr${rowCls}>${entityCell}<td class="name-col">${escHtml(r.name||'(unnamed)')}${r.isOrphan?' <span style="font-size:10px;color:var(--red)">(orphan)</span>':''}${r.isFlat?' <span style="font-size:10px;color:var(--text3)">(flat)</span>':''}</td><td class="num">${hrs!=null?hrs.toFixed(2):'—'}</td><td class="num">${rate}</td><td class="num">${totalN!=null?'$'+totalN.toFixed(2):'—'}</td></tr>`;
+      html+=`<tr${rowCls}>${entityCell}<td class="name-col">${escHtml(r.name||'(unnamed)')}${r.isOrphan?' <span style="font-size:10px;color:var(--red)">(orphan)</span>':''}${r.isFlat?' <span style="font-size:10px;color:var(--text3)">(flat)</span>':''}</td><td class="num">${hrs!=null?hrs.toFixed(2):'—'}</td><td class="num">${rate}</td><td class="num">${totalN!=null?'$'+totalN.toFixed(2):'—'}</td><td>${methodLbl}</td><td class="num">${dep>0?'$'+dep.toFixed(2):'—'}</td><td class="num">${cash>0?'$'+cash.toFixed(2):'—'}</td><td class="num">${finalPay>0?'$'+finalPay.toFixed(2):'—'}</td></tr>`;
     });
-    html+=`<tr class="entity-subtotal"><td class="name-col">Subtotal</td><td class="num">${entH.toFixed(2)}</td><td></td><td class="num">$${entPay.toFixed(2)}</td></tr>`;
-    grandH+=entH;grandPay+=entPay;
+    html+=`<tr class="entity-subtotal"><td class="name-col">Subtotal</td><td class="num">${entH.toFixed(2)}</td><td></td><td class="num">$${entPay.toFixed(2)}</td><td></td><td class="num">$${entDep.toFixed(2)}</td><td class="num">$${entCash.toFixed(2)}</td><td class="num">$${(entDep+entCash).toFixed(2)}</td></tr>`;
+    grandH+=entH;grandPay+=entPay;grandDep+=entDep;grandCash+=entCash;
   });
-  html+=`<tr class="grand-total"><td colspan="2">GRAND TOTAL</td><td class="num">${grandH.toFixed(2)}</td><td></td><td class="num">$${grandPay.toFixed(2)}</td></tr>`;
+  html+=`<tr class="grand-total"><td colspan="2">GRAND TOTAL</td><td class="num">${grandH.toFixed(2)}</td><td></td><td class="num">$${grandPay.toFixed(2)}</td><td></td><td class="num">$${grandDep.toFixed(2)}</td><td class="num">$${grandCash.toFixed(2)}</td><td class="num">$${(grandDep+grandCash).toFixed(2)}</td></tr>`;
   html+='</tbody></table></div>';
   host.innerHTML=html;
 }
@@ -1803,20 +1885,21 @@ function renderPayrollGrid(rows,ent,hasActuals){
   document.getElementById('payrollGridWrap').style.display='block';
 }
 
-function renderPaySummary(rows,hasActuals){
-  const table=document.getElementById('paySummaryTable');if(!table)return;
-  let html='<thead><tr><th style="border-right:2px solid #999">Name</th>';
+// ---- TIME CARD DATA sub-tab: name, expected break, expected hours, actual break, actual hours, diff, avg in/out, OT ----
+function renderTimeCardData(rows,hasActuals,ent){
+  const table=document.getElementById('timecardDataTable');if(!table)return;
+  let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th>';
   html+='<th>Expected Break Hrs</th><th>Expected Hours</th>';
   if(hasActuals){
     html+='<th>Actual Break Hrs</th><th>Actual Hours</th><th>Difference</th>';
     html+='<th>Avg In Diff</th><th>Avg Out Diff</th>';
-    html+='<th>OT Hrs <span style="font-weight:400;font-size:10px;color:var(--text3)">(over 40/wk)</span></th>';
+    html+='<th>OT Flag <span style="font-weight:400;font-size:10px;color:var(--text3)">(over 40/wk)</span></th>';
   }
-  html+='<th>Wage ($/hr)</th><th>Rounding</th><th>Final Pay</th><th style="width:70px">Type</th></tr></thead><tbody>';
-  let totExpBreak=0,totExp=0,totActBreak=0,totAct=0,totOT=0,totPay=0;
-  rows.forEach((r,i)=>{
+  html+='</tr></thead><tbody>';
+  let totExpBreak=0,totExp=0,totActBreak=0,totAct=0;
+  rows.forEach(r=>{
     totExpBreak+=r.expectedBreakH;totExp+=r.expectedH;
-    totActBreak+=r.actualBreakH;totAct+=r.actualHours;totOT+=r.otH;totPay+=r.pay;
+    totActBreak+=r.actualBreakH;totAct+=r.actualHours;
     let diffStr='—',diffCls='diff-zero';
     if(!r.isOrphan&&hasActuals){
       const diff=r.actualHours-r.expectedH,abs=Math.abs(diff);
@@ -1829,7 +1912,6 @@ function renderPaySummary(rows,hasActuals){
     html+=`<td class="num-cell" style="color:var(--text2)">${r.expectedH.toFixed(2)}</td>`;
     if(hasActuals){
       html+=`<td class="num-cell" style="color:var(--text3)">${r.actualBreakH.toFixed(2)}</td>`;
-      // Actual Hours column: apply same pay-centric rule (more=red, less=green)
       let actCls='diff-zero';
       if(r.isOrphan)actCls='diff-pos';
       else{const d=r.actualHours-r.expectedH;if(Math.abs(d)<0.01)actCls='diff-zero';else if(d>0)actCls='diff-pos';else actCls='diff-neg';}
@@ -1837,28 +1919,11 @@ function renderPaySummary(rows,hasActuals){
       html+=`<td class="num-cell ${diffCls}">${diffStr}</td>`;
       html+=`<td class="metric-cell ${metricClsStr(r.avgInDiff,'in')}">${metricStr(r.avgInDiff)}</td>`;
       html+=`<td class="metric-cell ${metricClsStr(r.avgOutDiff,'out')}">${metricStr(r.avgOutDiff)}</td>`;
-      html+=`<td class="num-cell" style="${r.otH>0?'color:var(--dark-orange);font-weight:600':'color:var(--text3)'}">${r.otH.toFixed(2)}</td>`;
+      const otFlag=r.actualHours>40?`<span class="ot-flag-inline">⚠ ${r.otH.toFixed(2)}h over</span>`:'<span style="color:var(--text3)">—</span>';
+      html+=`<td class="num-cell">${otFlag}</td>`;
     }
-    const typeToggleHtml=`<div class="type-toggle"><button class="${r.isFlat?'':'selected'}" onclick="setRowType(${i},'hourly')" title="Compute pay as wage × hours">Hourly</button><button class="${r.isFlat?'selected':''}" onclick="setRowType(${i},'flat')" title="Use a flat dollar amount">Flat</button></div>`;
-    if(r.isFlat){
-      // Condense wage + rounding + final pay into ONE cell so the Flat row is visually lighter.
-      // Single large input shows the final flat dollar amount; wage and rounding are hidden — no meaning for Flat.
-      html+=`<td colspan="3" style="padding:8px 10px;text-align:center;background:#FAF9F4">
-        <div style="display:inline-flex;align-items:center;gap:10px;font-weight:600">
-          <span style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px">Final flat pay</span>
-          <span style="font-size:13px;color:var(--text3)">$</span>
-          <input type="number" class="flat-input" value="${(r.flatAmount||0).toFixed(2)}" step="0.01" min="0" onchange="setFlatAmount(${i},this.value)" style="width:110px;font-size:15px;font-weight:700;text-align:right">
-        </div>
-      </td>`;
-      html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td></tr>`;
-    }else{
-      html+=`<td style="padding:6px;text-align:center"><input type="number" class="wage-input" value="${r.wage.toFixed(2)}" step="0.01" min="0" onchange="setWage(${i},this.value)"></td>`;
-      html+=`<td style="padding:6px;text-align:center"><input type="number" class="rounding-input" value="${r.rounding}" step="1" min="0" max="6" onchange="setRounding(${i},this.value)" title="Digits after decimal for Final Pay"></td>`;
-      html+=`<td class="pay-cell">$${r.pay.toFixed(r.rounding)}</td>`;
-      html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td></tr>`;
-    }
+    html+='</tr>';
   });
-  // Total row
   html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td>';
   html+=`<td class="num-cell">${totExpBreak.toFixed(2)}</td><td class="num-cell">${totExp.toFixed(2)}</td>`;
   if(hasActuals){
@@ -1866,15 +1931,86 @@ function renderPaySummary(rows,hasActuals){
     let tStr='as expected',tCls='diff-zero';
     if(absT>=0.01){if(tDiff>0){tStr=`${absT.toFixed(2)}h More`;tCls='diff-pos';}else{tStr=`${absT.toFixed(2)}h Less`;tCls='diff-neg';}}
     html+=`<td class="num-cell">${totActBreak.toFixed(2)}</td><td class="num-cell ${tCls}">${totAct.toFixed(2)}</td>`;
-    html+=`<td class="num-cell ${tCls}">${tStr}</td><td></td><td></td>`;
-    html+=`<td class="num-cell">${totOT.toFixed(2)}</td>`;
+    html+=`<td class="num-cell ${tCls}">${tStr}</td><td></td><td></td><td></td>`;
   }
-  html+=`<td></td><td></td><td class="pay-cell">$${totPay.toFixed(2)}</td><td></td></tr></tbody>`;
-  // Style the Type column header wide enough for side-by-side buttons
-  html=html.replace('<th style="width:70px">Type</th>','<th style="width:120px">Type</th>');
+  html+='</tr></tbody>';
   table.innerHTML=html;
-  document.getElementById('paySummaryHeading').style.display='block';
-  document.getElementById('paySummaryWrap').style.display='block';
+}
+
+// ---- PAYROLL CALCULATION sub-tab: name, actual break, actual hours, wage, hourly/flat toggle, pay method, split amounts, final pay ----
+function renderPayrollCalc(rows,hasActuals,ent){
+  const table=document.getElementById('payrollCalcTable');if(!table)return;
+  let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th>';
+  html+='<th>Actual Break Hrs</th><th>Actual Hours</th>';
+  html+='<th>Wage ($/hr)</th><th style="width:110px">Type</th>';
+  html+='<th style="width:180px">Pay Method</th>';
+  html+='<th>Deposit $</th><th>Cash $</th><th>Final Pay</th>';
+  html+='</tr></thead><tbody>';
+  let totPay=0,totDeposit=0,totCash=0;
+  rows.forEach((r,i)=>{
+    const keyName=r.schedName||r.name;
+    const method=getPayMethod(ent.id,keyName);
+    const breakdown=computePayBreakdown(r,ent.id);
+    totPay+=breakdown.final;totDeposit+=breakdown.deposit;totCash+=breakdown.cash;
+
+    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${escHtml(r.name||'(unnamed)')}</td>`;
+    html+=`<td class="num-cell" style="color:var(--text3)">${r.actualBreakH.toFixed(2)}</td>`;
+    html+=`<td class="num-cell" style="color:var(--text2)">${r.actualHours.toFixed(2)}</td>`;
+
+    const typeToggleHtml=`<div class="type-toggle"><button class="${r.isFlat?'':'selected'}" onclick="setRowType(${i},'hourly')" title="Compute pay as wage × hours">Hourly</button><button class="${r.isFlat?'selected':''}" onclick="setRowType(${i},'flat')" title="Use a flat dollar amount">Flat</button></div>`;
+
+    if(r.isFlat){
+      html+=`<td colspan="2" style="padding:8px 10px;text-align:center;background:#FAF9F4">
+        <div style="display:inline-flex;align-items:center;gap:8px;font-weight:600">
+          <span style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px">Flat</span>
+          <span style="font-size:13px;color:var(--text3)">$</span>
+          <input type="number" class="flat-input" value="${(r.flatAmount||0).toFixed(2)}" step="0.01" min="0" onchange="setFlatAmount(${i},this.value)" style="width:100px;text-align:right">
+        </div>
+      </td>`;
+      html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td>`;
+    }else{
+      html+=`<td style="padding:6px;text-align:center"><input type="number" class="wage-input" value="${r.wage.toFixed(2)}" step="0.01" min="0" onchange="setWage(${i},this.value)"></td>`;
+      html+=`<td style="padding:6px;text-align:center">${typeToggleHtml}</td>`;
+    }
+
+    // Pay method toggle
+    html+=`<td style="padding:6px;text-align:center"><div class="paymethod-toggle">
+      <button class="${method==='deposit'?'selected':''}" onclick="setPayMethodForRow(${i},'deposit')" title="Deposit only — rounds to 2 decimals">Deposit</button>
+      <button class="${method==='cash'?'selected':''}" onclick="setPayMethodForRow(${i},'cash')" title="Cash only — rounds to whole dollar">Cash</button>
+      <button class="${method==='both'?'selected':''}" onclick="setPayMethodForRow(${i},'both')" title="Split — type deposit, cash auto-calcs">Both</button>
+    </div></td>`;
+
+    // Deposit column
+    if(method==='deposit'){
+      html+=`<td class="num-cell">$${breakdown.deposit.toFixed(2)}</td>`;
+    }else if(method==='both'){
+      html+=`<td style="padding:6px;text-align:center"><input type="number" class="split-input" value="${breakdown.deposit.toFixed(2)}" step="0.01" min="0" onchange="setSplitDepositForRow(${i},this.value)" title="Deposit amount (user entered)"></td>`;
+    }else{
+      html+=`<td class="num-cell" style="color:var(--text3)">—</td>`;
+    }
+
+    // Cash column
+    if(method==='cash'){
+      html+=`<td class="num-cell">$${breakdown.cash}</td>`;
+    }else if(method==='both'){
+      html+=`<td class="num-cell cash-display">$${breakdown.cash} <span style="color:var(--text3);font-size:10px">(auto)</span></td>`;
+    }else{
+      html+=`<td class="num-cell" style="color:var(--text3)">—</td>`;
+    }
+
+    // Final Pay
+    const finalStr=method==='cash'?`$${breakdown.cash}`:`$${breakdown.final.toFixed(2)}`;
+    html+=`<td class="pay-cell">${finalStr}</td>`;
+
+    html+='</tr>';
+  });
+  html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td>';
+  html+=`<td></td><td></td><td></td><td></td><td></td>`;
+  html+=`<td class="pay-cell">$${totDeposit.toFixed(2)}</td>`;
+  html+=`<td class="pay-cell">$${totCash}</td>`;
+  html+=`<td class="pay-cell">$${totPay.toFixed(2)}</td>`;
+  html+='</tr></tbody>';
+  table.innerHTML=html;
 }
 
 // ROW KEY RESOLVER: the renderer and flat-override detection key off the underlying
@@ -1889,13 +2025,7 @@ function setWage(rowIdx,val){
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.wage-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
 }
-function setRounding(rowIdx,val){
-  const digits=parseInt(val);if(isNaN(digits)||digits<0||digits>6)return;
-  const item=_flatRows[rowIdx];if(!item)return;
-  roundingFactors[wKey(entities[item.entityIdx].id,_rowKey(item))]=digits;
-  renderPayrollEntityContent(item.entityIdx);
-  setTimeout(()=>{const inp=document.querySelectorAll('.rounding-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
-}
+function setRounding(rowIdx,val){/* no-op — rounding is now driven by pay method (cash=0dp, deposit=2dp) */}
 function toggleFlat(rowIdx){
   const item=_flatRows[rowIdx];if(!item)return;
   const ent=entities[item.entityIdx];
@@ -1931,141 +2061,27 @@ function setFlatAmount(rowIdx,val){
   setTimeout(()=>{const inp=document.querySelectorAll('.flat-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
 }
 
-
-// ================================================================
-// PAYROLL EXPORT — Entity-grouped: Period | Entity | Employee | Hours | Rate | Total
-// ================================================================
-async function exportPayroll(){
-  const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
-    const idx=entities.indexOf(e);
-    return{entityIdx:idx,entityName:e.name,...computePayrollForEntity(idx)};
-  });
-  // Mode-aware: combined uses global pool, separate uses per-entity stores
-  const hasActuals=actualsMode==='separate'
-    ?entities.some(e=>e.actualDays&&e.actualDays.length>0)
-    :actualDays.length>0;
-  const ewb=new ExcelJS.Workbook();
-  const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
-  const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
-  const orphanFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFEF2F2'}};
-  const subtotalFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0EFE9'}};
-
-  // ---- Sheet 1: Payroll Report ----
-  const ws1=ewb.addWorksheet('Payroll Report');
-
-  // Period header
-  const firstEntWithDates=entities.find(e=>e.dateLabels.some(d=>d));
-  let periodStr='';
-  if(firstEntWithDates){
-    function toShort(lbl){if(!lbl)return '';const m=lbl.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);if(!m)return lbl;const mo=String(MONTHS.indexOf(m[1])+1).padStart(2,'0'),d=String(m[2]).padStart(2,'0'),y=String(m[3]).slice(-2);return`${mo}/${d}/${y}`}
-    periodStr=`PERIOD - ****${toShort(firstEntWithDates.dateLabels[0])}-${toShort(firstEntWithDates.dateLabels[6])}****`;
-  }else periodStr='PAYROLL REPORT';
-
-  const titleRow=ws1.addRow([periodStr]);
-  titleRow.getCell(1).font={name:'Arial',bold:true,size:14};
-  titleRow.getCell(1).alignment={horizontal:'center',vertical:'middle'};
-  ws1.mergeCells(1,1,1,5);
-  titleRow.getCell(1).border={top:medB,bottom:medB,left:medB,right:medB};
-  titleRow.height=30;
-  ws1.addRow([]);
-
-  // Column headers
-  const hdrs=['Entity','Employee Name','Billable Hours','Rate','Total'];
-  const hdrRow=ws1.addRow(hdrs);
-  hdrRow.eachCell((cell,ci)=>{
-    cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;
-    cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
-    cell.border={bottom:medB,top:medB,left:thinB,right:thinB};
-  });hdrRow.height=22;
-
-  allEntityResults.forEach(({entityName,results,orphanRows})=>{
-    const allRows=results.concat(orphanRows);if(allRows.length===0)return;
-    let entityTotalHours=0,entityTotalPay=0,entityFirstRow=true;
-
-    allRows.forEach(r=>{
-      const hoursVal=hasActuals?r.actualHours:r.expectedH;
-      const wage=r.wage;
-      const rateStr=wage>0?`$${wage.toFixed(2)}`:'DD-NA';
-      const totalStr=wage>0?`$${r.pay.toFixed(r.rounding)}`:'DD-NA';
-      entityTotalHours+=hoursVal;if(wage>0)entityTotalPay+=r.pay;
-
-      const row=ws1.addRow([entityFirstRow?entityName:'',r.name,hoursVal,rateStr,totalStr]);
-      entityFirstRow=false;
-      row.eachCell((cell,ci)=>{
-        cell.font={name:'Arial',size:10,bold:ci===1};
-        cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
-        cell.border={bottom:thinB,left:thinB,right:thinB};
-        if(r.isOrphan)cell.fill=orphanFill;
-        if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
-      });
-      if(r.isOrphan){row.getCell(2).font={name:'Arial',size:10,italic:true,color:{argb:'FFDC2626'}}}
-      row.height=54;
-    });
-
-    // Entity subtotal
-    const stRow=ws1.addRow([`${entityName} Total`,'',entityTotalHours,'',`$${entityTotalPay.toFixed(2)}`]);
-    stRow.eachCell((cell,ci)=>{
-      cell.font={name:'Arial',bold:true,size:10};cell.fill=subtotalFill;
-      cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
-      cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
-      if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
-    });stRow.height=60;
-    ws1.addRow([]);
-  });
-
-  ws1.getColumn(1).width=22;ws1.getColumn(2).width=20;ws1.getColumn(3).width=14;ws1.getColumn(4).width=12;ws1.getColumn(5).width=14;
-
-  // ---- Sheet 2: Pay Summary (detailed) ----
-  if(hasActuals){
-    const ws2=ewb.addWorksheet('Pay Summary');
-    const headers=['Entity','Name','Exp Break Hrs','Expected Hrs','Act Break Hrs','Actual Hrs','Difference','Avg In Diff (min)','Avg Out Diff (min)','OT Hrs','Wage ($/hr)','Rounding','Final Pay'];
-    const h=ws2.addRow(headers);h.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:medB}});h.height=24;
-    allEntityResults.forEach(({entityName,results,orphanRows})=>{
-      const allRows=results.concat(orphanRows);
-      allRows.forEach(r=>{
-        const diff=r.actualHours-r.expectedH,abs=Math.abs(diff);
-        const diffStr=abs<0.01?'as expected':diff>0?`${abs.toFixed(2)}h More`:`${abs.toFixed(2)}h Less`;
-        const row=ws2.addRow([entityName,r.name,r.expectedBreakH,r.expectedH,r.actualBreakH,r.actualHours,diffStr,r.avgInDiff!=null?r.avgInDiff:'—',r.avgOutDiff!=null?r.avgOutDiff:'—',r.otH,r.wage,r.rounding,r.pay]);
-        row.eachCell((cell,ci)=>{cell.font={name:'Arial',size:10};cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:thinB};if(typeof cell.value==='number'&&ci>=3)cell.numFmt='0.00';});
-        if(r.isOrphan){row.getCell(2).font={name:'Arial',size:10,italic:true,color:{argb:'FFDC2626'}};row.eachCell(c=>c.fill=orphanFill)}
-        row.height=54;
-      });
-    });
-    for(let c=1;c<=13;c++)ws2.getColumn(c).width=c<=2?20:14;
-  }
-
-  // ---- Sheet 3: Weekly Actuals ----
-  if(hasActuals){
-    const ws3=ewb.addWorksheet('Weekly Actuals');
-    allEntityResults.forEach(({entityName,results,orphanRows},ei)=>{
-      const allRows=results.concat(orphanRows);if(allRows.length===0)return;
-      const entityIdx=entities.findIndex(e=>e.name===entityName);
-      const ent=entityIdx>=0?entities[entityIdx]:null;
-      const dLabels=ent?ent.dateLabels:Array(7).fill('');
-      if(ei>0)ws3.addRow([]);
-      const hdr=ws3.addRow([entityName,'Name',...DAYS,'Weekly Total']);
-      hdr.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:medB}});hdr.height=22;
-      const dr=ws3.addRow(['','',...dLabels,'']);
-      dr.eachCell(cell=>{cell.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB}});
-      allRows.forEach(r=>{
-        const cells=['',r.name];
-        for(let d=0;d<7;d++){
-          const day=r.days[d];
-          if(day.status==='off'){cells.push(r.isOrphan?'—':'OFF')}
-          else if(day.status==='noshow'){cells.push(`NO SHOW\nmissed ${day.expectedH.toFixed(2)}h`)}
-          else{const lines=[];if(!r.isOrphan&&day.shift)lines.push(`${compactH(day.shift.start)} – ${compactH(day.shift.end)}`);if(day.actual)day.actual.pairs.forEach(p=>lines.push(`${compactH(p.in)} – ${compactH(p.out)}`));lines.push(`${day.billableH.toFixed(2)}h`);cells.push(lines.join('\n'))}
-        }
-        cells.push(`${r.actualHours.toFixed(2)}h`);
-        const row=ws3.addRow(cells);
-        row.eachCell((cell,ci)=>{cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border={bottom:thinB};cell.font={name:'Arial',size:10,bold:ci===2}});
-        if(r.isOrphan)row.eachCell(c=>c.fill=orphanFill);row.height=150;
-      });
-      ws3.getColumn(1).width=20;ws3.getColumn(2).width=16;for(let c=3;c<=9;c++)ws3.getColumn(c).width=18;ws3.getColumn(10).width=14;
-    });
-  }
-
-  downloadBlob(await ewb.xlsx.writeBuffer(),'Payroll_Report.xlsx');
+function setPayMethodForRow(rowIdx,method){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  setPayMethod(ent.id,_rowKey(item),method);
+  renderPayrollEntityContent(item.entityIdx);
 }
+
+function setSplitDepositForRow(rowIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  const amt=parseFloat(val);if(isNaN(amt)||amt<0)return;
+  setSplitDeposit(ent.id,_rowKey(item),amt);
+  renderPayrollEntityContent(item.entityIdx);
+  setTimeout(()=>{const inp=document.querySelectorAll('.split-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
+}
+
+function setPayrollSubTab(entityIdx,tab){
+  activePayrollSubTab[entityIdx]=tab;
+  renderPayrollEntityContent(entityIdx);
+}
+
 
 // ================================================================
 // ============ PAYROLL v26 ADDITIONS BEGIN ========================
@@ -3203,258 +3219,406 @@ function syncActualsFromReview(){
   });
 }
 
+
 // ================================================================
-// PAYROLL EXPORT — CLEAN FINAL WAGE TABLE (replaces v25 exportPayroll)
+// PAYROLL EXPORT — v26 unified system
+// 6 export kinds × 2 formats (Excel + PDF) = 12 buttons
+// Kinds: cashOnly, depositOnly, combined, timecard, payrollCalc, full
+// Single sheet / single page. Data stacked vertically. Grouped by entity.
 // ================================================================
-async function exportPayroll(){
-  // Make sure review→actuals is synced
+
+function _confirmBreaksOrBail(){
   syncActualsFromReview();
-
-  // Require break minutes to be explicitly confirmed per entity (even 0 is fine, but must click Confirm)
-  const unsetBreak=entities.filter(e=>e.employees.length>0&&!e.breakMinutesSet);
-  if(unsetBreak.length>0){
-    const names=unsetBreak.map(e=>e.name||'(unnamed)').join(', ');
-    if(!confirm('Break minutes not confirmed for: '+names+'.\n\nCurrent values will be used anyway. Continue with export?'))return;
+  const unset=entities.filter(e=>e.employees.length>0&&!e.breakMinutesSet);
+  if(unset.length>0){
+    const names=unset.map(e=>e.name||'(unnamed)').join(', ');
+    if(!confirm('Break minutes not confirmed for: '+names+'.\n\nCurrent values will be used anyway. Continue with export?'))return false;
   }
+  return true;
+}
 
-  const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
+function _exportPeriodStr(){
+  const firstEntWithDates=entities.find(e=>e.dateLabels&&e.dateLabels.some(d=>d));
+  if(!firstEntWithDates)return '';
+  function toShort(lbl){if(!lbl)return '';const m=lbl.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);if(!m)return lbl;const mo=String(MONTHS.indexOf(m[1])+1).padStart(2,'0'),d=String(m[2]).padStart(2,'0'),y=String(m[3]).slice(-2);return mo+'/'+d+'/'+y}
+  return 'PERIOD '+toShort(firstEntWithDates.dateLabels[0])+' – '+toShort(firstEntWithDates.dateLabels[6]);
+}
+
+function _exportFilenameBase(kind){
+  const names={cashOnly:'Cash_Only',depositOnly:'Deposit_Only',combined:'Combined',timecard:'Time_Card_Data',payrollCalc:'Payroll_Calculation',full:'Full_Report'};
+  const firstEntWithDates=entities.find(e=>e.dateLabels&&e.dateLabels.some(d=>d));
+  let weekPart='';
+  if(firstEntWithDates&&firstEntWithDates.dateLabels[0]){
+    const iso=schedLabelToIso(firstEntWithDates.dateLabels[0]);
+    if(iso)weekPart='_Week_of_'+iso;
+  }
+  return (names[kind]||'Payroll')+weekPart;
+}
+
+function _collectExportData(){
+  const out=[];
+  entities.filter(e=>e.employees.length>0||getFlatWageRows(e.name||('Entity '+(entities.indexOf(e)+1))).length>0).forEach(e=>{
     const idx=entities.indexOf(e);
-    return{entityIdx:idx,entityName:e.name||('Entity '+(idx+1)),...computePayrollForEntity(idx)};
+    const entName=e.name||('Entity '+(idx+1));
+    const {results,orphanRows}=computePayrollForEntity(idx);
+    const flatExtras=getFlatWageRows(entName);
+    const allRows=results.concat(orphanRows).concat(flatExtras);
+    if(allRows.length===0)return;
+    const enriched=allRows.map(r=>{
+      const empName=r.schedName||r.name;
+      const method=r.isFlat?getPayMethod(e.id,empName):getPayMethod(e.id,empName);
+      const totalPay=r.isFlat?r.flatAmount:(r.wage>0?r.pay:0);
+      let breakdown;
+      if(method==='cash'){
+        breakdown={method,total:totalPay,deposit:0,cash:roundCash(totalPay),final:roundCash(totalPay)};
+      }else if(method==='deposit'){
+        breakdown={method,total:totalPay,deposit:roundDeposit(totalPay),cash:0,final:roundDeposit(totalPay)};
+      }else{
+        const dep=roundDeposit(getSplitDeposit(e.id,empName));
+        const cash=roundCash(totalPay-dep);
+        breakdown={method,total:totalPay,deposit:dep,cash,final:roundDeposit(dep)+cash};
+      }
+      return Object.assign({},r,{_empName:empName,_breakdown:breakdown,_entityId:e.id,_entityName:entName,_totalPay:totalPay});
+    });
+    out.push({entityName:entName,entityId:e.id,rows:enriched});
   });
+  return out;
+}
 
+function _filterRowsForKind(rows,kind){
+  if(kind==='cashOnly')return rows.filter(r=>r._breakdown.method==='cash'||r._breakdown.method==='both');
+  if(kind==='depositOnly')return rows.filter(r=>r._breakdown.method==='deposit'||r._breakdown.method==='both');
+  return rows;
+}
+
+// ---- Table spec per kind ----
+function _columnsFor(kind){
   const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
+  if(kind==='cashOnly'){
+    return {
+      headers:['Entity','Employee','Method','Total','Cash Portion'],
+      widths:[110,140,70,80,90],
+      rowFn:(r)=>[r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Both':'Cash','$'+r._totalPay.toFixed(2),'$'+r._breakdown.cash.toFixed(2)],
+      numCols:[3,4]
+    };
+  }
+  if(kind==='depositOnly'){
+    return {
+      headers:['Entity','Employee','Method','Total','Deposit Portion'],
+      widths:[110,140,70,80,100],
+      rowFn:(r)=>[r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Both':'Deposit','$'+r._totalPay.toFixed(2),'$'+r._breakdown.deposit.toFixed(2)],
+      numCols:[3,4]
+    };
+  }
+  if(kind==='combined'){
+    return {
+      headers:['Entity','Employee','Method','Hours','Rate','Total','Deposit','Cash','Final'],
+      widths:[100,130,60,60,60,70,70,70,70],
+      rowFn:(r)=>{
+        const hrs=r.isFlat?'':(hasActuals?(r.actualHours||0).toFixed(2):(r.expectedH||0).toFixed(2));
+        const rate=r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—');
+        const methodLbl=r._breakdown.method==='cash'?'Cash':r._breakdown.method==='deposit'?'Deposit':'Both';
+        return [
+          r._entityName,
+          r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),
+          methodLbl,
+          hrs,
+          rate,
+          r._totalPay>0?'$'+r._totalPay.toFixed(2):'—',
+          r._breakdown.deposit>0?'$'+r._breakdown.deposit.toFixed(2):'—',
+          r._breakdown.cash>0?'$'+r._breakdown.cash.toFixed(2):'—',
+          r._breakdown.final>0?'$'+r._breakdown.final.toFixed(2):'—'
+        ];
+      },
+      numCols:[3,4,5,6,7,8],
+      sortFn:(a,b)=>{
+        // Within entity: deposit first, then cash/both
+        const ord={deposit:0,both:1,cash:2};
+        return (ord[a._breakdown.method]||99)-(ord[b._breakdown.method]||99);
+      }
+    };
+  }
+  if(kind==='timecard'){
+    return {
+      headers:['Entity','Employee','Expected Break','Expected Hrs','Actual Break','Actual Hrs','Diff','Avg In Diff','Avg Out Diff','OT Flag'],
+      widths:[90,120,70,70,70,70,60,70,70,80],
+      rowFn:(r)=>{
+        if(r.isFlat)return [r._entityName,r._empName+' (flat)','','','','','','','',''];
+        const expBreak=(r.expectedBreakH!=null?r.expectedBreakH:0).toFixed(2);
+        const actBreak=(r.actualBreakH!=null?r.actualBreakH:0).toFixed(2);
+        const expH=(r.expectedH||0).toFixed(2);
+        const actH=(r.actualHours||0).toFixed(2);
+        const diff=((r.actualHours||0)-(r.expectedH||0)).toFixed(2);
+        const avgIn=r.avgInDiffMin!=null?(r.avgInDiffMin>0?'+':'')+r.avgInDiffMin.toFixed(0)+'m':'';
+        const avgOut=r.avgOutDiffMin!=null?(r.avgOutDiffMin>0?'+':'')+r.avgOutDiffMin.toFixed(0)+'m':'';
+        const ot=(r.actualHours||0)>40?'⚠ '+((r.actualHours-40).toFixed(2))+'h over':'';
+        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':''),expBreak,expH,actBreak,actH,diff,avgIn,avgOut,ot];
+      },
+      numCols:[2,3,4,5,6]
+    };
+  }
+  if(kind==='payrollCalc'){
+    return {
+      headers:['Entity','Employee','Actual Break','Actual Hrs','Wage/Flat','Mode','Method','Deposit','Cash','Final Pay'],
+      widths:[90,120,70,70,70,50,60,70,70,80],
+      rowFn:(r)=>{
+        const actBreak=r.isFlat?'':(r.actualBreakH!=null?r.actualBreakH.toFixed(2):'0.00');
+        const actH=r.isFlat?'':(r.actualHours||0).toFixed(2);
+        const wageOrFlat=r.isFlat?('$'+r.flatAmount.toFixed(2)):(r.wage>0?'$'+r.wage.toFixed(2):'—');
+        const mode=r.isFlat?'Flat':'Hourly';
+        const methodLbl=r._breakdown.method==='cash'?'Cash':r._breakdown.method==='deposit'?'Deposit':'Both';
+        return [
+          r._entityName,
+          r._empName+(r.isOrphan?' (orphan)':''),
+          actBreak,
+          actH,
+          wageOrFlat,
+          mode,
+          methodLbl,
+          r._breakdown.deposit>0?'$'+r._breakdown.deposit.toFixed(2):'—',
+          r._breakdown.cash>0?'$'+r._breakdown.cash.toFixed(2):'—',
+          r._breakdown.final>0?'$'+r._breakdown.final.toFixed(2):'—'
+        ];
+      },
+      numCols:[2,3,4,7,8,9]
+    };
+  }
+  return null;
+}
+
+// ---- Excel writer ----
+async function _exportExcel(kind){
+  if(!_confirmBreaksOrBail())return;
+  const data=_collectExportData();
+  if(data.length===0){alert('No data to export.');return;}
 
   const ewb=new ExcelJS.Workbook();
+  const ws=ewb.addWorksheet('Report');
   const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
   const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
+  const entityBand={type:'pattern',pattern:'solid',fgColor:{argb:'FFF4F3EE'}};
   const subtotalFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0EFE9'}};
-  const orphanFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFEF2F2'}};
+  const grandFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE0DED5'}};
 
-  // ---- Sheet 1: Final Wage Table (clean, no asterisks) ----
-  const ws1=ewb.addWorksheet('Final Wage Table');
+  // Title
+  const titleText=(
+    kind==='cashOnly'?'CASH-ONLY REPORT':
+    kind==='depositOnly'?'DEPOSIT-ONLY REPORT':
+    kind==='combined'?'COMBINED PAYROLL REPORT':
+    kind==='timecard'?'TIME CARD DATA REPORT':
+    kind==='payrollCalc'?'PAYROLL CALCULATION REPORT':
+    'FULL REPORT'
+  );
+  const per=_exportPeriodStr();
+  const title=ws.addRow([titleText+(per?' — '+per:'')]);
+  title.getCell(1).font={name:'Arial',bold:true,size:14};
+  title.getCell(1).alignment={horizontal:'center'};
+  title.height=26;
 
-  const firstEntWithDates=entities.find(e=>e.dateLabels&&e.dateLabels.some(d=>d));
-  let periodStr='PAYROLL';
-  if(firstEntWithDates){
-    periodStr=`PAYROLL — Week of ${firstEntWithDates.dateLabels[0]} to ${firstEntWithDates.dateLabels[6]}`;
-  }
-  const titleRow=ws1.addRow([periodStr]);
-  titleRow.getCell(1).font={name:'Arial',bold:true,size:16,color:{argb:'FF1A1A18'}};
-  titleRow.getCell(1).alignment={horizontal:'center',vertical:'middle'};
-  ws1.mergeCells(1,1,1,5);
-  titleRow.height=32;
-  ws1.addRow([]);
+  async function writeSection(sectionKind){
+    const spec=_columnsFor(sectionKind);
+    if(!spec)return;
+    ws.mergeCells(title.number,1,title.number,spec.headers.length);
 
-  const hdrs=['Entity','Employee Name','Billable Hours','Rate','Total'];
-  const hdrRow=ws1.addRow(hdrs);
-  hdrRow.eachCell((cell,ci)=>{
-    cell.font={name:'Arial',bold:true,size:11};
-    cell.fill=hdrFill;
-    cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
-    cell.border={bottom:medB,top:medB,left:thinB,right:thinB};
-  });hdrRow.height=22;
+    // Section label (for "full" kind)
+    if(kind==='full'){
+      const secLbl=ws.addRow([sectionKind==='timecard'?'TIME CARD DATA':'PAYROLL CALCULATION']);
+      secLbl.getCell(1).font={name:'Arial',bold:true,size:12};
+      secLbl.getCell(1).fill=hdrFill;
+      ws.mergeCells(secLbl.number,1,secLbl.number,spec.headers.length);
+    }
+    ws.addRow([]);
 
-  allEntityResults.forEach(({entityName,results,orphanRows})=>{
-    // Include flat-wage roster employees who aren't on actuals/schedule
-    const flatExtras=getFlatWageRows(entityName);
-    const allRows=results.concat(orphanRows).concat(flatExtras);
-    if(allRows.length===0)return;
-    let entityTotalHours=0,entityTotalPay=0,entityFirstRow=true;
-
-    allRows.forEach(r=>{
-      const hoursVal=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
-      const wage=r.wage;
-      const rateStr=r.isFlat?null:(wage>0?wage:null);
-      const totalStr=r.isFlat?r.flatAmount:(wage>0?r.pay:null);
-      if(hoursVal!=null)entityTotalHours+=hoursVal;
-      if(totalStr!=null)entityTotalPay+=totalStr;
-      const row=ws1.addRow([
-        entityFirstRow?entityName:'',
-        r.name,
-        hoursVal!=null?hoursVal:'',
-        rateStr!=null?rateStr:'',
-        totalStr!=null?totalStr:''
-      ]);
-      entityFirstRow=false;
-      row.eachCell((cell,ci)=>{
-        cell.font={name:'Arial',size:10,bold:ci===1};
-        cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
-        cell.border={bottom:thinB,left:thinB,right:thinB};
-        if(r.isOrphan)cell.fill=orphanFill;
-        if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
-        if((ci===4||ci===5)&&typeof cell.value==='number')cell.numFmt='"$"#,##0.00';
-      });
-      if(r.isOrphan){row.getCell(2).font={name:'Arial',size:10,italic:true,color:{argb:'FFDC2626'}}}
-      row.height=22;
-    });
-
-    // Round subtotals to 2 decimals to avoid floating-point accumulation (e.g. 407.8400000000001)
-    const _rt=n=>Math.round(n*100)/100;
-    const stRow=ws1.addRow([`${entityName} Total`,'',entityTotalHours>0?_rt(entityTotalHours):'','',_rt(entityTotalPay)]);
-    stRow.eachCell((cell,ci)=>{
-      cell.font={name:'Arial',bold:true,size:10};
-      cell.fill=subtotalFill;
-      cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
+    // Header row
+    const hdrRow=ws.addRow(spec.headers);
+    hdrRow.eachCell((cell,ci)=>{
+      cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;
+      cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
       cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
-      if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
-      if(ci===5&&typeof cell.value==='number')cell.numFmt='"$"#,##0.00';
-    });stRow.height=24;
-    ws1.addRow([]);
-  });
-
-  // Grand total row
-  let grandHours=0,grandPay=0;
-  allEntityResults.forEach(({results,orphanRows,entityName})=>{
-    const flatExtras=getFlatWageRows(entityName);
-    results.concat(orphanRows).concat(flatExtras).forEach(r=>{
-      const hoursVal=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
-      const totalStr=r.isFlat?r.flatAmount:(r.wage>0?r.pay:null);
-      if(hoursVal!=null)grandHours+=hoursVal;
-      if(totalStr!=null)grandPay+=totalStr;
     });
-  });
-  const _rt2=n=>Math.round(n*100)/100;
-  const gtRow=ws1.addRow(['GRAND TOTAL','',_rt2(grandHours),'',_rt2(grandPay)]);
-  gtRow.eachCell((cell,ci)=>{
-    cell.font={name:'Arial',bold:true,size:11};
-    cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE0DED5'}};
-    cell.alignment={horizontal:ci>=3?'right':'left',vertical:'middle'};
-    cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
-    if(ci===3&&typeof cell.value==='number')cell.numFmt='0.00';
-    if(ci===5&&typeof cell.value==='number')cell.numFmt='"$"#,##0.00';
-  });gtRow.height=26;
 
-  ws1.getColumn(1).width=24;ws1.getColumn(2).width=22;ws1.getColumn(3).width=16;ws1.getColumn(4).width=12;ws1.getColumn(5).width=14;
-
-  // ---- Sheet 2: Schedule vs Actual (only if actuals exist) ----
-  if(hasActuals){
-    const ws2=ewb.addWorksheet('Schedule vs Actual');
-    allEntityResults.forEach(({entityName,results,orphanRows},ei)=>{
-      const allRows=results.concat(orphanRows);if(allRows.length===0)return;
-      const entityIdx=entities.findIndex(e=>(e.name||'')===entityName||('Entity '+(entities.indexOf(e)+1))===entityName);
-      const ent=entityIdx>=0?entities[entityIdx]:null;
-      const dLabels=ent?ent.dateLabels:Array(7).fill('');
-      if(ei>0)ws2.addRow([]);
-      const hdr=ws2.addRow([entityName,'Name',...DAYS,'Weekly Total']);
-      hdr.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={bottom:medB}});hdr.height=22;
-      const dr=ws2.addRow(['','',...dLabels,'']);
-      dr.eachCell(cell=>{cell.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};cell.fill=hdrFill;cell.alignment={horizontal:'center',vertical:'middle'};cell.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB}});
-      allRows.forEach(r=>{
-        const cells=['',r.name];
-        for(let d=0;d<7;d++){
-          const day=r.days[d];
-          if(day.status==='off'){cells.push(r.isOrphan?'—':'OFF')}
-          else if(day.status==='noshow'){cells.push(`NO SHOW\nmissed ${day.expectedH.toFixed(2)}h`)}
-          else{const lines=[];if(!r.isOrphan&&day.shift)lines.push(`sched: ${compactH(day.shift.start)} – ${compactH(day.shift.end)}`);if(day.actual)day.actual.pairs.forEach(p=>lines.push(`actual: ${compactH(p.in)} – ${compactH(p.out)}`));lines.push(`${day.billableH.toFixed(2)}h`);cells.push(lines.join('\n'))}
-        }
-        cells.push(`${r.actualHours.toFixed(2)}h${r.actualHours>40?' ⚠ 40h+':''}`);
-        const row=ws2.addRow(cells);
-        row.eachCell((cell,ci)=>{cell.alignment={horizontal:'center',vertical:'middle',wrapText:true};cell.border={bottom:thinB};cell.font={name:'Arial',size:10,bold:ci===2}});
-        if(r.isOrphan)row.eachCell(c=>c.fill=orphanFill);row.height=80;
+    let grandTotal=0,grandHours=0;
+    data.forEach(({entityName,rows})=>{
+      let filtered=_filterRowsForKind(rows,sectionKind);
+      if(filtered.length===0)return;
+      if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
+      let entTotal=0,entHours=0;
+      filtered.forEach(r=>{
+        const vals=spec.rowFn(r);
+        const row=ws.addRow(vals);
+        row.eachCell((cell,ci)=>{
+          cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
+          cell.border={bottom:thinB,left:thinB,right:thinB};cell.font={name:'Arial',size:10};
+        });
+        if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
+        else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
+        else entTotal+=r._breakdown.final;
+        if(!r.isFlat)entHours+=(r.actualHours||r.expectedH||0);
       });
-      ws2.getColumn(1).width=20;ws2.getColumn(2).width=16;for(let c=3;c<=9;c++)ws2.getColumn(c).width=18;ws2.getColumn(10).width=16;
+      // Entity subtotal
+      const subCells=new Array(spec.headers.length).fill('');
+      subCells[0]=entityName+' subtotal';
+      if(sectionKind==='timecard'){
+        // For timecard, subtotal hours in actual hrs col (index 5)
+        subCells[5]=entHours.toFixed(2);
+      }else{
+        subCells[spec.headers.length-1]='$'+entTotal.toFixed(2);
+      }
+      const sub=ws.addRow(subCells);
+      sub.eachCell((cell,ci)=>{
+        cell.font={name:'Arial',bold:true,size:10};cell.fill=subtotalFill;
+        cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
+        cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
+      });
+      grandTotal+=entTotal;grandHours+=entHours;
     });
+
+    // Grand total row
+    const grandCells=new Array(spec.headers.length).fill('');
+    grandCells[0]='GRAND TOTAL';
+    if(sectionKind==='timecard'){
+      grandCells[5]=grandHours.toFixed(2);
+    }else{
+      grandCells[spec.headers.length-1]='$'+grandTotal.toFixed(2);
+    }
+    const g=ws.addRow(grandCells);
+    g.eachCell((cell,ci)=>{
+      cell.font={name:'Arial',bold:true,size:11};cell.fill=grandFill;
+      cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
+      cell.border={top:medB,bottom:medB,left:medB,right:medB};
+    });
+
+    // Column widths
+    spec.widths.forEach((w,i)=>{ws.getColumn(i+1).width=Math.round(w/6)});
   }
 
-  // ---- Sheet 3: Flags & Issues ----
-  const ws3=ewb.addWorksheet('Flags');
-  const fhdr=ws3.addRow(['Entity','Employee','Category','Detail']);
-  fhdr.eachCell(cell=>{cell.font={name:'Arial',bold:true,size:11};cell.fill=hdrFill;cell.alignment={horizontal:'left',vertical:'middle'};cell.border={bottom:medB}});fhdr.height=22;
-  const allFlagRows=collectAllFlags(allEntityResults);
-  allFlagRows.forEach(f=>{
-    const row=ws3.addRow([f.entity,f.emp||'(all)',f.category,f.detail]);
-    row.eachCell(cell=>{cell.font={name:'Arial',size:10};cell.alignment={vertical:'middle',wrapText:true};cell.border={bottom:thinB}});
-    row.height=28;
-  });
-  ws3.getColumn(1).width=20;ws3.getColumn(2).width=18;ws3.getColumn(3).width=26;ws3.getColumn(4).width=48;
-
-  // Filename: Payroll_YYYY-MM-DD.xlsx
-  let fname='Payroll_Report.xlsx';
-  if(firstEntWithDates&&firstEntWithDates.dateLabels[0]){
-    const iso=schedLabelToIso(firstEntWithDates.dateLabels[0]);
-    if(iso)fname=`Payroll_Week_of_${iso}.xlsx`;
+  if(kind==='full'){
+    await writeSection('timecard');
+    ws.addRow([]);ws.addRow([]);
+    await writeSection('payrollCalc');
+  }else{
+    await writeSection(kind);
   }
-  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+
+  downloadBlob(await ewb.xlsx.writeBuffer(),_exportFilenameBase(kind)+'.xlsx');
 }
 
-// ================================================================
-// PAYROLL EXPORT — PDF (renders the all-entity preview as a PDF)
-// ================================================================
-async function exportPayrollPdf(){
+// ---- PDF writer ----
+async function _exportPdf(kind){
+  if(!_confirmBreaksOrBail())return;
   if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
   const {jsPDF}=window.jspdf;
+  const data=_collectExportData();
+  if(data.length===0){alert('No data to export.');return;}
 
-  syncActualsFromReview();
-
-  const unsetBreak=entities.filter(e=>e.employees.length>0&&!e.breakMinutesSet);
-  if(unsetBreak.length>0){
-    const names=unsetBreak.map(e=>e.name||'(unnamed)').join(', ');
-    if(!confirm('Break minutes not confirmed for: '+names+'.\n\nCurrent values will be used anyway. Continue with export?'))return;
-  }
-
-  const allEntityResults=entities.filter(e=>e.employees.length>0).map(e=>{
-    const idx=entities.indexOf(e);
-    return{entityIdx:idx,entityName:e.name||('Entity '+(idx+1)),...computePayrollForEntity(idx)};
-  });
-  const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
-
-  const firstEntWithDates=entities.find(e=>e.dateLabels&&e.dateLabels.some(d=>d));
-  let periodStr='PAYROLL';
-  if(firstEntWithDates){
-    periodStr=`PAYROLL — Week of ${firstEntWithDates.dateLabels[0]} to ${firstEntWithDates.dateLabels[6]}`;
-  }
-
-  const doc=new jsPDF({unit:'pt',format:'letter',orientation:'portrait'});
+  // Landscape for wide tables (combined/timecard/payrollCalc/full)
+  const landscape=(kind==='combined'||kind==='timecard'||kind==='payrollCalc'||kind==='full');
+  const doc=new jsPDF({unit:'pt',format:'letter',orientation:landscape?'landscape':'portrait'});
   const pageW=doc.internal.pageSize.getWidth();
-  doc.setFont('helvetica','bold');doc.setFontSize(16);
-  doc.text(periodStr,pageW/2,40,{align:'center'});
 
-  const body=[];
-  let grandHours=0,grandPay=0;
-  allEntityResults.forEach(({entityName,results,orphanRows})=>{
-    const flatExtras=getFlatWageRows(entityName);
-    const allRows=results.concat(orphanRows).concat(flatExtras);
-    if(allRows.length===0)return;
-    let entityTotalHours=0,entityTotalPay=0,entityFirstRow=true;
-    allRows.forEach(r=>{
-      const hoursVal=r.isFlat?null:(hasActuals?r.actualHours:r.expectedH);
-      const wage=r.wage;
-      const rateStr=r.isFlat?'':(wage>0?('$'+wage.toFixed(2)):'');
-      const totalStr=r.isFlat?('$'+r.flatAmount.toFixed(2)):(wage>0?('$'+r.pay.toFixed(2)):'');
-      if(hoursVal!=null)entityTotalHours+=hoursVal;
-      if(r.isFlat)entityTotalPay+=r.flatAmount;else if(wage>0)entityTotalPay+=r.pay;
-      body.push([
-        entityFirstRow?entityName:'',
-        r.name+(r.isOrphan?' (orphan)':''),
-        hoursVal!=null?hoursVal.toFixed(2):'',
-        rateStr,
-        totalStr
-      ]);
-      entityFirstRow=false;
+  const titleText=(
+    kind==='cashOnly'?'CASH-ONLY REPORT':
+    kind==='depositOnly'?'DEPOSIT-ONLY REPORT':
+    kind==='combined'?'COMBINED PAYROLL REPORT':
+    kind==='timecard'?'TIME CARD DATA REPORT':
+    kind==='payrollCalc'?'PAYROLL CALCULATION REPORT':
+    'FULL REPORT'
+  );
+  const per=_exportPeriodStr();
+  doc.setFont('helvetica','bold');doc.setFontSize(14);
+  doc.text(titleText+(per?' — '+per:''),pageW/2,36,{align:'center'});
+
+  let startY=56;
+
+  function writeSection(sectionKind){
+    const spec=_columnsFor(sectionKind);
+    if(!spec)return;
+
+    if(kind==='full'){
+      doc.setFont('helvetica','bold');doc.setFontSize(12);
+      doc.text(sectionKind==='timecard'?'TIME CARD DATA':'PAYROLL CALCULATION',40,startY);
+      startY+=12;
+    }
+
+    const body=[];
+    let grandTotal=0,grandHours=0;
+    data.forEach(({entityName,rows})=>{
+      let filtered=_filterRowsForKind(rows,sectionKind);
+      if(filtered.length===0)return;
+      if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
+      let entTotal=0,entHours=0;
+      filtered.forEach(r=>{
+        body.push(spec.rowFn(r));
+        if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
+        else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
+        else entTotal+=r._breakdown.final;
+        if(!r.isFlat)entHours+=(r.actualHours||r.expectedH||0);
+      });
+      const subRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[240,239,233],fontStyle:'bold'}});
+      subRow[0]={content:entityName+' subtotal',styles:{fillColor:[240,239,233],fontStyle:'bold'}};
+      if(sectionKind==='timecard'){
+        subRow[5]={content:entHours.toFixed(2),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
+      }else{
+        subRow[spec.headers.length-1]={content:'$'+entTotal.toFixed(2),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
+      }
+      body.push(subRow);
+      grandTotal+=entTotal;grandHours+=entHours;
     });
-    body.push([{content:entityName+' Total',styles:{fontStyle:'bold',fillColor:[240,239,233]}},{content:'',styles:{fillColor:[240,239,233]}},{content:entityTotalHours>0?entityTotalHours.toFixed(2):'',styles:{fontStyle:'bold',fillColor:[240,239,233],halign:'right'}},{content:'',styles:{fillColor:[240,239,233]}},{content:'$'+entityTotalPay.toFixed(2),styles:{fontStyle:'bold',fillColor:[240,239,233],halign:'right'}}]);
-    grandHours+=entityTotalHours;grandPay+=entityTotalPay;
-  });
-  body.push([{content:'GRAND TOTAL',styles:{fontStyle:'bold',fillColor:[224,222,213]}},{content:'',styles:{fillColor:[224,222,213]}},{content:grandHours.toFixed(2),styles:{fontStyle:'bold',fillColor:[224,222,213],halign:'right'}},{content:'',styles:{fillColor:[224,222,213]}},{content:'$'+grandPay.toFixed(2),styles:{fontStyle:'bold',fillColor:[224,222,213],halign:'right'}}]);
 
-  doc.autoTable({
-    head:[['Entity','Employee Name','Billable Hours','Rate','Total']],
-    body,
-    startY:60,
-    theme:'grid',
-    styles:{font:'helvetica',fontSize:9,cellPadding:5,lineColor:[176,176,176],lineWidth:0.5},
-    headStyles:{fillColor:[232,232,228],textColor:[26,26,24],fontStyle:'bold',halign:'left'},
-    columnStyles:{0:{cellWidth:110},1:{cellWidth:130},2:{halign:'right',cellWidth:80},3:{halign:'right',cellWidth:60},4:{halign:'right',cellWidth:80}},
-    margin:{left:40,right:40}
-  });
+    const grandRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[224,222,213],fontStyle:'bold'}});
+    grandRow[0]={content:'GRAND TOTAL',styles:{fillColor:[224,222,213],fontStyle:'bold'}};
+    if(sectionKind==='timecard'){
+      grandRow[5]={content:grandHours.toFixed(2),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
+    }else{
+      grandRow[spec.headers.length-1]={content:'$'+grandTotal.toFixed(2),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
+    }
+    body.push(grandRow);
 
-  let fname='Payroll_Report.pdf';
-  if(firstEntWithDates&&firstEntWithDates.dateLabels[0]){
-    const iso=schedLabelToIso(firstEntWithDates.dateLabels[0]);
-    if(iso)fname=`Payroll_Week_of_${iso}.pdf`;
+    const columnStyles={};
+    spec.numCols.forEach(ci=>{columnStyles[ci]={halign:'right'}});
+    spec.widths.forEach((w,i)=>{columnStyles[i]=Object.assign({},columnStyles[i]||{},{cellWidth:w*0.9})});
+
+    doc.autoTable({
+      head:[spec.headers],
+      body,
+      startY,
+      theme:'grid',
+      styles:{font:'helvetica',fontSize:8,cellPadding:3,lineColor:[176,176,176],lineWidth:0.4},
+      headStyles:{fillColor:[232,232,228],textColor:[26,26,24],fontStyle:'bold',halign:'left'},
+      columnStyles,
+      margin:{left:30,right:30}
+    });
+    startY=doc.lastAutoTable.finalY+20;
   }
-  doc.save(fname);
+
+  if(kind==='full'){
+    writeSection('timecard');
+    writeSection('payrollCalc');
+  }else{
+    writeSection(kind);
+  }
+
+  doc.save(_exportFilenameBase(kind)+'.pdf');
 }
+
+// ---- Public button handlers ----
+async function exportCashExcel(){return _exportExcel('cashOnly')}
+async function exportCashPdf(){return _exportPdf('cashOnly')}
+async function exportDepositExcel(){return _exportExcel('depositOnly')}
+async function exportDepositPdf(){return _exportPdf('depositOnly')}
+async function exportCombinedExcel(){return _exportExcel('combined')}
+async function exportCombinedPdf(){return _exportPdf('combined')}
+async function exportTimecardExcel(){return _exportExcel('timecard')}
+async function exportTimecardPdf(){return _exportPdf('timecard')}
+async function exportPayrollCalcExcel(){return _exportExcel('payrollCalc')}
+async function exportPayrollCalcPdf(){return _exportPdf('payrollCalc')}
+async function exportFullExcel(){return _exportExcel('full')}
+async function exportFullPdf(){return _exportPdf('full')}
+
+// Legacy aliases so any stray callers still work
+async function exportPayroll(){return exportCombinedExcel()}
+async function exportPayrollPdf(){return exportCombinedPdf()}
+
 
 // Flat-wage extras: employees with a flat amount set in wageRates AS A NEGATIVE sentinel
 // Simpler approach: a parallel store `flatWages[wKey]` = amount.
