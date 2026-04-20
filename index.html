@@ -1695,8 +1695,8 @@ function renderPayrollEntityContent(idx){
       <button class="payroll-subtab${activeSub==='payroll'?' active':''}" onclick="setPayrollSubTab(${idx},'payroll')">Payroll Calculation</button>
     </div>
     <div class="payroll-subtab-content">
-      <div id="timecardDataWrap" style="display:${activeSub==='timecard'?'block':'none'}"><div class="sched-table-wrap"><table class="sched" id="timecardDataTable"></table></div></div>
-      <div id="payrollCalcWrap" style="display:${activeSub==='payroll'?'block':'none'}"><div class="sched-table-wrap"><table class="sched" id="payrollCalcTable"></table></div></div>
+      <div id="timecardDataWrap" style="display:${activeSub==='timecard'?'block':'none'}"><div class="sched-table-wrap" style="display:block"><table class="sched" id="timecardDataTable"></table></div></div>
+      <div id="payrollCalcWrap" style="display:${activeSub==='payroll'?'block':'none'}"><div class="sched-table-wrap" style="display:block"><table class="sched" id="payrollCalcTable"></table></div></div>
     </div>`;
 
   renderPayrollInfoChips(allRows,hasActuals);
