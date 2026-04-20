@@ -1252,7 +1252,9 @@ async function exportEmployee(){
       if(ci===1)cell.font={name:'Arial',bold:true,size:11};else{const v=cell.value?cell.value.toString().toUpperCase():'';cell.font={name:'Arial',size:11,color:{argb:v==='OFF'?'FFCC0000':'FF008000'}}}});r.height=28;
   });
   ws.getColumn(1).width=14;for(let c=2;c<=8;c++)ws.getColumn(c).width=22;
-  downloadBlob(await ewb.xlsx.writeBuffer(),(ent.name||'Entity')+'_Employee_Schedule.xlsx');
+  const fname=(ent.name||'Entity')+'_Employee_Schedule.xlsx';
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+  showToast(`Exported ${fname}`,'ok');
 }
 
 async function exportManager(){
@@ -1284,7 +1286,9 @@ async function exportManager(){
   gRow.push(Math.round(gt*100)/100);
   const gr=ws.addRow(gRow);gr.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:medB,bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
   ws.getColumn(1).width=14;for(let c=2;c<=8;c++)ws.getColumn(c).width=22;ws.getColumn(9).width=14;
-  downloadBlob(await ewb.xlsx.writeBuffer(),(ent.name||'Entity')+'_Manager_Report.xlsx');
+  const fname=(ent.name||'Entity')+'_Manager_Report.xlsx';
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+  showToast(`Exported ${fname}`,'ok');
 }
 
 // ================================================================
@@ -1536,8 +1540,9 @@ function computePayrollForEntity(idx){
       row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH;
       const expectedH_day=shift?Math.max(0,schedH-mandBreakH):0;
       const dayData={dayIdx:d,shift,schedH,actual,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:expectedH_day,inDiff:null,outDiff:null,hoursDiff:null,status:'ok'};
+      const empIgnored=ent.intake&&ent.intake.ignoredEmployees&&ent.intake.ignoredEmployees[emp.name];
       if(!shift&&!actual){dayData.status='off'}
-      else if(shift&&!actual){dayData.status='noshow'}
+      else if(shift&&!actual){dayData.status=empIgnored?'ignored':'noshow'}
       else if(!shift&&actual){dayData.status='unsched'}
       else{
         const schedStart=shift.start%24,schedEnd=shift.end>24?shift.end-24:shift.end;
@@ -1824,6 +1829,7 @@ function renderPayDayCell(day,isOrphan,hasActuals){
   }
   if(day.status==='off')return `<td class="pay-day status-off">${schedLine}</td>`;
   // NO SHOW: employee missed the shift — pay less than expected → green (per user's pay-centric rule)
+  if(day.status==='ignored')return `<td class="pay-day" style="opacity:0.5">${schedLine}<span class="pay-times-line pay-times" style="color:var(--text3)">IGNORED</span><div class="pay-hours-line" style="color:var(--text3)">no actuals tracked</div></td>`;
   if(day.status==='noshow')return `<td class="pay-day status-noshow">${schedLine}<span class="pay-times-line pay-times hours-good">NO SHOW</span><div class="pay-hours-line hours-good">missed ${day.expectedH.toFixed(2)}h</div></td>`;
   // UNSCHED: unscheduled clock-ins — pay for unexpected work → red
   if(day.status==='unsched'){
@@ -2213,11 +2219,13 @@ function ensureIntakeState(ent){
     ent.intake={
       timecardFiles:[],
       easyclockFiles:[],
+      mixedFiles:[],
       reviewRows:[],
       ocrInProgress:false,
       ocrDone:false,
       lastOcrError:'',
-      uploadMode:'images' // 'images' or 'xlsx'
+      uploadMode:'images', // 'images' or 'xlsx'
+      ignoredEmployees:{} // empName -> true if their timecards should be ignored
     };
   }
   if(ent.intake.uploadMode==null)ent.intake.uploadMode='images';
@@ -2250,7 +2258,7 @@ function renderIntake(){
       <h3>${escHtml(name)} <span style="font-weight:400;color:var(--text3);font-size:13px">— ${empCount} scheduled employees</span></h3>
       <div class="roster-note">Roster comes from this entity's schedule. Anyone clocked in but not on the schedule will be flagged.</div>
 
-      <div class="intake-drop-row" style="display:flex">
+      <div class="intake-drop-row" style="display:flex;flex-wrap:wrap;gap:8px">
         <div class="intake-drop ${tcCount>0?'has-files':''}" id="tcDrop_${idx}" onclick="document.getElementById('tcInput_${idx}').click()">
           <div class="label">Physical Timecard Photos</div>
           <div class="hint">Drop images or click</div>
@@ -2263,22 +2271,27 @@ function renderIntake(){
           <div class="count">${ecCount?ecCount+' file'+(ecCount>1?'s':'')+' ready':''}</div>
           <input type="file" id="ecInput_${idx}" accept="image/*" multiple>
         </div>
+        <div class="intake-drop ${(ent.intake.mixedFiles||[]).length>0?'has-files':''}" id="mixDrop_${idx}" onclick="document.getElementById('mixInput_${idx}').click()" style="border-color:var(--blue);background:rgba(37,99,235,0.02)">
+          <div class="label" style="color:var(--blue)">Mixed / Auto-Classify</div>
+          <div class="hint">Drop any timecard images — auto-detects type</div>
+          <div class="count">${(ent.intake.mixedFiles||[]).length?(ent.intake.mixedFiles.length)+' file'+((ent.intake.mixedFiles.length)>1?'s':'')+' ready':''}</div>
+          <input type="file" id="mixInput_${idx}" accept="image/*" multiple>
+        </div>
       </div>
 
       <div class="actions-row">
-        <button class="btn btn-primary" onclick="runOcrForEntity(${idx})" ${(tcCount+ecCount===0)?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Run OCR</button>
+        <button class="btn btn-primary" onclick="runOcrForEntity(${idx})" ${(tcCount+ecCount+(ent.intake.mixedFiles||[]).length===0)?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Run OCR</button>
         <button class="btn" onclick="clearIntake(${idx})">Clear</button>
-        <span style="flex:1"></span>
-        <button class="btn" onclick="addManualRow(${idx})">+ Add manual row</button>
       </div>
 
       <div class="progress-bar ${ent.intake.ocrInProgress?'active':''}" id="progressBar_${idx}"><div class="progress-fill" id="progressFill_${idx}" style="width:0%"></div></div>
       <div class="status-line" id="statusLine_${idx}">${ent.intake.lastOcrError?'<span style="color:var(--red)">'+escHtml(ent.intake.lastOcrError)+'</span>':''}</div>
       <div class="ocr-file-list" id="ocrFileList_${idx}"></div>
 
-      <div class="ocr-results ${ent.intake.reviewRows.length>0?'active':''}" id="ocrResults_${idx}">
+      <div class="ocr-results ${ent.intake.reviewRows.length>0||ent.intake.ocrDone?'active':''}" id="ocrResults_${idx}">
         ${renderReviewSummary(ent)}
         <div class="review-legend"><strong>Legend</strong><span><span class="legend-abbr">TC</span> = Timecard photo</span><span><span class="legend-abbr">EC</span> = EasyClocking</span><span><span class="legend-abbr">MN</span> = Manual</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="btn" onclick="addManualRowEntity(${idx})" title="Add a row for an employee not already in the table" style="font-size:12px;padding:5px 12px">✚ Add employee row</button><span style="font-size:11px;color:var(--text3)">Use when an entire employee is missing</span><span style="flex:1"></span><button class="btn btn-green" onclick="exportActualsExcel()" title="Export all actuals data across all entities" style="font-size:12px;padding:5px 14px">📥 Export Actuals (.xlsx)</button></div>
         <div id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</div>
       </div>
     </div>`;
@@ -2290,6 +2303,7 @@ function renderIntake(){
     if(ent.employees.length===0)return;
     wireIntakeDrop('tcDrop_'+idx,'tcInput_'+idx,files=>addIntakeFiles(idx,'tc',files));
     wireIntakeDrop('ecDrop_'+idx,'ecInput_'+idx,files=>addIntakeFiles(idx,'ec',files));
+    wireIntakeDrop('mixDrop_'+idx,'mixInput_'+idx,files=>addIntakeFiles(idx,'mixed',files));
     // Restore OCR job list (retry buttons etc.) if a prior run left any jobs around
     if(ent.intake&&Array.isArray(ent.intake._ocrJobs)&&ent.intake._ocrJobs.length>0){
       renderOcrFileList(idx,ent.intake._ocrJobs);
@@ -2310,18 +2324,50 @@ function addIntakeFiles(idx,kind,files){
   const ent=entities[idx];ensureIntakeState(ent);
   const imgs=files.filter(f=>f.type.startsWith('image/'));
   if(kind==='tc')ent.intake.timecardFiles=ent.intake.timecardFiles.concat(imgs);
-  else ent.intake.easyclockFiles=ent.intake.easyclockFiles.concat(imgs);
+  else if(kind==='ec')ent.intake.easyclockFiles=ent.intake.easyclockFiles.concat(imgs);
+  else if(kind==='mixed'){
+    if(!ent.intake.mixedFiles)ent.intake.mixedFiles=[];
+    ent.intake.mixedFiles=ent.intake.mixedFiles.concat(imgs);
+  }
   renderIntake();
 }
 
 function clearIntake(idx){
   const ent=entities[idx];if(!ent.intake)return;
-  ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];
+  ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];ent.intake.mixedFiles=[];
   ent.intake.reviewRows=[];ent.intake.ocrDone=false;ent.intake.lastOcrError='';
   ent.intake._ocrJobs=[];
   renderIntake();
 }
 
+// Entity-level manual row: doesn't pre-select an employee, shows in Unrecognized tab
+function addManualRowEntity(idx){
+  const ent=entities[idx];ensureIntakeState(ent);
+  const firstDate=(ent.dateLabels||[]).find(d=>d)||'';
+  const iso=schedLabelToIso(firstDate)||'';
+  const dayIdx=iso?new Date(iso+'T00:00:00').getDay():0;
+  const newId='manual_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  ent.intake.reviewRows.push({
+    id:newId,
+    source:'MN',empName:'',date:iso,dayIdx,
+    clockIn1:'',clockOut1:'',clockIn2:'',clockOut2:'',clockIn3:'',clockOut3:'',
+    confidence:1.0,flags:['Manually added — select employee and fill in all fields'],needsReview:true,approved:false,
+    originalName:'(manual)'
+  });
+  ent.intake.activeEmpTab='__unrecognized__';
+  ent.intake.ocrDone=true;
+  renderIntake();
+  setTimeout(()=>{
+    const rowEl=document.querySelector(`tr[data-row-id="${newId}"]`);
+    if(rowEl){
+      rowEl.scrollIntoView({behavior:'smooth',block:'center'});
+      const firstTimeInput=rowEl.querySelector('input.time-text');
+      if(firstTimeInput)firstTimeInput.focus();
+    }
+  },50);
+}
+
+// Employee-level manual row: pre-selects the active employee tab
 function addManualRow(idx){
   const ent=entities[idx];ensureIntakeState(ent);
   // Default the empName to the currently-active employee sub-tab so the row
@@ -2378,7 +2424,9 @@ function renderOcrFileList(idx, jobs){
   el.className='ocr-file-list active';
   el.innerHTML=jobs.map((j,i)=>{
     const retryBtn=(j.status==='err')?`<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i})" title="Retry OCR for this file">↻ Retry</button>`:'';
-    return `<div class="file-row status-${j.status}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':'EasyClocking'}</span></span><span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span>${retryBtn}<span class="fstatus">${j.status}</span></div>`;
+    const attemptBadge=(j.attempt&&j.attempt>1)?`<span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:4px">Attempt ${j.attempt}/${j.maxAttempts||3}</span>`:'';
+    const statusCls=j.status==='retrying'?'status-running':('status-'+j.status);
+    return `<div class="file-row ${statusCls}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':j.kind==='EC'?'EasyClocking':'Mixed'}</span></span>${attemptBadge}<span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span>${retryBtn}<span class="fstatus">${j.status==='retrying'?'retrying…':j.status}</span></div>`;
   }).join('');
 }
 
@@ -2457,8 +2505,8 @@ async function runOcrForEntity(idx){
   const tcModel=getTcModel();
   const ecModel=getEcModel();
   const autoEscalate=getAutoEscalate();
-  const tcFiles=ent.intake.timecardFiles,ecFiles=ent.intake.easyclockFiles;
-  if(tcFiles.length+ecFiles.length===0){showToast('No files uploaded for this entity','err');return}
+  const tcFiles=ent.intake.timecardFiles,ecFiles=ent.intake.easyclockFiles,mixFiles=ent.intake.mixedFiles||[];
+  if(tcFiles.length+ecFiles.length+mixFiles.length===0){showToast('No files uploaded for this entity','err');return}
 
   ent.intake.ocrInProgress=true;
   ent.intake.lastOcrError='';
@@ -2471,7 +2519,8 @@ async function runOcrForEntity(idx){
 
   const jobs=[
     ...tcFiles.map(f=>({name:f.name,kind:'TC',file:f,status:'queued',detail:''})),
-    ...ecFiles.map(f=>({name:f.name,kind:'EC',file:f,status:'queued',detail:''}))
+    ...ecFiles.map(f=>({name:f.name,kind:'EC',file:f,status:'queued',detail:''})),
+    ...mixFiles.map(f=>({name:f.name,kind:'MIX',file:f,status:'queued',detail:'auto-classifying…'}))
   ];
   const total=jobs.length;
   let done=0,errCount=0;
@@ -2489,32 +2538,60 @@ async function runOcrForEntity(idx){
   showToast(`Starting OCR · ${total} image${total===1?'':'s'} (${CONCURRENCY} at a time)`,'ok');
 
   async function runOne(job){
-    job.status='running';job.detail='';
-    renderOcrFileList(idx,jobs);
-    try {
-      let rows;
-      if(job.kind==='TC'){
-        rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek,scheduleAnchors);
-        if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
-          job.detail='low confidence → retrying with Pro';
+    const MAX_ATTEMPTS=3;
+    const RETRY_DELAY=5000; // 5 seconds
+    for(let attempt=1;attempt<=MAX_ATTEMPTS;attempt++){
+      job.status='running';
+      job.attempt=attempt;
+      job.maxAttempts=MAX_ATTEMPTS;
+      job.detail=attempt>1?`Attempt ${attempt}/${MAX_ATTEMPTS}…`:'';
+      renderOcrFileList(idx,jobs);
+      try {
+        // Auto-classify mixed files
+        let effectiveKind=job.kind;
+        if(effectiveKind==='MIX'){
+          job.detail='Classifying image type…';
           renderOcrFileList(idx,jobs);
-          try{
-            const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek,scheduleAnchors);
-            rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
-          }catch(e){/* keep original rows if Pro call fails */}
+          effectiveKind=await classifyTimecardImage(job.file,apiKey);
+          job.kind=effectiveKind; // update for display and retry
+          job.detail=`Classified as ${effectiveKind==='TC'?'Timecard':'EasyClocking'} — extracting…`;
+          renderOcrFileList(idx,jobs);
         }
-        rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
-      } else {
-        rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
-        rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+        let rows;
+        if(effectiveKind==='TC'){
+          rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek,scheduleAnchors);
+          if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
+            job.detail='low confidence → retrying with Pro';
+            renderOcrFileList(idx,jobs);
+            try{
+              const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek,scheduleAnchors);
+              rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
+            }catch(e){/* keep original rows if Pro call fails */}
+          }
+          rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+        } else {
+          rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
+          rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+        }
+        job.status='done';
+        job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`+(attempt>1?` (attempt ${attempt})`:'');
+        break; // success — exit retry loop
+      } catch(err){
+        if(attempt<MAX_ATTEMPTS){
+          // Show countdown spinner before retrying
+          job.status='retrying';
+          job.detail=`Attempt ${attempt}/${MAX_ATTEMPTS} failed — retrying in 5s…`;
+          renderOcrFileList(idx,jobs);
+          await new Promise(r=>setTimeout(r,RETRY_DELAY));
+          // Clear rows from failed attempt before retrying
+          ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
+        }else{
+          job.status='err';
+          job.detail=`Failed all ${MAX_ATTEMPTS} attempts: `+(err.message||String(err)).slice(0,100);
+          errCount++;
+          ent.intake.lastOcrError='OCR failed on '+job.name+' (all '+MAX_ATTEMPTS+' attempts): '+(err.message||err);
+        }
       }
-      job.status='done';
-      job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`;
-    } catch(err){
-      job.status='err';
-      job.detail=(err.message||String(err)).slice(0,120);
-      errCount++;
-      ent.intake.lastOcrError='OCR failed on '+job.name+': '+(err.message||err);
     }
     done++;
     renderOcrFileList(idx,jobs);updateBar();
@@ -2679,6 +2756,27 @@ function buildScheduleAnchors(ent){
     lines.push(`${emp.name} — ${parts.join(' · ')}`);
   });
   return lines.join('\n');
+}
+
+// Auto-classify an image as 'TC' (physical timecard) or 'EC' (EasyClocking screenshot)
+async function classifyTimecardImage(file,apiKey){
+  const {b64,mime}=await prepareImageForOcr(file,1024); // smaller is fine for classification
+  const prompt=`Look at this image and determine if it is:
+1. A PHYSICAL TIMECARD (paper card with machine-stamped or handwritten times, typically yellow/tan card, rotated text, "TOPS" brand, IN/OUT columns)
+2. An EASYCLOCKING SCREENSHOT (digital screenshot of a time-tracking software with columns like Name, Day, Time In, Time Out, etc. on a gray/white background)
+
+Respond with ONLY one word: "TC" for physical timecard or "EC" for EasyClocking screenshot.`;
+  const body={
+    contents:[{role:'user',parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
+    generationConfig:{temperature:0,maxOutputTokens:5}
+  };
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!resp.ok)throw new Error('Classification API error '+resp.status);
+  const data=await resp.json();
+  const text=(data.candidates[0].content.parts[0].text||'').trim().toUpperCase();
+  if(text.includes('EC'))return 'EC';
+  return 'TC'; // default to TC if ambiguous
 }
 
 async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,scheduleAnchors){
@@ -2922,8 +3020,9 @@ function renderReviewTableHtml(ent,idx){
   const empApproved=activeRows.filter(r=>r.approved).length;
   const empTotal=activeRows.length;
   const empLabel=activeKey==='__unrecognized__'?'Unrecognized':escHtml(activeKey);
-  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:6px 8px;background:var(--surface2,#f5f4f0);border-radius:6px;font-size:12px">';
-  html+=`<span style="color:var(--text2)">${empLabel}: <strong>${empApproved}</strong> / ${empTotal} approved</span>`;
+  const isIgnored=ent.intake.ignoredEmployees&&ent.intake.ignoredEmployees[activeKey];
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:6px 8px;background:'+(isIgnored?'#FFF7ED':'var(--surface2,#f5f4f0)')+';border-radius:6px;font-size:12px">';
+  html+=`<span style="color:var(--text2)">${empLabel}: <strong>${empApproved}</strong> / ${empTotal} approved${isIgnored?' <span style="color:var(--amber);font-weight:600">— Time Cards Ignored</span>':''}</span>`;
   html+='<span style="display:flex;gap:6px">';
   if(empApproved<empTotal){
     html+=`<button class="mini-btn approve" onclick="approveAllForEmployee(${idx},'${escJs(activeKey)}')" title="Approve all rows for ${empLabel}" style="font-size:11px;padding:3px 10px">✓ Approve all for ${empLabel}</button>`;
@@ -2931,7 +3030,17 @@ function renderReviewTableHtml(ent,idx){
   if(empApproved>0){
     html+=`<button class="mini-btn" onclick="unapproveAllForEmployee(${idx},'${escJs(activeKey)}')" title="Unapprove all rows for ${empLabel}" style="font-size:11px;padding:3px 10px">↺ Unapprove all for ${empLabel}</button>`;
   }
+  if(activeKey!=='__unrecognized__'){
+    if(isIgnored){
+      html+=`<button class="mini-btn" onclick="toggleIgnoreEmployee(${idx},'${escJs(activeKey)}')" title="Stop ignoring time cards for ${empLabel}" style="font-size:11px;padding:3px 10px;background:#FFF7ED;border-color:var(--amber);color:var(--amber)">✖ Stop Ignoring</button>`;
+    }else{
+      html+=`<button class="mini-btn" onclick="toggleIgnoreEmployee(${idx},'${escJs(activeKey)}')" title="Ignore time cards for ${empLabel} — won't show as No Show on Payroll" style="font-size:11px;padding:3px 10px">🚫 Ignore Time Cards</button>`;
+    }
+  }
   html+='</span></div>';
+
+  // Employee-level manual row button
+  html+=`<div style="margin-top:6px;margin-bottom:4px"><button class="btn" onclick="addManualRow(${idx})" style="font-size:11px;padding:4px 10px">+ Add manual row for ${empLabel}</button></div>`;
 
   html+='<div class="review-wrap" style="margin-top:10px"><table class="review">';
   html+='<thead><tr>';
@@ -3248,6 +3357,21 @@ function unapproveAllForEmployee(idx,empKey){
   if(count>0)showToast('Unapproved '+count+' row'+(count===1?'':'s')+' for '+label+'.','ok');
 }
 
+// Toggle "Ignore Time Cards" for an employee — they won't show as "No Show" on Payroll tab
+function toggleIgnoreEmployee(idx,empKey){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  if(!ent.intake.ignoredEmployees)ent.intake.ignoredEmployees={};
+  if(ent.intake.ignoredEmployees[empKey]){
+    delete ent.intake.ignoredEmployees[empKey];
+    showToast(`Time cards tracking restored for ${empKey}`,'ok');
+  }else{
+    ent.intake.ignoredEmployees[empKey]=true;
+    showToast(`Ignoring time cards for ${empKey} — won't show as No Show on Payroll`,'ok');
+  }
+  refreshReviewTable(idx);
+  scheduleDynamicRecompute();
+}
+
 // Unapprove a single row — keeps its current values so the user can edit then reapprove.
 function unapproveReviewRow(id){
   const h=findReviewRow(id);if(!h)return;
@@ -3258,6 +3382,8 @@ function unapproveReviewRow(id){
 
 function refreshReviewTable(idx){
   const ent=entities[idx];if(!ent)return;
+  // Preserve scroll position to prevent page jump on blur/commit
+  const scrollX=window.scrollX,scrollY=window.scrollY;
   const t=document.getElementById('reviewTable_'+idx);
   if(t)t.innerHTML=renderReviewTableHtml(ent,idx);
   // Also update the summary
@@ -3269,6 +3395,8 @@ function refreshReviewTable(idx){
       existing.replaceWith(wrap.firstElementChild);
     }
   }
+  // Restore scroll position
+  window.scrollTo(scrollX,scrollY);
 }
 
 // ================================================================
@@ -3601,7 +3729,9 @@ async function _exportExcel(kind){
     await writeSection(kind);
   }
 
-  downloadBlob(await ewb.xlsx.writeBuffer(),_exportFilenameBase(kind)+'.xlsx');
+  const fname=_exportFilenameBase(kind)+'.xlsx';
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+  showToast(`Exported ${fname}`,'ok');
 }
 
 // ---- PDF writer ----
@@ -3699,7 +3829,82 @@ async function _exportPdf(kind){
     writeSection(kind);
   }
 
-  doc.save(_exportFilenameBase(kind)+'.pdf');
+  const pdfName=_exportFilenameBase(kind)+'.pdf';
+  doc.save(pdfName);
+  showToast(`Exported ${pdfName}`,'ok');
+}
+
+// ---- Export Actuals to Excel ----
+async function exportActualsExcel(){
+  const ewb=new ExcelJS.Workbook();
+  const DAYS_SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let totalRows=0;
+  let hasUnapproved=false;
+
+  entities.forEach(ent=>{
+    if(!ent.intake||ent.intake.reviewRows.length===0)return;
+    const entityName=ent.name||'Entity';
+    const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
+
+    // Group rows by employee
+    const buckets=new Map();
+    schedNames.forEach(n=>buckets.set(n,[]));
+    buckets.set('Unrecognized',[]);
+    ent.intake.reviewRows.forEach(r=>{
+      let k=reviewBucketKey(r,ent);
+      if(k==='__unrecognized__')k='Unrecognized';
+      if(!buckets.has(k))buckets.set(k,[]);
+      buckets.get(k).push(r);
+    });
+
+    // Create one sheet per employee (grouped by entity via tab name prefix)
+    buckets.forEach((rows,empName)=>{
+      if(rows.length===0)return;
+      // Excel tab name max 31 chars
+      let tabName=(entityName.slice(0,12)+' - '+empName.slice(0,16)).replace(/[\[\]\*\?\/\\:]/g,'');
+      // Ensure unique
+      let suffix=1;
+      while(ewb.worksheets.find(ws=>ws.name===tabName)){tabName=tabName.slice(0,28)+'_'+suffix++;}
+
+      const ws=ewb.addWorksheet(tabName);
+      // Header
+      ws.addRow([entityName+' — '+empName]).font={bold:true,size:13};
+      ws.addRow([]);
+      const hdr=ws.addRow(['Date','Day','Clock In 1','Clock Out 1','Clock In 2','Clock Out 2','Clock In 3','Clock Out 3','Source','Approved','Image','Flags']);
+      hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};});
+
+      rows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+      rows.forEach(r=>{
+        const dayName=r.date?DAYS_SHORT[new Date(r.date+'T00:00:00').getDay()]||'':'';
+        const approved=r.approved?'Yes':'No';
+        if(!r.approved)hasUnapproved=true;
+        ws.addRow([
+          r.date||'',dayName,
+          to12h(r.clockIn1),to12h(r.clockOut1),
+          to12h(r.clockIn2),to12h(r.clockOut2),
+          to12h(r.clockIn3),to12h(r.clockOut3),
+          r.source||'',approved,r.originalName||'',
+          (r.flags||[]).join('; ')
+        ]);
+        totalRows++;
+      });
+      // Auto-width
+      ws.columns.forEach(col=>{col.width=14;});
+      ws.getColumn(1).width=12;
+      ws.getColumn(11).width=24;
+      ws.getColumn(12).width=30;
+    });
+  });
+
+  if(totalRows===0){showToast('No actuals data to export','err');return;}
+
+  if(hasUnapproved){
+    if(!confirm('Some rows are still unapproved. Export anyway?'))return;
+  }
+
+  const fname='Actuals_Export_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+  showToast(`Exported ${fname} — ${totalRows} rows across ${ewb.worksheets.length} tabs`,'ok');
 }
 
 // ---- Public button handlers ----
@@ -3751,6 +3956,7 @@ function collectAllFlags(allEntityResults){
       if(r.scheduledHours>40)out.push({entity:entityName,emp:r.name,category:'Scheduled 40h+',detail:`${r.scheduledHours.toFixed(2)}h scheduled`});
       r.days.forEach((day,di)=>{
         if(day.status==='noshow')out.push({entity:entityName,emp:r.name,category:'No show',detail:`${DAYS[di]}: scheduled ${compactH(day.shift.start)}–${compactH(day.shift.end)}, no clock-in`});
+        // 'ignored' status is intentional — don't flag it
         if(day.status==='unsched')out.push({entity:entityName,emp:r.name,category:'Unscheduled punch',detail:`${DAYS[di]}: clocked in without a scheduled shift`});
       });
     });
