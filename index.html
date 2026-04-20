@@ -2917,6 +2917,22 @@ function renderReviewTableHtml(ent,idx){
     html+='<div class="review-empty-msg">No rows for this employee yet.</div>';
     return html;
   }
+
+  // Per-employee approve/unapprove action bar
+  const empApproved=activeRows.filter(r=>r.approved).length;
+  const empTotal=activeRows.length;
+  const empLabel=activeKey==='__unrecognized__'?'Unrecognized':escHtml(activeKey);
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:6px 8px;background:var(--surface2,#f5f4f0);border-radius:6px;font-size:12px">';
+  html+=`<span style="color:var(--text2)">${empLabel}: <strong>${empApproved}</strong> / ${empTotal} approved</span>`;
+  html+='<span style="display:flex;gap:6px">';
+  if(empApproved<empTotal){
+    html+=`<button class="mini-btn approve" onclick="approveAllForEmployee(${idx},'${escJs(activeKey)}')" title="Approve all rows for ${empLabel}" style="font-size:11px;padding:3px 10px">✓ Approve all for ${empLabel}</button>`;
+  }
+  if(empApproved>0){
+    html+=`<button class="mini-btn" onclick="unapproveAllForEmployee(${idx},'${escJs(activeKey)}')" title="Unapprove all rows for ${empLabel}" style="font-size:11px;padding:3px 10px">↺ Unapprove all for ${empLabel}</button>`;
+  }
+  html+='</span></div>';
+
   html+='<div class="review-wrap" style="margin-top:10px"><table class="review">';
   html+='<thead><tr>';
   html+='<th style="width:34px"></th>'; // delete column (leftmost, per user request)
@@ -2941,7 +2957,7 @@ function renderReviewTableHtml(ent,idx){
     const imgName=r.originalName||'';
     const isOcrSource=r.source==='TC'||r.source==='EC';
     const rerunBtn=isOcrSource?`<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}')" title="Re-run OCR for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ Re-run</button>`:'';
-    html+=`<td style="font-size:10px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</td>`;
+    html+=`<td style="font-size:10px;max-width:180px;word-break:break-all;line-height:1.3" title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</td>`;
     // 3. Employee dropdown (schedule names only).
     // If OCR name fuzzy-matched a schedule name via _suggestedName, treat that
     // schedule name as the "effective" current selection so the dropdown
@@ -3195,6 +3211,41 @@ function unapproveAll(idx){
   ent.intake.reviewRows.forEach(r=>{r.approved=false;});
   refreshReviewTable(idx);
   scheduleDynamicRecompute();
+}
+
+// Approve all rows for a specific employee sub-tab.
+function approveAllForEmployee(idx,empKey){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  let approved=0,skipped=0;
+  ent.intake.reviewRows.forEach(r=>{
+    if(reviewBucketKey(r,ent)!==empKey)return;
+    if(r.approved)return;
+    if(!isRowStructurallyValid(r)){skipped++;return;}
+    r.approved=true;approved++;
+  });
+  refreshReviewTable(idx);
+  scheduleDynamicRecompute();
+  const label=empKey==='__unrecognized__'?'Unrecognized':empKey;
+  if(skipped>0){
+    showToast('Approved '+approved+' row'+(approved===1?'':'s')+' for '+label+'. '+skipped+' skipped — fix missing punch pairs first.','err');
+  }else if(approved>0){
+    showToast('Approved '+approved+' row'+(approved===1?'':'s')+' for '+label+'.','ok');
+  }
+}
+
+// Unapprove all rows for a specific employee sub-tab.
+function unapproveAllForEmployee(idx,empKey){
+  const ent=entities[idx];if(!ent||!ent.intake)return;
+  let count=0;
+  ent.intake.reviewRows.forEach(r=>{
+    if(reviewBucketKey(r,ent)!==empKey)return;
+    if(!r.approved)return;
+    r.approved=false;count++;
+  });
+  refreshReviewTable(idx);
+  scheduleDynamicRecompute();
+  const label=empKey==='__unrecognized__'?'Unrecognized':empKey;
+  if(count>0)showToast('Unapproved '+count+' row'+(count===1?'':'s')+' for '+label+'.','ok');
 }
 
 // Unapprove a single row — keeps its current values so the user can edit then reapprove.
