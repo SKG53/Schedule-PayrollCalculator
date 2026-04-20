@@ -2433,6 +2433,23 @@ async function retryOcrJob(idx,jobIdx){
   renderIntake();
   renderOcrFileList(idx,jobs);
 }
+
+// Re-run OCR for a single image from within the review table.
+// Finds the matching job by filename and delegates to retryOcrJob.
+async function rerunOcrForImage(entIdx, imageName){
+  const ent=entities[entIdx];if(!ent||!ent.intake)return;
+  const jobs=ent.intake._ocrJobs;
+  if(!jobs||jobs.length===0){showToast('No OCR jobs found — please re-upload and run OCR','err');return;}
+  const jobIdx=jobs.findIndex(j=>j.name===imageName);
+  if(jobIdx<0){showToast('Image "'+imageName+'" not found in OCR jobs. Try re-uploading.','err');return;}
+  // Force job status so retryOcrJob doesn't skip it (it only retries 'err' or completed jobs)
+  const job=jobs[jobIdx];
+  if(job.status==='running'){showToast('OCR already running for this image','ok');return;}
+  job.status='err'; // allow retry
+  job.detail='re-run requested from review table';
+  await retryOcrJob(entIdx,jobIdx);
+}
+
 async function runOcrForEntity(idx){
   const ent=entities[idx];ensureIntakeState(ent);
   const apiKey=localStorage.getItem('pv26_api_key');
@@ -2904,6 +2921,7 @@ function renderReviewTableHtml(ent,idx){
   html+='<thead><tr>';
   html+='<th style="width:34px"></th>'; // delete column (leftmost, per user request)
   html+='<th style="width:38px">Source</th>';
+  html+='<th>Image</th>';
   html+='<th>Employee</th>';
   html+='<th style="width:56px">Day</th>';
   html+='<th>Date</th>';
@@ -2919,6 +2937,11 @@ function renderReviewTableHtml(ent,idx){
     html+=`<td class="actions-cell" style="width:34px;padding:4px 2px"><button class="mini-btn reject" onclick="deleteReviewRow('${r.id}')" title="Delete row">✕</button></td>`;
     // 2. Source chip
     html+=`<td><span class="src-chip ${srcCls}" title="${r.source==='TC'?'Timecard photo':(r.source==='EC'?'EasyClocking screenshot':(r.source==='MN'?'Manual entry':'Actuals .xlsx'))}">${r.source}</span></td>`;
+    // 2b. Source image filename + per-image Re-run OCR button
+    const imgName=r.originalName||'';
+    const isOcrSource=r.source==='TC'||r.source==='EC';
+    const rerunBtn=isOcrSource?`<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}')" title="Re-run OCR for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ Re-run</button>`:'';
+    html+=`<td style="font-size:10px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</td>`;
     // 3. Employee dropdown (schedule names only).
     // If OCR name fuzzy-matched a schedule name via _suggestedName, treat that
     // schedule name as the "effective" current selection so the dropdown
@@ -2948,7 +2971,7 @@ function renderReviewTableHtml(ent,idx){
     // 6-11 Time pairs (use TEXT inputs to prevent native time-picker focus loss between digits)
     const timeFields=show3?['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3']:['clockIn1','clockOut1','clockIn2','clockOut2'];
     timeFields.forEach(k=>{
-      html+=`<td><input class="time-text" type="text" inputmode="numeric" pattern="[0-9:]*" maxlength="5" placeholder="--:--" value="${escHtml(r[k])}" oninput="handleTimeInput(this,'${r.id}','${k}')" onblur="commitTimeInput(this,'${r.id}','${k}')" style="width:64px;text-align:center;font-family:'IBM Plex Mono',monospace"></td>`;
+      html+=`<td><input class="time-text" type="text" inputmode="text" pattern="[0-9:aApPmM ]*" maxlength="8" placeholder="--:-- --" value="${escHtml(to12h(r[k]))}" oninput="handleTimeInput(this,'${r.id}','${k}')" onblur="commitTimeInput(this,'${r.id}','${k}')" style="width:76px;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px"></td>`;
     });
     // Flags
     html+=`<td class="flag-cell">${renderFlagPills(r.flags)}</td>`;
@@ -2974,40 +2997,67 @@ function setEmpSubtab(idx,key){
   refreshReviewTable(idx);
 }
 
+// ---- AM/PM display helpers ----
+// Internal storage remains 24h "HH:MM". Display converts to "h:MM AM/PM".
+function to12h(hhmm){
+  if(!hhmm)return '';
+  const m=hhmm.match(/^(\d{1,2}):(\d{2})$/);
+  if(!m)return hhmm;
+  let h=parseInt(m[1]),mm=m[2];
+  const ampm=h>=12?'PM':'AM';
+  if(h===0)h=12; else if(h>12)h-=12;
+  return h+':'+mm+' '+ampm;
+}
+function from12h(str){
+  if(!str)return '';
+  str=str.trim().toUpperCase();
+  // Accept "1:15 PM", "1:15PM", "115PM", "1315", "845", "8:45"
+  // 1) Try h:mm AM/PM
+  let m=str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if(m){
+    let h=parseInt(m[1]),mm=parseInt(m[2]),ap=m[3].toUpperCase();
+    if(ap==='AM'&&h===12)h=0;
+    else if(ap==='PM'&&h!==12)h+=12;
+    return pad2(Math.min(23,h))+':'+pad2(Math.min(59,mm));
+  }
+  // 2) Already 24h HH:MM
+  m=str.match(/^(\d{1,2}):(\d{2})$/);
+  if(m){return pad2(Math.min(23,parseInt(m[1])))+':'+pad2(Math.min(59,parseInt(m[2])));}
+  // 3) Bare digits: 3→H:MM, 4→HH:MM, 1-2→HH:00
+  const digits=str.replace(/[^0-9]/g,'');
+  if(digits&&/^\d+$/.test(digits)){
+    let hh,mm;
+    if(digits.length<=2){hh=parseInt(digits);mm=0;}
+    else if(digits.length===3){hh=parseInt(digits.slice(0,1));mm=parseInt(digits.slice(1));}
+    else {hh=parseInt(digits.slice(0,digits.length-2));mm=parseInt(digits.slice(-2));}
+    return pad2(Math.min(23,hh||0))+':'+pad2(Math.min(59,mm||0));
+  }
+  return str; // unparseable
+}
+
 // Text-based time input handlers — avoids native <input type="time"> focus-loss bug.
-// User can type "845" → auto-formats to "08:45" on blur; "1315" → "13:15".
+// User can type "845" → auto-formats to "8:45 AM" on blur; "1315" → "1:15 PM".
 // During typing we only normalize, we do NOT rerender (keeps focus).
 function handleTimeInput(el,id,field){
-  // Filter to digits+colon, cap at 5 chars. No auto-reformat during typing.
-  const filtered=el.value.replace(/[^0-9:]/g,'').slice(0,5);
+  // Allow digits, colon, space, A/P/M — cap at 8 chars for "12:59 PM"
+  const filtered=el.value.replace(/[^0-9:aApPmM ]/g,'').slice(0,8);
   if(filtered!==el.value)el.value=filtered;
   const h=findReviewRow(id);if(!h)return;
-  h.row[field]=filtered;
+  // Store raw during typing; commit normalizes on blur
+  h.row[field]=from12h(filtered)||filtered;
   scheduleDynamicRecompute();
 }
 function commitTimeInput(el,id,field){
-  const raw=(el.value||'').replace(/\s+/g,'');
-  let formatted='';
-  if(raw===''){formatted='';}
-  else if(/^(\d{1,2}):(\d{2})$/.test(raw)){
-    const [hh,mm]=raw.split(':');
-    const h=Math.min(23,Math.max(0,parseInt(hh)||0));
-    const m=Math.min(59,Math.max(0,parseInt(mm)||0));
-    formatted=pad2(h)+':'+pad2(m);
-  }else if(/^\d+$/.test(raw)){
-    // Bare digits: 3 digits → H:MM (845 -> 08:45), 4 digits → HH:MM (1315 -> 13:15), 1-2 digits → HH:00
-    let hh,mm;
-    if(raw.length<=2){hh=parseInt(raw);mm=0;}
-    else if(raw.length===3){hh=parseInt(raw.slice(0,1));mm=parseInt(raw.slice(1));}
-    else {hh=parseInt(raw.slice(0,raw.length-2));mm=parseInt(raw.slice(-2));}
-    hh=Math.min(23,Math.max(0,hh||0));mm=Math.min(59,Math.max(0,mm||0));
-    formatted=pad2(hh)+':'+pad2(mm);
-  }else{
-    // Leave unparseable text as-is — will be caught by flag recomputation
-    formatted=raw;
+  const raw=(el.value||'').trim();
+  if(raw===''){
+    el.value='';
+    updateReviewField(id,field,'');
+    return;
   }
-  el.value=formatted;
-  updateReviewField(id,field,formatted);
+  const formatted24=from12h(raw);
+  // Store 24h internally, show 12h in the input
+  el.value=to12h(formatted24);
+  updateReviewField(id,field,formatted24);
 }
 
 function findReviewRow(id){
