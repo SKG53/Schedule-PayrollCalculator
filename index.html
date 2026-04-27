@@ -532,6 +532,7 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
       </ol>
     </div>
     <div id="intakeContent"></div>
+    <input type="file" id="actualsIntakeImportInput" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0]){importActualsIntakeFile(this.files[0]);this.value='';}">
   </div>
 
   <!-- ===== SCHEDULE TAB ===== -->
@@ -2267,7 +2268,8 @@ function renderIntake(){
     container.innerHTML='<div class="payroll-warning">Load at least one schedule in the <strong>Schedules</strong> tab before using Actuals Intake.</div>';
     return;
   }
-  let html='';
+  // Top-level toolbar: import a previously-exported Actuals Intake .xlsx to skip OCR
+  let html='<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px"><button class="btn" onclick="document.getElementById(\'actualsIntakeImportInput\').click()" title="Re-import a previously exported Actuals Intake .xlsx — restores approved rows so payroll can be calculated without redoing OCR" style="font-size:12px;padding:6px 14px">⤴ Import Actuals Intake (.xlsx)</button></div>';
   entities.forEach((ent,idx)=>{
     ensureIntakeState(ent);
     const name=ent.name||('Entity '+(idx+1));
@@ -2317,7 +2319,7 @@ function renderIntake(){
       <div class="ocr-results ${ent.intake.reviewRows.length>0||ent.intake.ocrDone?'active':''}" id="ocrResults_${idx}">
         ${renderReviewSummary(ent)}
         <div class="review-legend"><strong>Legend</strong><span><span class="legend-abbr">TC</span> = Timecard photo</span><span><span class="legend-abbr">EC</span> = EasyClocking</span><span><span class="legend-abbr">MN</span> = Manual</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="btn" onclick="addManualRowEntity(${idx})" title="Add a row for an employee not already in the table" style="font-size:12px;padding:5px 12px">✚ Add employee row</button><span style="font-size:11px;color:var(--text3)">Use when an entire employee is missing</span><span style="flex:1"></span><button class="btn btn-green" onclick="exportActualsExcel()" title="Export all actuals data across all entities" style="font-size:12px;padding:5px 14px">📥 Export Actuals (.xlsx)</button></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><button class="btn" onclick="addManualRowEntity(${idx})" title="Add a row for an employee not already in the table" style="font-size:12px;padding:5px 12px">✚ Add employee row</button><span style="font-size:11px;color:var(--text3)">Use when an entire employee is missing</span><span style="flex:1"></span><button class="btn" onclick="document.getElementById('actualsIntakeImportInput').click()" title="Re-import a previously exported Actuals Intake .xlsx — restores approved rows so payroll can be calculated without redoing OCR" style="font-size:12px;padding:5px 12px">⤴ Import Actuals (.xlsx)</button><button class="btn btn-green" onclick="exportActualsIntakeExcel()" title="Export reviewed actuals across all entities — re-importable, includes both approved and unapproved rows (unapproved rows are clearly marked)" style="font-size:12px;padding:5px 14px">📥 Export Actuals (.xlsx)</button><button class="btn" onclick="exportActualsIntakePdf()" title="Export reviewed actuals as a human-readable PDF — record only, not re-importable" style="font-size:12px;padding:5px 14px">📄 Export Actuals (.pdf)</button></div>
         <div id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</div>
       </div>
     </div>`;
@@ -3881,78 +3883,318 @@ async function _exportPdf(kind){
   showToast(`Exported ${pdfName}`,'ok');
 }
 
-// ---- Export Actuals to Excel ----
-async function exportActualsExcel(){
-  const ewb=new ExcelJS.Workbook();
-  const DAYS_SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  let totalRows=0;
-  let hasUnapproved=false;
+// ================================================================
+// ACTUALS INTAKE EXPORT — record of reviewed actuals across all entities
+// Excel + PDF, all-together + per-entity, re-importable.
+// Schema is a SUPERSET of FORMATS.md combined-actuals (cols 1-10 match
+// exactly) so old parseActuals still ingests it. New cols 11+ carry
+// approval status, source, image, flags, etc. for the round-trip.
+// ================================================================
+const ACTUALS_INTAKE_HEADERS=[
+  'Entity','Employee Name','Date','Day of the Week',
+  'Clock In 1','Clock Out 1','Clock In 2','Clock Out 2','Clock In 3','Clock Out 3',
+  'Approved','Source','Image','Confidence','Flags','Suggested Name','Row ID'
+];
+const ACTUALS_INTAKE_SCHEMA_TAG='SPCalcActualsIntakeV1';
 
+function _gatherActualsIntakeRows(){
+  const DAYS_LONG=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const out=[];
   entities.forEach(ent=>{
-    if(!ent.intake||ent.intake.reviewRows.length===0)return;
-    const entityName=ent.name||'Entity';
-    const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
-
-    // Group rows by employee
-    const buckets=new Map();
-    schedNames.forEach(n=>buckets.set(n,[]));
-    buckets.set('Unrecognized',[]);
+    if(!ent.intake||!ent.intake.reviewRows||ent.intake.reviewRows.length===0)return;
+    const entityName=ent.name||('Entity '+(entities.indexOf(ent)+1));
     ent.intake.reviewRows.forEach(r=>{
-      let k=reviewBucketKey(r,ent);
-      if(k==='__unrecognized__')k='Unrecognized';
-      if(!buckets.has(k))buckets.set(k,[]);
-      buckets.get(k).push(r);
-    });
-
-    // Create one sheet per employee (grouped by entity via tab name prefix)
-    buckets.forEach((rows,empName)=>{
-      if(rows.length===0)return;
-      // Excel tab name max 31 chars
-      let tabName=(entityName.slice(0,12)+' - '+empName.slice(0,16)).replace(/[\[\]\*\?\/\\:]/g,'');
-      // Ensure unique
-      let suffix=1;
-      while(ewb.worksheets.find(ws=>ws.name===tabName)){tabName=tabName.slice(0,28)+'_'+suffix++;}
-
-      const ws=ewb.addWorksheet(tabName);
-      // Header
-      ws.addRow([entityName+' — '+empName]).font={bold:true,size:13};
-      ws.addRow([]);
-      const hdr=ws.addRow(['Date','Day','Clock In 1','Clock Out 1','Clock In 2','Clock Out 2','Clock In 3','Clock Out 3','Source','Approved','Image','Flags']);
-      hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};});
-
-      rows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-      rows.forEach(r=>{
-        const dayName=r.date?DAYS_SHORT[new Date(r.date+'T00:00:00').getDay()]||'':'';
-        const approved=r.approved?'Yes':'No';
-        if(!r.approved)hasUnapproved=true;
-        ws.addRow([
-          r.date||'',dayName,
-          to12h(r.clockIn1),to12h(r.clockOut1),
-          to12h(r.clockIn2),to12h(r.clockOut2),
-          to12h(r.clockIn3),to12h(r.clockOut3),
-          r.source||'',approved,r.originalName||'',
-          (r.flags||[]).join('; ')
-        ]);
-        totalRows++;
+      const dayName=r.date?(DAYS_LONG[new Date(r.date+'T00:00:00').getDay()]||''):'';
+      const bucket=reviewBucketKey(r,ent);
+      const empDisplay=r.empName||'';
+      const suggested=(bucket!=='__unrecognized__'&&bucket!==r.empName)?bucket:(r._suggestedName||'');
+      out.push({
+        entity:entityName,
+        emp:empDisplay,
+        empBucket:bucket==='__unrecognized__'?'Unrecognized':bucket,
+        date:r.date||'',
+        dayName,
+        in1:r.clockIn1||'',out1:r.clockOut1||'',
+        in2:r.clockIn2||'',out2:r.clockOut2||'',
+        in3:r.clockIn3||'',out3:r.clockOut3||'',
+        approved:!!r.approved,
+        source:r.source||'',
+        image:r.originalName||'',
+        confidence:typeof r.confidence==='number'?r.confidence:'',
+        flags:(r.flags||[]).slice(),
+        suggested,
+        rowId:r.id||'',
+        ent
       });
-      // Auto-width
-      ws.columns.forEach(col=>{col.width=14;});
-      ws.getColumn(1).width=12;
-      ws.getColumn(11).width=24;
-      ws.getColumn(12).width=30;
     });
   });
+  return out;
+}
 
-  if(totalRows===0){showToast('No actuals data to export','err');return;}
+function _computeActualsHours(row){
+  const pairs=[[row.in1,row.out1],[row.in2,row.out2],[row.in3,row.out3]];
+  let mins=0,any=false;
+  for(const [a,b] of pairs){
+    if(!a||!b)continue;
+    const ih=parseClockTime(a),oh=parseClockTime(b);
+    if(ih===null||oh===null)continue;
+    let dur=oh-ih;if(dur<0)dur+=24;
+    if(dur<=0||dur>24)continue;
+    mins+=Math.round(dur*60);any=true;
+  }
+  return any?(mins/60):null;
+}
 
+function _writeActualsIntakeSheet(ws,rows,opts){
+  const title=opts.title||'Actuals Intake';
+  ws.addRow([title]).font={bold:true,size:13};
+  ws.addRow([ACTUALS_INTAKE_SCHEMA_TAG+' · Exported '+new Date().toISOString().slice(0,19).replace('T',' ')]).font={italic:true,size:9,color:{argb:'FF888880'}};
+  ws.addRow([]);
+  const hdr=ws.addRow(ACTUALS_INTAKE_HEADERS);
+  hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};c.alignment={vertical:'middle'};});
+  rows.forEach(r=>{
+    const flagsStr=r.flags.join('; ');
+    const xlsxRow=ws.addRow([
+      r.entity,r.emp,r.date,r.dayName,
+      to12h(r.in1),to12h(r.out1),to12h(r.in2),to12h(r.out2),to12h(r.in3),to12h(r.out3),
+      r.approved?'Yes':'No',r.source,r.image,
+      typeof r.confidence==='number'?Math.round(r.confidence*100)/100:'',
+      flagsStr,r.suggested,r.rowId
+    ]);
+    if(!r.approved){
+      xlsxRow.eachCell(c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF3CD'}};});
+      xlsxRow.getCell(11).font={bold:true,color:{argb:'FFB45309'}};
+    }
+  });
+  ws.columns.forEach((col,i)=>{
+    const widths=[18,20,12,12,12,12,12,12,12,12,11,8,22,11,30,18,16];
+    col.width=widths[i]||14;
+  });
+  ws.views=[{state:'frozen',ySplit:4}];
+}
+
+async function exportActualsIntakeExcel(){
+  const all=_gatherActualsIntakeRows();
+  if(all.length===0){showToast('No actuals data to export','err');return;}
+  const hasUnapproved=all.some(r=>!r.approved);
   if(hasUnapproved){
-    if(!confirm('Some rows are still unapproved. Export anyway?'))return;
+    if(!confirm('Some rows are not yet approved. They will be included in the export and clearly marked as Approved=No. Export anyway?'))return;
+  }
+  const ewb=new ExcelJS.Workbook();
+  ewb.creator='Schedule & Payroll Calculator';
+  ewb.description=ACTUALS_INTAKE_SCHEMA_TAG;
+
+  // 1) All-entities sheet — sorted by entity, employee, date for readability
+  const sorted=all.slice().sort((a,b)=>{
+    return (a.entity||'').localeCompare(b.entity||'')
+      ||(a.empBucket||'').localeCompare(b.empBucket||'')
+      ||(a.date||'').localeCompare(b.date||'');
+  });
+  const allWs=ewb.addWorksheet('All Entities');
+  _writeActualsIntakeSheet(allWs,sorted,{title:'Actuals Intake — All Entities'});
+
+  // 2) Per-entity sheets (redundant copy)
+  const byEnt=new Map();
+  all.forEach(r=>{if(!byEnt.has(r.entity))byEnt.set(r.entity,[]);byEnt.get(r.entity).push(r);});
+  byEnt.forEach((rows,entityName)=>{
+    rows.sort((a,b)=>(a.empBucket||'').localeCompare(b.empBucket||'')||(a.date||'').localeCompare(b.date||''));
+    let tabName=entityName.replace(/[\[\]\*\?\/\\:]/g,'').slice(0,31)||'Entity';
+    let suffix=1;
+    while(ewb.worksheets.find(ws=>ws.name===tabName)){tabName=tabName.slice(0,28)+'_'+suffix++;}
+    const ws=ewb.addWorksheet(tabName);
+    _writeActualsIntakeSheet(ws,rows,{title:'Actuals Intake — '+entityName});
+  });
+
+  const fname='Actuals_Intake_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+  const approvedCount=all.filter(r=>r.approved).length;
+  showToast(`Exported ${fname} — ${all.length} rows (${approvedCount} approved, ${all.length-approvedCount} unapproved) across ${ewb.worksheets.length} sheets`,'ok');
+}
+
+async function exportActualsIntakePdf(){
+  if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
+  const all=_gatherActualsIntakeRows();
+  if(all.length===0){showToast('No actuals data to export','err');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'pt',format:'letter',orientation:'landscape'});
+  const pageW=doc.internal.pageSize.getWidth();
+  doc.setFont('helvetica','bold');doc.setFontSize(14);
+  doc.text('ACTUALS INTAKE — RECORD OF REVIEWED PUNCHES',pageW/2,36,{align:'center'});
+  doc.setFont('helvetica','normal');doc.setFontSize(9);
+  const approvedCount=all.filter(r=>r.approved).length;
+  doc.text(`Exported ${new Date().toLocaleString()} · ${all.length} rows · ${approvedCount} approved · ${all.length-approvedCount} unapproved`,pageW/2,52,{align:'center'});
+
+  const headers=['Entity','Employee','Date','Day','In 1','Out 1','In 2','Out 2','In 3','Out 3','Hrs','Approved','Source','Image','Flags'];
+  function rowToPdfArr(r){
+    const hrs=_computeActualsHours(r);
+    const cell=v=>({content:v,styles:r.approved?{}:{fillColor:[255,243,205]}});
+    return [
+      cell(r.entity),cell(r.emp||'(unrecognized)'),cell(r.date),cell(r.dayName),
+      cell(to12h(r.in1)),cell(to12h(r.out1)),cell(to12h(r.in2)),cell(to12h(r.out2)),cell(to12h(r.in3)),cell(to12h(r.out3)),
+      cell(hrs!=null?hrs.toFixed(2):''),
+      {content:r.approved?'Yes':'NO',styles:r.approved?{halign:'center'}:{halign:'center',fillColor:[255,243,205],textColor:[180,83,9],fontStyle:'bold'}},
+      cell(r.source),cell((r.image||'').slice(0,28)),cell(r.flags.join('; '))
+    ];
   }
 
-  const fname='Actuals_Export_'+new Date().toISOString().slice(0,10)+'.xlsx';
-  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
-  showToast(`Exported ${fname} — ${totalRows} rows across ${ewb.worksheets.length} tabs`,'ok');
+  let startY=66;
+  function writeBlock(title,rows){
+    doc.setFont('helvetica','bold');doc.setFontSize(11);
+    doc.text(title,30,startY);startY+=10;
+    const body=rows.map(rowToPdfArr);
+    doc.autoTable({
+      head:[headers],body,startY,
+      theme:'grid',
+      styles:{font:'helvetica',fontSize:7,cellPadding:2.5,lineColor:[176,176,176],lineWidth:0.4,overflow:'linebreak'},
+      headStyles:{fillColor:[232,232,228],textColor:[26,26,24],fontStyle:'bold',halign:'left'},
+      columnStyles:{0:{cellWidth:70},1:{cellWidth:80},2:{cellWidth:54},3:{cellWidth:38},4:{cellWidth:42},5:{cellWidth:42},6:{cellWidth:42},7:{cellWidth:42},8:{cellWidth:42},9:{cellWidth:42},10:{cellWidth:30,halign:'right'},11:{cellWidth:42},12:{cellWidth:34},13:{cellWidth:80},14:{cellWidth:'auto'}},
+      margin:{left:30,right:30}
+    });
+    startY=doc.lastAutoTable.finalY+18;
+  }
+
+  // All entities first
+  const sortedAll=all.slice().sort((a,b)=>(a.entity||'').localeCompare(b.entity||'')||(a.empBucket||'').localeCompare(b.empBucket||'')||(a.date||'').localeCompare(b.date||''));
+  writeBlock('All Entities',sortedAll);
+
+  // Per-entity sections
+  const byEnt=new Map();
+  all.forEach(r=>{if(!byEnt.has(r.entity))byEnt.set(r.entity,[]);byEnt.get(r.entity).push(r);});
+  byEnt.forEach((rows,entityName)=>{
+    rows.sort((a,b)=>(a.empBucket||'').localeCompare(b.empBucket||'')||(a.date||'').localeCompare(b.date||''));
+    if(startY>doc.internal.pageSize.getHeight()-80){doc.addPage();startY=40;}
+    writeBlock('Entity: '+entityName,rows);
+  });
+
+  const fname='Actuals_Intake_'+new Date().toISOString().slice(0,10)+'.pdf';
+  doc.save(fname);
+  showToast(`Exported ${fname} — ${all.length} rows`,'ok');
 }
+
+// Back-compat alias: any old callers still calling exportActualsExcel land here.
+async function exportActualsExcel(){return exportActualsIntakeExcel();}
+
+// ---- Re-import an Actuals Intake export (round-trip) ----
+// Detects the exported schema by looking for our extended headers. If matched,
+// approved rows are restored as approved review rows (so payroll can compute
+// without OCR), unapproved rows are restored as unapproved review rows. If the
+// schema is the legacy FORMATS.md combined xlsx, falls back to parseActuals.
+function importActualsIntakeFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      // Prefer the "All Entities" sheet if present, else first sheet
+      const sheetName=wb.SheetNames.find(n=>/all\s*entities/i.test(n))||wb.SheetNames[0];
+      const data=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:'',raw:false});
+      // Locate header row by required column set
+      let headerRow=-1,colMap=null;
+      const need=['entity','employee name','date','approved','source','row id'];
+      for(let r=0;r<Math.min(data.length,15);r++){
+        const lc=data[r].map(c=>c.toString().trim().toLowerCase());
+        if(need.every(k=>lc.includes(k))){
+          headerRow=r;
+          colMap={};
+          lc.forEach((c,i)=>{colMap[c]=i;});
+          break;
+        }
+      }
+      if(headerRow<0){
+        // Fall back to legacy combined parser
+        const legacy=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false});
+        parseActuals(legacy,'combined');
+        showToast('Imported using legacy combined-actuals format. Rows go straight to payroll without review.','ok');
+        return;
+      }
+      _ingestActualsIntakeRows(data.slice(headerRow+1),colMap);
+    }catch(err){alert('Error reading file: '+err.message);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function _ingestActualsIntakeRows(rows,colMap){
+  const get=(row,key)=>{const i=colMap[key];return i==null||i<0?'':(row[i]==null?'':row[i].toString().trim());};
+  let restoredApproved=0,restoredUnapproved=0,skipped=0,unmatchedEntities=new Set();
+  // Index entities by lowercase name
+  const entByName=new Map();
+  entities.forEach(e=>{const k=(e.name||'').toLowerCase().trim();if(k)entByName.set(k,e);});
+  rows.forEach(row=>{
+    if(!row||row.length===0)return;
+    const entityName=get(row,'entity');
+    const empName=get(row,'employee name');
+    const dateRaw=get(row,'date');
+    if(!entityName&&!empName&&!dateRaw)return;
+    const ent=entByName.get(entityName.toLowerCase().trim());
+    if(!ent){if(entityName)unmatchedEntities.add(entityName);skipped++;return;}
+    ensureIntakeState(ent);
+    const parsedDate=parseAnyDate(dateRaw);
+    const iso=parsedDate?parsedDate.isoStr:'';
+    const approvedTxt=get(row,'approved').toLowerCase();
+    const approved=approvedTxt==='yes'||approvedTxt==='true'||approvedTxt==='y'||approvedTxt==='1';
+    const source=get(row,'source')||'XL';
+    const image=get(row,'image')||'(imported)';
+    const confRaw=get(row,'confidence');
+    const conf=confRaw?parseFloat(confRaw):0.95;
+    const flagsStr=get(row,'flags');
+    const suggested=get(row,'suggested name');
+    const rowId=get(row,'row id');
+    const norm=v=>{if(!v)return '';const t=v.toString().trim();return t?(normTime(t)||t):'';};
+    const newRow={
+      id:rowId||('imp_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7)),
+      source,empName,rawOcrName:empName,date:iso,
+      clockIn1:norm(get(row,'clock in 1')),clockOut1:norm(get(row,'clock out 1')),
+      clockIn2:norm(get(row,'clock in 2')),clockOut2:norm(get(row,'clock out 2')),
+      clockIn3:norm(get(row,'clock in 3')),clockOut3:norm(get(row,'clock out 3')),
+      confidence:isNaN(conf)?0.95:conf,
+      notes:'',originalName:image,
+      _lowConf:false,_gt2Pairs:false,_escalated:false,
+      flags:[],needsReview:false,approved:false
+    };
+    if(suggested)newRow._suggestedName=suggested;
+    if(iso){const d=new Date(iso+'T00:00:00');if(!isNaN(d))newRow.dayIdx=d.getDay();}
+    // Try to map empName to scheduled name (so reviewBucketKey works)
+    const m=matchEmployeeName(newRow.empName,ent);
+    if(m.exact)newRow.empName=m.exact;
+    else if(m.suggestion&&!newRow._suggestedName)newRow._suggestedName=m.suggestion;
+    recomputeRowFlags(newRow,ent);
+    // Re-attach exported flag text that wasn't auto-computed (e.g., manual notes)
+    if(flagsStr){
+      const exportedFlags=flagsStr.split(/;\s*/).filter(Boolean);
+      exportedFlags.forEach(f=>{if(!newRow.flags.includes(f))newRow.flags.push(f);});
+      newRow.needsReview=newRow.flags.length>0;
+    }
+    // Restore approval ONLY if approval was 'Yes' AND the row has a complete pair AND
+    // is structurally valid (no orphan in/out punches). This preserves the payroll
+    // approval gating: payroll only sees explicitly approved, well-formed rows.
+    const hasCompletePair=
+      (newRow.clockIn1&&newRow.clockOut1)||
+      (newRow.clockIn2&&newRow.clockOut2)||
+      (newRow.clockIn3&&newRow.clockOut3);
+    if(approved&&newRow.empName&&newRow.date&&hasCompletePair&&isRowStructurallyValid(newRow)){
+      newRow.approved=true;
+      newRow.needsReview=false;
+      restoredApproved++;
+    }else{
+      newRow.approved=false;
+      restoredUnapproved++;
+    }
+    // De-dupe: if a row with this id already exists, replace it; else append.
+    const existingIdx=ent.intake.reviewRows.findIndex(x=>x.id===newRow.id);
+    if(existingIdx>=0)ent.intake.reviewRows[existingIdx]=newRow;
+    else ent.intake.reviewRows.push(newRow);
+    ent.intake.ocrDone=true;
+  });
+  // Sync to payroll right away so the user sees results immediately
+  syncActualsFromReview();
+  if(currentTab==='intake')renderIntake();
+  if(currentTab==='payroll')renderPayroll();
+  let msg=`Imported ${restoredApproved} approved + ${restoredUnapproved} unapproved row${(restoredApproved+restoredUnapproved)===1?'':'s'}`;
+  if(skipped>0)msg+=` · ${skipped} skipped`;
+  if(unmatchedEntities.size>0)msg+=` · unmatched entities: ${[...unmatchedEntities].join(', ')}`;
+  showToast(msg,unmatchedEntities.size>0?'err':'ok');
+}
+
 
 // ---- Public button handlers ----
 async function exportCashExcel(){return _exportExcel('cashOnly')}
