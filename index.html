@@ -331,7 +331,7 @@ table.review tr.source-ec{}
 .ocr-file-list .file-row.status-err .fstatus{background:#fdecea;color:#b3261e}
 .ocr-file-list .file-row .spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin 0.7s linear infinite;display:none}
 .ocr-file-list .file-row.status-running .spinner{display:inline-block}
-.ocr-file-list .file-row .retry-btn{margin-right:8px;padding:3px 8px;font-size:11px;background:#fff;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;white-space:nowrap}
+.ocr-file-list .file-row .retry-btn{margin-right:4px;padding:3px 7px;font-size:11px;background:#fff;border:1px solid var(--red);color:var(--red);border-radius:4px;cursor:pointer;font-family:'Outfit',sans-serif;white-space:nowrap}
 .ocr-file-list .file-row .retry-btn:hover{background:var(--red);color:#fff}
 @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -2444,6 +2444,11 @@ function schedLabelToIso(label){
 // ================================================================
 // OCR — Gemini API
 // ================================================================
+// Delay between automatic retry attempts. Bumped from 5s to 12s to better ride
+// out transient 404/429/503 blips on the Gemini classification/OCR endpoints.
+const OCR_RETRY_DELAY_MS = 12000;
+const OCR_MAX_AUTO_ATTEMPTS = 3;
+
 function renderOcrFileList(idx, jobs){
   const el=document.getElementById('ocrFileList_'+idx);if(!el)return;
   if(!jobs||jobs.length===0){el.className='ocr-file-list';el.innerHTML='';return;}
@@ -2451,20 +2456,25 @@ function renderOcrFileList(idx, jobs){
   const ent=entities[idx];if(ent&&ent.intake)ent.intake._ocrJobs=jobs;
   el.className='ocr-file-list active';
   el.innerHTML=jobs.map((j,i)=>{
-    const retryBtn=(j.status==='err')?`<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i})" title="Retry OCR for this file">↻ Retry</button>`:'';
-    const attemptBadge=(j.attempt&&j.attempt>1)?`<span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:4px">Attempt ${j.attempt}/${j.maxAttempts||3}</span>`:'';
+    const retryBtns=(j.status==='err')?
+      `<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i},1)" title="Retry once (single attempt)">↻ Retry 1x</button>`+
+      `<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i},3)" title="Retry up to 3 times with delay between attempts">↻ Retry 3x</button>`
+      :'';
+    const attemptBadge=(j.attempt&&j.attempt>1)?`<span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:4px">Attempt ${j.attempt}/${j.maxAttempts||OCR_MAX_AUTO_ATTEMPTS}</span>`:'';
     const statusCls=j.status==='retrying'?'status-running':('status-'+j.status);
-    return `<div class="file-row ${statusCls}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':j.kind==='EC'?'EasyClocking':'Mixed'}</span></span>${attemptBadge}<span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span>${retryBtn}<span class="fstatus">${j.status==='retrying'?'retrying…':j.status}</span></div>`;
+    return `<div class="file-row ${statusCls}" data-idx="${i}"><span class="spinner"></span><span class="fname">${escHtml(j.name)} <span style="color:var(--text3)">· ${j.kind==='TC'?'Timecard':j.kind==='EC'?'EasyClocking':'Mixed'}</span></span>${attemptBadge}<span class="detail" style="color:var(--text3);font-size:11px">${escHtml(j.detail||'')}</span>${retryBtns}<span class="fstatus">${j.status==='retrying'?'retrying…':j.status}</span></div>`;
   }).join('');
 }
 
 // Retry a single failed OCR job. Re-uses the same in-memory file handle the user
 // originally uploaded so no re-upload is required.
-async function retryOcrJob(idx,jobIdx){
+// maxAttempts: 1 = single retry (default), 3 = up to 3 attempts with OCR_RETRY_DELAY_MS between them.
+async function retryOcrJob(idx,jobIdx,maxAttempts){
+  maxAttempts=Math.max(1,parseInt(maxAttempts,10)||1);
   const ent=entities[idx];if(!ent||!ent.intake)return;
   const jobs=ent.intake._ocrJobs;if(!jobs||!jobs[jobIdx])return;
   const job=jobs[jobIdx];
-  if(job.status==='running'){showToast('Already running','ok');return;}
+  if(job.status==='running'||job.status==='retrying'){showToast('Already running','ok');return;}
   const apiKey=localStorage.getItem('pv26_api_key');
   if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return;}
   const tcModel=getTcModel();
@@ -2477,34 +2487,62 @@ async function retryOcrJob(idx,jobIdx){
   // Drop any existing rows extracted from this file (in case of partial success on a prior attempt)
   ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
 
-  job.status='running';job.detail='retrying…';
-  renderOcrFileList(idx,jobs);
-  try{
-    let rows;
-    if(job.kind==='TC'){
-      rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek,scheduleAnchors);
-      if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
-        job.detail='low confidence → retrying with Pro';
+  let lastErr=null;
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    job.status='running';
+    job.attempt=attempt;
+    job.maxAttempts=maxAttempts;
+    job.detail=maxAttempts>1?`Attempt ${attempt}/${maxAttempts}…`:'retrying…';
+    renderOcrFileList(idx,jobs);
+    try{
+      // Auto-classify mixed files (mirror runOne behavior)
+      let effectiveKind=job.kind;
+      if(effectiveKind==='MIX'){
+        job.detail='Classifying image type…';
         renderOcrFileList(idx,jobs);
-        try{
-          const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek,scheduleAnchors);
-          rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
-        }catch(e){/* keep original rows if Pro fails */}
+        effectiveKind=await classifyTimecardImage(job.file,apiKey);
+        job.kind=effectiveKind;
+        job.detail=`Classified as ${effectiveKind==='TC'?'Timecard':'EasyClocking'} — extracting…`;
+        renderOcrFileList(idx,jobs);
       }
-      rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
-    }else{
-      rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
-      rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+      let rows;
+      if(effectiveKind==='TC'){
+        rows=await ocrImage(job.file,'TC',apiKey,tcModel,scheduleNames,scheduleWeek,scheduleAnchors);
+        if(autoEscalate&&tcModel!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
+          job.detail='low confidence → retrying with Pro';
+          renderOcrFileList(idx,jobs);
+          try{
+            const proRows=await ocrImage(job.file,'TC',apiKey,'gemini-2.5-pro',scheduleNames,scheduleWeek,scheduleAnchors);
+            rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
+          }catch(e){/* keep original rows if Pro fails */}
+        }
+        rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+      }else{
+        rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
+        rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+      }
+      job.status='done';
+      job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`+(attempt>1?` (attempt ${attempt})`:'');
+      showToast(`Retry OK · ${rows.length} row${rows.length===1?'':'s'} extracted from ${job.name}`,'ok');
+      ent.intake.lastOcrError='';
+      lastErr=null;
+      break;
+    }catch(err){
+      lastErr=err;
+      if(attempt<maxAttempts){
+        job.status='retrying';
+        job.detail=`Attempt ${attempt}/${maxAttempts} failed — retrying in ${Math.round(OCR_RETRY_DELAY_MS/1000)}s…`;
+        renderOcrFileList(idx,jobs);
+        await new Promise(r=>setTimeout(r,OCR_RETRY_DELAY_MS));
+        ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
+      }else{
+        job.status='err';
+        const errMsg=(err.message||String(err)).slice(0,120);
+        job.detail=maxAttempts>1?`Failed all ${maxAttempts} attempts: ${errMsg}`:errMsg;
+        ent.intake.lastOcrError='OCR failed on '+job.name+(maxAttempts>1?` (all ${maxAttempts} attempts)`:'')+': '+(err.message||err);
+        showToast(`Retry failed · ${job.name}`,'err');
+      }
     }
-    job.status='done';
-    job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`;
-    showToast(`Retry OK · ${rows.length} row${rows.length===1?'':'s'} extracted from ${job.name}`,'ok');
-    ent.intake.lastOcrError='';
-  }catch(err){
-    job.status='err';
-    job.detail=(err.message||String(err)).slice(0,120);
-    ent.intake.lastOcrError='OCR failed on '+job.name+': '+(err.message||err);
-    showToast(`Retry failed · ${job.name}`,'err');
   }
   renderIntake();
   renderOcrFileList(idx,jobs);
@@ -2512,7 +2550,9 @@ async function retryOcrJob(idx,jobIdx){
 
 // Re-run OCR for a single image from within the review table.
 // Finds the matching job by filename and delegates to retryOcrJob.
-async function rerunOcrForImage(entIdx, imageName){
+// maxAttempts: 1 (default) for a single attempt, 3 for triple-retry with delay.
+async function rerunOcrForImage(entIdx, imageName, maxAttempts){
+  maxAttempts=Math.max(1,parseInt(maxAttempts,10)||1);
   const ent=entities[entIdx];if(!ent||!ent.intake)return;
   const jobs=ent.intake._ocrJobs;
   if(!jobs||jobs.length===0){showToast('No OCR jobs found — please re-upload and run OCR','err');return;}
@@ -2520,10 +2560,10 @@ async function rerunOcrForImage(entIdx, imageName){
   if(jobIdx<0){showToast('Image "'+imageName+'" not found in OCR jobs. Try re-uploading.','err');return;}
   // Force job status so retryOcrJob doesn't skip it (it only retries 'err' or completed jobs)
   const job=jobs[jobIdx];
-  if(job.status==='running'){showToast('OCR already running for this image','ok');return;}
+  if(job.status==='running'||job.status==='retrying'){showToast('OCR already running for this image','ok');return;}
   job.status='err'; // allow retry
   job.detail='re-run requested from review table';
-  await retryOcrJob(entIdx,jobIdx);
+  await retryOcrJob(entIdx,jobIdx,maxAttempts);
 }
 
 async function runOcrForEntity(idx){
@@ -2566,8 +2606,8 @@ async function runOcrForEntity(idx){
   showToast(`Starting OCR · ${total} image${total===1?'':'s'} (${CONCURRENCY} at a time)`,'ok');
 
   async function runOne(job){
-    const MAX_ATTEMPTS=3;
-    const RETRY_DELAY=5000; // 5 seconds
+    const MAX_ATTEMPTS=OCR_MAX_AUTO_ATTEMPTS;
+    const RETRY_DELAY=OCR_RETRY_DELAY_MS;
     for(let attempt=1;attempt<=MAX_ATTEMPTS;attempt++){
       job.status='running';
       job.attempt=attempt;
@@ -2608,7 +2648,7 @@ async function runOcrForEntity(idx){
         if(attempt<MAX_ATTEMPTS){
           // Show countdown spinner before retrying
           job.status='retrying';
-          job.detail=`Attempt ${attempt}/${MAX_ATTEMPTS} failed — retrying in 5s…`;
+          job.detail=`Attempt ${attempt}/${MAX_ATTEMPTS} failed — retrying in ${Math.round(RETRY_DELAY/1000)}s…`;
           renderOcrFileList(idx,jobs);
           await new Promise(r=>setTimeout(r,RETRY_DELAY));
           // Clear rows from failed attempt before retrying
@@ -3093,7 +3133,10 @@ function renderReviewTableHtml(ent,idx){
     // 2b. Source image filename + per-image Re-run OCR button
     const imgName=r.originalName||'';
     const isOcrSource=r.source==='TC'||r.source==='EC';
-    const rerunBtn=isOcrSource?`<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}')" title="Re-run OCR for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ Re-run</button>`:'';
+    const rerunBtn=isOcrSource?
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',1)" title="Re-run OCR once for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ 1x</button>`+
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`
+      :'';
     html+=`<td style="font-size:10px;max-width:180px;word-break:break-all;line-height:1.3" title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</td>`;
     // 3. Employee dropdown (schedule names only).
     // If OCR name fuzzy-matched a schedule name via _suggestedName, treat that
