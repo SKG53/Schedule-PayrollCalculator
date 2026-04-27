@@ -3976,10 +3976,6 @@ function _writeActualsIntakeSheet(ws,rows,opts){
 async function exportActualsIntakeExcel(){
   const all=_gatherActualsIntakeRows();
   if(all.length===0){showToast('No actuals data to export','err');return;}
-  const hasUnapproved=all.some(r=>!r.approved);
-  if(hasUnapproved){
-    if(!confirm('Some rows are not yet approved. They will be included in the export and clearly marked as Approved=No. Export anyway?'))return;
-  }
   const ewb=new ExcelJS.Workbook();
   ewb.creator='Schedule & Payroll Calculator';
   ewb.description=ACTUALS_INTAKE_SCHEMA_TAG;
