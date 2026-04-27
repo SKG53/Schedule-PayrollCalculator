@@ -684,7 +684,7 @@ function roundCash(n){return Math.round(n||0)}
 function roundDeposit(n){return Math.round((n||0)*100)/100}
 function computePayBreakdown(row,entId){
   const method=row.isOrphan?getPayMethod(entId,row.schedName||row.name):getPayMethod(entId,row.schedName||row.name);
-  const total=row.pay||0;
+  const total=roundDeposit(row.pay||0);
   if(method==='cash'){
     const cash=roundCash(total);
     return{method,total,deposit:0,cash,final:cash};
@@ -693,10 +693,15 @@ function computePayBreakdown(row,entId){
     const deposit=roundDeposit(total);
     return{method,total,deposit,cash:0,final:deposit};
   }
-  // both: deposit typed by user (2dp), cash = round(total - deposit)
-  const deposit=roundDeposit(getSplitDeposit(entId,row.schedName||row.name));
-  const cash=roundCash(total-deposit);
-  return{method,total,deposit,cash,final:roundDeposit(deposit)+cash};
+  // both: cash stays whole dollars, deposit absorbs cents so deposit+cash==total exactly.
+  // Reconciliation invariant: total = round(total to cents); cash = clamp(round(total - reqDep)) into [0,total];
+  // deposit = roundDeposit(total - cash). Avoids leaks like total 100.50 + reqDep 50.25 -> 50.25 + 50 = 100.25.
+  const requestedDeposit=getSplitDeposit(entId,row.schedName||row.name)||0;
+  let cash=Math.round(total-requestedDeposit);
+  if(cash<0)cash=0;
+  if(cash>Math.floor(total))cash=Math.floor(total);
+  const deposit=roundDeposit(total-cash);
+  return{method,total,deposit,cash,final:roundDeposit(deposit+cash)};
 }
 
 // Wage/rounding key uses stable entity id + employee name (case-insensitive).
@@ -1479,7 +1484,20 @@ function computePayrollForEntity(idx){
     :actualDays.filter(d=>d.entityName.toLowerCase().trim()===entNameLower);
 
   // Filter to schedule week dates
-  const entityActuals=sourceActuals.filter(d=>validIsoDates.size===0||validIsoDates.has(d.date));
+  let entityActuals=sourceActuals.filter(d=>validIsoDates.size===0||validIsoDates.has(d.date));
+
+  // "Ignore Time Cards" exclusion: if an employee is flagged ignored for this entity,
+  // their punches must not flow into billable/pay calculations. Data is preserved in
+  // intake/reviewRows; we only exclude here at the calculation/payroll boundary.
+  const ignoredSet=new Set();
+  if(ent.intake&&ent.intake.ignoredEmployees){
+    Object.keys(ent.intake.ignoredEmployees).forEach(k=>{
+      if(ent.intake.ignoredEmployees[k])ignoredSet.add(k.toLowerCase().trim());
+    });
+  }
+  if(ignoredSet.size>0){
+    entityActuals=entityActuals.filter(d=>!ignoredSet.has((d.empName||'').toLowerCase().trim()));
+  }
 
   // Aggregate by employee+dayIdx
   const byEmpDay={};
@@ -1746,9 +1764,17 @@ function renderAllEntityPreview(){
       const method=getPayMethod(ent.id,empName);
       let dep=0,cash=0,finalPay=0;
       if(totalN!=null){
-        if(method==='cash'){cash=roundCash(totalN);finalPay=cash;}
-        else if(method==='deposit'){dep=roundDeposit(totalN);finalPay=dep;}
-        else{dep=roundDeposit(getSplitDeposit(ent.id,empName));cash=roundCash(totalN-dep);finalPay=roundDeposit(dep)+cash;}
+        const totalRounded=roundDeposit(totalN);
+        if(method==='cash'){cash=roundCash(totalRounded);finalPay=cash;}
+        else if(method==='deposit'){dep=roundDeposit(totalRounded);finalPay=dep;}
+        else{
+          // Split: cash whole dollars, deposit absorbs cents so dep+cash==total.
+          const reqDep=getSplitDeposit(ent.id,empName)||0;
+          cash=Math.round(totalRounded-reqDep);
+          if(cash<0)cash=0;if(cash>Math.floor(totalRounded))cash=Math.floor(totalRounded);
+          dep=roundDeposit(totalRounded-cash);
+          finalPay=roundDeposit(dep+cash);
+        }
       }
       if(hrs!=null)entH+=hrs;
       if(totalN!=null){entPay+=totalN;entDep+=dep;entCash+=cash;}
@@ -3408,9 +3434,18 @@ function syncActualsFromReview(){
   entities.forEach(ent=>{
     ensureIntakeState(ent);
     const rows=ent.intake.reviewRows;
+    // Approval gate: only approved review rows enter payroll. Unapproved/low-confidence/
+    // name-unsure/outside-week rows must be explicitly approved before they pay out.
+    const approvedRows=rows.filter(r=>r&&r.approved===true);
+    // Guard against wiping xlsx-loaded actualDays: the .xlsx upload path writes directly
+    // to ent.actualDays without populating reviewRows. If there are zero approved review
+    // rows for this entity, preserve any pre-existing actualDays rather than overwriting
+    // with []. (When at least one review row is approved, we materialize the full review
+    // set as the source of truth, replacing prior actualDays as before.)
+    if(approvedRows.length===0)return;
     const out=[];
     const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
-    rows.forEach(r=>{
+    approvedRows.forEach(r=>{
       if(!r.empName||!r.date)return;
       const d=new Date(r.date+'T00:00:00');if(isNaN(d))return;
       // Resolve effective empName: if OCR/review row fuzzy-matched a schedule name
@@ -3498,14 +3533,18 @@ function _collectExportData(){
       const method=r.isFlat?getPayMethod(e.id,empName):getPayMethod(e.id,empName);
       const totalPay=r.isFlat?r.flatAmount:(r.wage>0?r.pay:0);
       let breakdown;
+      const totalRounded=roundDeposit(totalPay);
       if(method==='cash'){
-        breakdown={method,total:totalPay,deposit:0,cash:roundCash(totalPay),final:roundCash(totalPay)};
+        breakdown={method,total:totalRounded,deposit:0,cash:roundCash(totalRounded),final:roundCash(totalRounded)};
       }else if(method==='deposit'){
-        breakdown={method,total:totalPay,deposit:roundDeposit(totalPay),cash:0,final:roundDeposit(totalPay)};
+        breakdown={method,total:totalRounded,deposit:roundDeposit(totalRounded),cash:0,final:roundDeposit(totalRounded)};
       }else{
-        const dep=roundDeposit(getSplitDeposit(e.id,empName));
-        const cash=roundCash(totalPay-dep);
-        breakdown={method,total:totalPay,deposit:dep,cash,final:roundDeposit(dep)+cash};
+        // Split: cash whole dollars, deposit absorbs cents so dep+cash==total exactly.
+        const reqDep=getSplitDeposit(e.id,empName)||0;
+        let cash=Math.round(totalRounded-reqDep);
+        if(cash<0)cash=0;if(cash>Math.floor(totalRounded))cash=Math.floor(totalRounded);
+        const dep=roundDeposit(totalRounded-cash);
+        breakdown={method,total:totalRounded,deposit:dep,cash,final:roundDeposit(dep+cash)};
       }
       return Object.assign({},r,{_empName:empName,_breakdown:breakdown,_entityId:e.id,_entityName:entName,_totalPay:totalPay});
     });
