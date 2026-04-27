@@ -3564,18 +3564,26 @@ function _columnsFor(kind){
   const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
   if(kind==='cashOnly'){
     return {
-      headers:['Entity','Employee','Method','Total','Cash Portion'],
-      widths:[110,140,70,80,90],
-      rowFn:(r)=>[r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Both':'Cash','$'+r._totalPay.toFixed(2),'$'+r._breakdown.cash.toFixed(2)],
-      numCols:[3,4]
+      headers:['Entity','Employee','Method','Hours','Rate','Total','Cash Portion'],
+      widths:[110,140,70,60,70,80,90],
+      rowFn:(r)=>{
+        const hrs=r.isFlat?'':(hasActuals?(r.actualHours||0).toFixed(2):(r.expectedH||0).toFixed(2));
+        const rate=r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—');
+        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Both':'Cash',hrs,rate,'$'+r._totalPay.toFixed(2),'$'+r._breakdown.cash.toFixed(2)];
+      },
+      numCols:[3,4,5,6]
     };
   }
   if(kind==='depositOnly'){
     return {
-      headers:['Entity','Employee','Method','Total','Deposit Portion'],
-      widths:[110,140,70,80,100],
-      rowFn:(r)=>[r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Both':'Deposit','$'+r._totalPay.toFixed(2),'$'+r._breakdown.deposit.toFixed(2)],
-      numCols:[3,4]
+      headers:['Entity','Employee','Method','Hours','Rate','Total','Deposit Portion'],
+      widths:[110,140,70,60,70,80,100],
+      rowFn:(r)=>{
+        const hrs=r.isFlat?'':(hasActuals?(r.actualHours||0).toFixed(2):(r.expectedH||0).toFixed(2));
+        const rate=r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—');
+        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Both':'Deposit',hrs,rate,'$'+r._totalPay.toFixed(2),'$'+r._breakdown.deposit.toFixed(2)];
+      },
+      numCols:[3,4,5,6]
     };
   }
   if(kind==='combined'){
