@@ -626,11 +626,18 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
       </div>
       <div class="export-group-section">
         <h4>Wage / Payroll Calculation Settings</h4>
-        <div class="export-row">
+        <div class="export-row" style="flex-wrap:wrap;gap:8px;align-items:center">
           <div class="export-label">Settings (re-importable)</div>
-          <button class="btn btn-green" onclick="exportPayrollSettingsExcel()" title="Export wages, type (hourly/flat), flat amount, pay method, and manually-typed deposit per employee — re-importable">Export Settings (.xlsx)</button>
-          <button class="btn" onclick="document.getElementById('payrollSettingsImportInput').click()" title="Re-import a Wage / Payroll Settings .xlsx — overwrites wage/type/method/deposit for matching Entity + Employee rows">Import Settings (.xlsx)</button>
-          <input type="file" id="payrollSettingsImportInput" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0]){importPayrollSettingsFile(this.files[0]);this.value='';}">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer">
+            <input type="checkbox" id="settingsIncludeBreaksToggle" style="width:auto;margin:0">
+            Include per-day breaks
+          </label>
+          <button class="btn btn-green" onclick="exportPayrollSettingsExcel(document.getElementById('settingsIncludeBreaksToggle').checked)" title="Export wages, type, flat amount, pay method, deposit. With checkbox: also exports default break + per-day Override/Actual minutes.">Export Settings (.xlsx)</button>
+          <button class="btn" onclick="document.getElementById('payrollSettingsImportInput').click()" title="Re-import a Wage / Payroll Settings .xlsx. With checkbox: also restores per-day break overrides. Without: leaves break state untouched.">Import Settings (.xlsx)</button>
+          <input type="file" id="payrollSettingsImportInput" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0]){importPayrollSettingsFile(this.files[0],document.getElementById('settingsIncludeBreaksToggle').checked);this.value='';}">
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.5">
+          <strong>Without breaks:</strong> imports wages/method only — existing break state untouched. <strong>With breaks:</strong> restores per-day Override/Actual values + entity default break.
         </div>
       </div>
     </div>
@@ -678,6 +685,46 @@ let splitAmounts={};  // key: wKey -> {deposit:number, typed:boolean, isWhole:bo
 let activePayrollSubTab={}; // key: entityIdx -> 'timecard' | 'payroll'
 // wageBlank[k]=true means the user has explicitly cleared the wage; render as blank, export as blank.
 let wageBlank={};
+
+// Per-day break overrides. Key: `${wKey(entId,empName)}|${dayIdx}` -> minutes (number, integer >=0).
+// Presence of a key means the row/day is an Override; absence means Actual (effective default).
+let breakOverrides={};
+// Per-entity: 'name' (default insertion order) or 'paytype' (Cash → Both → Deposit grouping).
+let payrollSortMode={};
+function _bk(entId,empName,dayIdx){return wKey(entId,empName)+'|'+dayIdx}
+function getBreakOverride(entId,empName,dayIdx){
+  const v=breakOverrides[_bk(entId,empName,dayIdx)];
+  return v==null?null:v;
+}
+function setBreakOverride(entId,empName,dayIdx,mins){
+  const m=parseFloat(mins);
+  if(isNaN(m)||m<0)return;
+  breakOverrides[_bk(entId,empName,dayIdx)]=Math.round(m);
+}
+function clearBreakOverride(entId,empName,dayIdx){delete breakOverrides[_bk(entId,empName,dayIdx)]}
+function hasAnyBreakOverrides(entId){
+  const prefix=entId+'|';
+  for(const k in breakOverrides){if(k.indexOf(prefix)===0)return true}
+  return false;
+}
+function clearAllBreakOverridesForEntity(entId){
+  const prefix=entId+'|';
+  Object.keys(breakOverrides).forEach(k=>{if(k.indexOf(prefix)===0)delete breakOverrides[k]});
+}
+// Pay-type sort order: Cash first, then Cash+Deposit (both), then Deposit.
+const PAYTYPE_SORT_ORDER={cash:0,both:1,deposit:2};
+function _payTypeRankForRow(entId,row){
+  const empName=row.schedName||row.name;
+  const m=getPayMethod(entId,empName);
+  return PAYTYPE_SORT_ORDER[m]==null?99:PAYTYPE_SORT_ORDER[m];
+}
+function sortRowsByPayType(entId,rows){
+  return rows.slice().sort((a,b)=>{
+    const ra=_payTypeRankForRow(entId,a),rb=_payTypeRankForRow(entId,b);
+    if(ra!==rb)return ra-rb;
+    return 0; // stable order otherwise
+  });
+}
 
 // User-facing label for the 'both' pay method. Internal enum stays 'both'.
 function methodLabel(method){return method==='cash'?'Cash':method==='deposit'?'Deposit':'Deposit + Cash'}
@@ -1582,16 +1629,24 @@ function computePayrollForEntity(idx){
       const actual=byEmpDay[emp.name.toLowerCase().trim()+'|'+d];
       if(shift)row.scheduledDays++;row.scheduledHours+=schedH;
       let workedH=0,spanH=0,actualBreakH_raw=0,effectiveBreakH=0,billableH=0;
+      // Per-day break: explicit override (any number, including 0) wins; otherwise default-with-floor logic.
+      const _ovr=getBreakOverride(ent.id,emp.name,d);
+      const _isOverride=_ovr!=null;
       if(actual){
         workedH=actual.totalMin/60;spanH=Math.max(0,actual.lastOut-actual.firstIn);
         actualBreakH_raw=Math.max(0,spanH-workedH);
-        effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);
+        if(_isOverride){
+          // Override is exact — even 0 is honored. Caps at span so billable can't go negative.
+          effectiveBreakH=Math.max(0,Math.min(_ovr/60,spanH));
+        }else{
+          effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);
+        }
         billableH=Math.max(0,spanH-effectiveBreakH);
         if(workedH>0)row.actualDaysWorked++;
       }
       row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH;
       const expectedH_day=shift?Math.max(0,schedH-mandBreakH):0;
-      const dayData={dayIdx:d,shift,schedH,actual,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:expectedH_day,inDiff:null,outDiff:null,hoursDiff:null,status:'ok'};
+      const dayData={dayIdx:d,shift,schedH,actual,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:expectedH_day,inDiff:null,outDiff:null,hoursDiff:null,status:'ok',breakOverrideMin:_isOverride?_ovr:null,defaultBreakMin:ent.breakMinutes||0};
       const empIgnored=ent.intake&&ent.intake.ignoredEmployees&&ent.intake.ignoredEmployees[emp.name];
       if(!shift&&!actual){dayData.status='off'}
       else if(shift&&!actual){dayData.status=empIgnored?'ignored':'noshow'}
@@ -1648,8 +1703,16 @@ function computePayrollForEntity(idx){
     const row={name:displayName,schedName:o.name,isOrphan:true,days:[],scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,actualHours:0,actualDaysWorked:0,actualBreakH:0,otH:0,wage:wageRates[wKey(ent.id,o.name)]||0,rounding:roundingFactors[wKey(ent.id,o.name)]!=null?roundingFactors[wKey(ent.id,o.name)]:2,pay:0,inDiffs:[],outDiffs:[],avgInDiff:null,avgOutDiff:null};
     for(let d=0;d<7;d++){
       const a=o.byDay[d];let workedH=0,spanH=0,actualBreakH_raw=0,effectiveBreakH=0,billableH=0;
-      if(a){workedH=a.totalMin/60;spanH=Math.max(0,a.lastOut-a.firstIn);actualBreakH_raw=Math.max(0,spanH-workedH);effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);billableH=Math.max(0,spanH-effectiveBreakH);if(workedH>0)row.actualDaysWorked++;row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH}
-      row.days.push({dayIdx:d,shift:null,schedH:0,actual:a||null,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:0,inDiff:null,outDiff:null,hoursDiff:null,status:a?'unsched':'off'});
+      const _ovr=getBreakOverride(ent.id,o.name,d);
+      const _isOverride=_ovr!=null;
+      if(a){
+        workedH=a.totalMin/60;spanH=Math.max(0,a.lastOut-a.firstIn);actualBreakH_raw=Math.max(0,spanH-workedH);
+        if(_isOverride)effectiveBreakH=Math.max(0,Math.min(_ovr/60,spanH));
+        else effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);
+        billableH=Math.max(0,spanH-effectiveBreakH);
+        if(workedH>0)row.actualDaysWorked++;row.actualHours+=billableH;row.actualBreakH+=effectiveBreakH;
+      }
+      row.days.push({dayIdx:d,shift:null,schedH:0,actual:a||null,workedH,spanH,actualBreakH:effectiveBreakH,billableH,expectedH:0,inDiff:null,outDiff:null,hoursDiff:null,status:a?'unsched':'off',breakOverrideMin:_isOverride?_ovr:null,defaultBreakMin:ent.breakMinutes||0});
     }
     row.actualHours=Math.round(row.actualHours*100)/100;row.actualBreakH=Math.round(row.actualBreakH*100)/100;
     row.otH=Math.max(0,Math.round((row.actualHours-OT_THRESHOLD)*100)/100);
@@ -1723,7 +1786,11 @@ function renderPayrollEntityContent(idx){
     :actualDays.some(d=>!ent.name||d.entityName.toLowerCase().trim()===ent.name.toLowerCase().trim());
 
   const{results,orphanRows}=computePayrollForEntity(idx);
-  const allRows=results.concat(orphanRows);
+  let allRows=results.concat(orphanRows);
+  // Apply user-selected display sort BEFORE building _flatRows so index correspondence holds.
+  if((payrollSortMode[ent.id]||'name')==='paytype'){
+    allRows=sortRowsByPayType(ent.id,allRows);
+  }
   _flatRows=allRows.map(r=>({entityIdx:idx,entityName:ent.name,row:r}));
 
   const entityName=escHtml(ent.name||'Entity '+(idx+1));
@@ -1732,9 +1799,13 @@ function renderPayrollEntityContent(idx){
   const activeSub=activePayrollSubTab[idx]||'timecard';
 
   container.innerHTML=`
-    <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px">
+    <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px;flex-wrap:wrap">
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
+      <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px"><span style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Sort:</span>
+        <button class="btn btn-small${(payrollSortMode[ent.id]||'name')==='name'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'name')" title="Schedule order (default)">Schedule order</button>
+        <button class="btn btn-small${payrollSortMode[ent.id]==='paytype'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'paytype')" title="Group by Cash → Cash + Deposit → Deposit">Group by Pay Type</button>
+      </span>
     </div>
     <div class="payroll-break-bar${ent.breakMinutesSet?'':' break-unset'}">
       <label>Mandatory break deduction per worked shift:</label>
@@ -1786,8 +1857,10 @@ function renderAllEntityPreview(){
   entityResults.forEach(({entityIdx,entityName,results,orphanRows})=>{
     const ent=entities[entityIdx];
     const flatExtras=getFlatWageRows(entityName);
-    const allRows=results.concat(orphanRows).concat(flatExtras);
+    let allRows=results.concat(orphanRows).concat(flatExtras);
     if(allRows.length===0)return;
+    // Mirror the user's display-sort choice into the all-entity preview so what they see matches export order.
+    if(payrollSortMode[ent.id]==='paytype')allRows=sortRowsByPayType(ent.id,allRows);
     let entH=0,entPay=0,entDep=0,entCash=0,entFinal=0;
     const spanCount=allRows.length+1;
     allRows.forEach((r,i)=>{
@@ -1848,10 +1921,67 @@ function confirmEntityBreak(idx){
 function setEntityBreak(idx,val){
   const m=parseFloat(val);
   const ent=entities[idx];
-  ent.breakMinutes=isNaN(m)||m<0?0:m;
+  const newBreak=isNaN(m)||m<0?0:m;
+  const oldBreak=ent.breakMinutes||0;
+  if(newBreak===oldBreak){return;}
+  // If per-day overrides exist, ask the user how to handle them. Native confirm()
+  // is too coarse (yes/no only); we present a 3-button modal: Keep Overrides /
+  // Overwrite / Cancel.
+  if(hasAnyBreakOverrides(ent.id)){
+    showBreakChangeModal(idx,oldBreak,newBreak);
+    // Revert the input visually until the user picks an action; the modal will set the value.
+    const inp=document.querySelector(`input[onchange*="setEntityBreak(${idx}"]`);
+    if(inp)inp.value=oldBreak;
+    return;
+  }
+  ent.breakMinutes=newBreak;
   // Any edit unsets the confirmed flag so the user must explicitly confirm the new value
   ent.breakMinutesSet=false;
   renderPayrollEntityContent(idx);
+}
+
+// 3-option modal for default-break change when per-day overrides exist.
+//   Keep Overrides   = update only Actual (non-overridden) rows; overrides preserved as-is.
+//   Overwrite All    = clear all per-day overrides for this entity (so default applies everywhere).
+//   Cancel           = leave default unchanged.
+function showBreakChangeModal(idx,oldBreak,newBreak){
+  let host=document.getElementById('breakChangeModal');
+  if(host)host.remove();
+  host=document.createElement('div');
+  host.id='breakChangeModal';
+  host.className='overlay';
+  host.style.zIndex=3000;
+  const ent=entities[idx];
+  const ovrCount=Object.keys(breakOverrides).filter(k=>k.indexOf(ent.id+'|')===0).length;
+  host.innerHTML=`
+    <div class="overlay-panel" style="max-width:480px">
+      <h2>Change default break to ${newBreak}m?</h2>
+      <p class="sub">There are <strong>${ovrCount}</strong> per-day override${ovrCount===1?'':'s'} on this entity. How should they be handled?</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin:12px 0">
+        <button class="btn btn-primary" onclick="resolveBreakChange(${idx},${newBreak},'keep')" style="text-align:left;padding:12px">
+          <strong>Keep Overrides</strong><br><span style="font-size:11px;color:var(--text3);font-weight:400">Update only rows currently using Actual (default). Override rows stay as-is.</span>
+        </button>
+        <button class="btn" onclick="resolveBreakChange(${idx},${newBreak},'overwrite')" style="text-align:left;padding:12px">
+          <strong>Overwrite Overrides</strong><br><span style="font-size:11px;color:var(--text3);font-weight:400">Clear all ${ovrCount} per-day overrides on this entity. Default applies everywhere.</span>
+        </button>
+        <button class="btn" onclick="resolveBreakChange(${idx},${newBreak},'cancel')" style="text-align:left;padding:12px">
+          <strong>Cancel</strong><br><span style="font-size:11px;color:var(--text3);font-weight:400">Keep the default at ${oldBreak}m. No changes.</span>
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(host);
+}
+function resolveBreakChange(idx,newBreak,action){
+  const ent=entities[idx];
+  const host=document.getElementById('breakChangeModal');
+  if(host)host.remove();
+  if(action==='cancel'){renderPayrollEntityContent(idx);return;}
+  if(action==='overwrite'){clearAllBreakOverridesForEntity(ent.id);}
+  // 'keep' = leave overrides untouched. Calc engine already uses override when present.
+  ent.breakMinutes=newBreak;
+  ent.breakMinutesSet=false;
+  renderPayrollEntityContent(idx);
+  showToast(action==='overwrite'?`Default set to ${newBreak}m; overrides cleared`:`Default set to ${newBreak}m; overrides preserved`,'ok');
 }
 
 function renderPayrollInfoChips(rows,hasActuals){
@@ -2011,6 +2141,11 @@ function renderTimeCardData(rows,hasActuals,ent){
 // ---- PAYROLL CALCULATION sub-tab: name, actual break, actual hours, wage, hourly/flat toggle, pay method, split amounts, final pay ----
 function renderPayrollCalc(rows,hasActuals,ent){
   const table=document.getElementById('payrollCalcTable');if(!table)return;
+  // `rows` arrives already sorted in renderPayrollEntityContent so the row index
+  // here matches the _flatRows index used by setWage/setRowBreakOverride/etc.
+  // Total columns = 11 (name + 10 data cols). Date labels for break-detail row chips.
+  const dLabels=ent.dateLabels||['','','','','','',''];
+  const COLSPAN=11;
   let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th>';
   html+='<th>Actual Break Hrs</th><th>Actual Hours</th>';
   html+='<th>Wage ($/hr)</th><th style="width:110px">Type</th>';
@@ -2092,6 +2227,29 @@ function renderPayrollCalc(rows,hasActuals,ent){
     }
 
     html+='</tr>';
+
+    // ---- Break-detail sub-row: per-day editable break with Actual/Override status ----
+    // Renders 7 day chips. Each chip has the day name + small minute input + Actual/Override badge.
+    // Editing the input fires setRowBreakOverride; clicking the "Reset" link removes the override.
+    let breakRow=`<tr class="break-detail-row" data-row-idx="${i}"><td colspan="${COLSPAN}" style="background:#FAF9F4;padding:6px 10px;border-bottom:1px solid var(--border)"><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px"><span style="color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-right:4px">Per-day breaks (min):</span>`;
+    for(let d=0;d<7;d++){
+      const dayD=r.days[d];
+      const isOvr=dayD&&dayD.breakOverrideMin!=null;
+      const defaultMin=ent.breakMinutes||0;
+      const effMin=isOvr?dayD.breakOverrideMin:Math.round((dayD?dayD.actualBreakH:0)*60);
+      const hasActualForDay=!!(dayD&&dayD.actual);
+      const lbl=DAY_SHORT[d];
+      const dateLbl=dLabels[d]?` ${dLabels[d]}`:'';
+      const cellStyle=isOvr?'background:#FFF3E0;border:1px solid #FB923C':(hasActualForDay?'background:var(--surface);border:1px solid var(--border)':'background:#F4F2EC;border:1px dashed var(--border);opacity:0.7');
+      const badgeColor=isOvr?'color:#9A3412;font-weight:700':'color:var(--text3);font-weight:600';
+      const badgeText=isOvr?'Override':'Actual';
+      const inputVal=hasActualForDay?String(effMin):'';
+      const placeholder=hasActualForDay?String(defaultMin):'—';
+      const resetBtn=isOvr?` <button onclick="resetRowBreakOverride(${i},${d})" title="Clear override; revert to Actual" style="background:none;border:none;color:#9A3412;cursor:pointer;font-size:10px;padding:0;text-decoration:underline">reset</button>`:'';
+      breakRow+=`<span class="break-day-cell" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:4px 6px;border-radius:6px;${cellStyle}" title="${lbl}${dateLbl}"><span style="font-size:10px;color:var(--text3);font-weight:600">${lbl}</span><input type="number" min="0" step="1" class="break-day-input" value="${inputVal}" placeholder="${placeholder}" data-row="${i}" data-day="${d}" onchange="setRowBreakOverride(${i},${d},this.value)" ${hasActualForDay?'':'disabled'} style="width:48px;padding:2px 4px;font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface);text-align:right"><span style="font-size:9px;${badgeColor};letter-spacing:0.3px">${badgeText}${resetBtn}</span></span>`;
+    }
+    breakRow+=`<span style="margin-left:auto;color:var(--text3);font-size:10px">Default: <strong>${ent.breakMinutes||0}m</strong> · Override = exact (0 allowed)</span></div></td></tr>`;
+    html+=breakRow;
   });
   const totDiff=roundDeposit(totFinal-totActual);
   const totDiffStr=Math.abs(totDiff)>=0.005?(totDiff>0?'+':'')+'$'+totDiff.toFixed(2):'—';
@@ -2191,6 +2349,41 @@ function setSplitDepositForRow(rowIdx,val){
 
 function setPayrollSubTab(entityIdx,tab){
   activePayrollSubTab[entityIdx]=tab;
+  renderPayrollEntityContent(entityIdx);
+}
+
+// ---- Per-day break override handlers ----
+function setRowBreakOverride(rowIdx,dayIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  const keyName=_rowKey(item);
+  const raw=(val==null?'':String(val)).trim();
+  if(raw===''){
+    // Empty cleared = remove override (back to Actual).
+    clearBreakOverride(ent.id,keyName,dayIdx);
+  }else{
+    const m=parseFloat(raw);
+    if(isNaN(m)||m<0){renderPayrollEntityContent(item.entityIdx);return;}
+    setBreakOverride(ent.id,keyName,dayIdx,m);
+  }
+  renderPayrollEntityContent(item.entityIdx);
+  // Re-focus the same input so the user can keep typing.
+  setTimeout(()=>{
+    const sel=document.querySelector(`input.break-day-input[data-row="${rowIdx}"][data-day="${dayIdx}"]`);
+    if(sel)sel.focus();
+  },0);
+}
+function resetRowBreakOverride(rowIdx,dayIdx){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  clearBreakOverride(ent.id,_rowKey(item),dayIdx);
+  renderPayrollEntityContent(item.entityIdx);
+}
+
+// ---- Display sort by pay type (Cash → Cash+Deposit → Deposit) ----
+function setPayrollSortMode(entityIdx,mode){
+  const ent=entities[entityIdx];if(!ent)return;
+  payrollSortMode[ent.id]=mode==='paytype'?'paytype':'name';
   renderPayrollEntityContent(entityIdx);
 }
 
@@ -3683,6 +3876,15 @@ function _filterRowsForKind(rows,kind){
   return rows;
 }
 
+// Pay-type ordering for exports: Cash → Cash + Deposit (both) → Deposit.
+// Cash goes first so cash-out totals are easy to read at the top of every section.
+function _paytypeExportSortFn(a,b){
+  const order={cash:0,both:1,deposit:2};
+  const ra=order[a._breakdown.method]==null?99:order[a._breakdown.method];
+  const rb=order[b._breakdown.method]==null?99:order[b._breakdown.method];
+  return ra-rb;
+}
+
 // ---- Table spec per kind ----
 function _columnsFor(kind){
   const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
@@ -3695,7 +3897,8 @@ function _columnsFor(kind){
         const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—'));
         return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Cash',hrs,rate,r._wageBlank?'':'$'+r._totalPay.toFixed(2),r._wageBlank?'':'$'+r._breakdown.cash.toFixed(2)];
       },
-      numCols:[3,4,5,6]
+      numCols:[3,4,5,6],
+      sortFn:_paytypeExportSortFn
     };
   }
   if(kind==='depositOnly'){
@@ -3707,7 +3910,8 @@ function _columnsFor(kind){
         const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—'));
         return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Deposit',hrs,rate,r._wageBlank?'':'$'+r._totalPay.toFixed(2),r._wageBlank?'':'$'+r._breakdown.deposit.toFixed(2)];
       },
-      numCols:[3,4,5,6]
+      numCols:[3,4,5,6],
+      sortFn:_paytypeExportSortFn
     };
   }
   if(kind==='combined'){
@@ -3734,10 +3938,7 @@ function _columnsFor(kind){
         ];
       },
       numCols:[3,4,5,6,7,8,9],
-      sortFn:(a,b)=>{
-        const ord={deposit:0,both:1,cash:2};
-        return (ord[a._breakdown.method]||99)-(ord[b._breakdown.method]||99);
-      }
+      sortFn:_paytypeExportSortFn
     };
   }
   if(kind==='timecard'){
@@ -3786,7 +3987,8 @@ function _columnsFor(kind){
           diffStr
         ];
       },
-      numCols:[2,3,4,7,8,9,10,11]
+      numCols:[2,3,4,7,8,9,10,11],
+      sortFn:_paytypeExportSortFn
     };
   }
   return null;
@@ -4346,8 +4548,23 @@ async function exportPayrollPdf(){return exportCombinedPdf()}
 // ================================================================
 const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As'];
 const PAYROLL_SETTINGS_SCHEMA_TAG='SPCalcPayrollSettingsV1';
+// Break-extension headers — appended only when the user opts in to "include breaks".
+// Per-day numeric (minutes) + status ('Override' or 'Actual'); plus an entity-default-break column.
+// Empty number cell + status 'Actual' = no override (use entity default with the existing actual-break floor).
+// Schema tag bumps to V2 when breaks are present in the file so the importer can dispatch correctly.
+const PAYROLL_SETTINGS_BREAK_HEADERS=[
+  'Default Break (min)',
+  'Sun Break','Sun Break Status',
+  'Mon Break','Mon Break Status',
+  'Tue Break','Tue Break Status',
+  'Wed Break','Wed Break Status',
+  'Thu Break','Thu Break Status',
+  'Fri Break','Fri Break Status',
+  'Sat Break','Sat Break Status'
+];
+const PAYROLL_SETTINGS_SCHEMA_TAG_V2='SPCalcPayrollSettingsV2';
 
-function _gatherPayrollSettingsRows(){
+function _gatherPayrollSettingsRows(includeBreaks){
   const out=[];
   entities.forEach(ent=>{
     const idx=entities.indexOf(ent);
@@ -4362,7 +4579,7 @@ function _gatherPayrollSettingsRows(){
       const wageRaw=wageRates[k];
       const method=getPayMethod(ent.id,empName);
       const meta=getSplitMeta(ent.id,empName);
-      out.push({
+      const rec={
         entity:entityName,
         employee:displayName||empName,
         wage:isFlat?'':(isWageBlank?'':(wageRaw==null||wageRaw===0?'':wageRaw)),
@@ -4371,7 +4588,16 @@ function _gatherPayrollSettingsRows(){
         method:methodLabel(method),
         deposit:(method==='both'&&meta.typed)?meta.deposit:'',
         depositTypedAs:(method==='both'&&meta.typed)?(meta.isWhole?'whole':'decimal'):''
-      });
+      };
+      if(includeBreaks){
+        rec.defaultBreak=ent.breakMinutes||0;
+        rec.dayBreaks=[];
+        for(let d=0;d<7;d++){
+          const ovr=getBreakOverride(ent.id,empName,d);
+          rec.dayBreaks.push({minutes:ovr,status:ovr!=null?'Override':'Actual'});
+        }
+      }
+      out.push(rec);
     };
     // Scheduled employees
     (ent.employees||[]).forEach(emp=>pushRow(emp.name,emp.name));
@@ -4393,27 +4619,41 @@ function _gatherPayrollSettingsRows(){
   return out;
 }
 
-async function exportPayrollSettingsExcel(){
-  const rows=_gatherPayrollSettingsRows();
+async function exportPayrollSettingsExcel(includeBreaks){
+  const rows=_gatherPayrollSettingsRows(!!includeBreaks);
   if(rows.length===0){showToast('No employees to export settings for','err');return;}
   const ewb=new ExcelJS.Workbook();
   ewb.creator='Schedule & Payroll Calculator';
-  ewb.description=PAYROLL_SETTINGS_SCHEMA_TAG;
+  const tag=includeBreaks?PAYROLL_SETTINGS_SCHEMA_TAG_V2:PAYROLL_SETTINGS_SCHEMA_TAG;
+  ewb.description=tag;
   const ws=ewb.addWorksheet('Payroll Settings');
-  ws.addRow(['Wage / Payroll Calculation Settings']).font={bold:true,size:13};
-  ws.addRow([PAYROLL_SETTINGS_SCHEMA_TAG+' · Exported '+new Date().toISOString().slice(0,19).replace('T',' ')]).font={italic:true,size:9,color:{argb:'FF888880'}};
+  ws.addRow(['Wage / Payroll Calculation Settings'+(includeBreaks?' (with breaks)':'')]).font={bold:true,size:13};
+  ws.addRow([tag+' · Exported '+new Date().toISOString().slice(0,19).replace('T',' ')]).font={italic:true,size:9,color:{argb:'FF888880'}};
   ws.addRow([]);
-  const hdr=ws.addRow(PAYROLL_SETTINGS_HEADERS);
+  const headers=includeBreaks?PAYROLL_SETTINGS_HEADERS.concat(PAYROLL_SETTINGS_BREAK_HEADERS):PAYROLL_SETTINGS_HEADERS;
+  const hdr=ws.addRow(headers);
   hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};c.alignment={vertical:'middle'};});
   rows.forEach(r=>{
-    ws.addRow([r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs]);
+    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs];
+    if(includeBreaks){
+      base.push(r.defaultBreak);
+      for(let d=0;d<7;d++){
+        const day=r.dayBreaks[d];
+        // Numeric column: blank when Actual (no override), exact minutes when Override.
+        base.push(day.minutes==null?'':day.minutes);
+        base.push(day.status);
+      }
+    }
+    ws.addRow(base);
   });
-  const widths=[20,22,12,10,14,18,16,16];
+  const baseW=[20,22,12,10,14,18,16,16];
+  const breakW=includeBreaks?[14,10,16,10,16,10,16,10,16,10,16,10,16,10,16]:[];
+  const widths=baseW.concat(breakW);
   ws.columns.forEach((col,i)=>{col.width=widths[i]||14;});
   ws.views=[{state:'frozen',ySplit:4}];
-  const fname='Payroll_Settings_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  const fname=(includeBreaks?'Payroll_Settings_with_Breaks_':'Payroll_Settings_')+new Date().toISOString().slice(0,10)+'.xlsx';
   downloadBlob(await ewb.xlsx.writeBuffer(),fname);
-  showToast(`Exported ${fname} — ${rows.length} employee setting${rows.length===1?'':'s'}`,'ok');
+  showToast(`Exported ${fname} — ${rows.length} employee setting${rows.length===1?'':'s'}`+(includeBreaks?' (incl. breaks)':''),'ok');
 }
 
 function _normalizePayMethod(s){
@@ -4425,7 +4665,7 @@ function _normalizePayMethod(s){
   return null;
 }
 
-function importPayrollSettingsFile(file){
+function importPayrollSettingsFile(file,includeBreaks){
   if(!file)return;
   const reader=new FileReader();
   reader.onload=function(e){
@@ -4442,13 +4682,16 @@ function importPayrollSettingsFile(file){
         }
       }
       if(headerRow<0){alert('Could not locate the Payroll Settings header row. Expected columns: '+PAYROLL_SETTINGS_HEADERS.join(', '));return;}
-      _ingestPayrollSettings(data.slice(headerRow+1),colMap);
+      // includeBreaks=true: file's break columns (if present) will overwrite per-day overrides + entity default break.
+      // includeBreaks=false: even if the file HAS break columns, they are intentionally ignored — existing
+      // break state stays untouched. This is the safety mechanism the user asked for.
+      _ingestPayrollSettings(data.slice(headerRow+1),colMap,!!includeBreaks);
     }catch(err){alert('Error reading file: '+err.message);}
   };
   reader.readAsArrayBuffer(file);
 }
 
-function _ingestPayrollSettings(rows,colMap){
+function _ingestPayrollSettings(rows,colMap,includeBreaks){
   const get=(row,...keys)=>{
     for(const k of keys){const i=colMap[k];if(i!=null&&i>=0&&row[i]!=null)return row[i].toString();}
     return '';
@@ -4456,6 +4699,10 @@ function _ingestPayrollSettings(rows,colMap){
   const entByName=new Map();
   entities.forEach(e=>{const k=(e.name||'').toLowerCase().trim();if(k)entByName.set(k,e);});
   let updated=0,skipped=0,unmatchedEntities=new Set();
+  // Track which entities had their default break adjusted so we apply once per entity
+  // (multiple rows share the same Default Break column for the same entity).
+  const defaultBreaksApplied=new Set();
+  const dayKeys=['sun','mon','tue','wed','thu','fri','sat'];
   rows.forEach(row=>{
     if(!row||row.length===0)return;
     const entityName=get(row,'entity').trim();
@@ -4504,6 +4751,37 @@ function _ingestPayrollSettings(rows,colMap){
           else if(depTypedAsRaw==='decimal')isWhole=false;
           else isWhole=!/\./.test(depRaw)||Math.abs(Math.round(dn)-dn)<1e-9;
           splitAmounts[k]={deposit:dn,typed:true,isWhole};
+        }
+      }
+    }
+    // Break columns — only when user opted in via the include-breaks toggle.
+    if(includeBreaks){
+      const defBreakRaw=get(row,'default break (min)','default break').trim();
+      if(defBreakRaw!==''&&!defaultBreaksApplied.has(ent.id)){
+        const dn=parseFloat(defBreakRaw);
+        if(!isNaN(dn)&&dn>=0){
+          ent.breakMinutes=Math.round(dn);
+          ent.breakMinutesSet=true;
+          defaultBreaksApplied.add(ent.id);
+        }
+      }
+      for(let d=0;d<7;d++){
+        const dayK=dayKeys[d];
+        const minRaw=get(row,dayK+' break').trim();
+        const statRaw=get(row,dayK+' break status').trim().toLowerCase();
+        // Status drives the decision. Empty status + empty minute = no change to existing.
+        // Status 'override' + numeric = set override. Status 'actual' + anything = clear override.
+        if(statRaw==='override'){
+          if(minRaw!==''){
+            const mn=parseFloat(minRaw);
+            if(!isNaN(mn)&&mn>=0)setBreakOverride(ent.id,empName,d,mn);
+          }
+        }else if(statRaw==='actual'){
+          clearBreakOverride(ent.id,empName,d);
+        }else if(minRaw!==''){
+          // No status given but a number is present — treat as Override (re-importable best-effort).
+          const mn=parseFloat(minRaw);
+          if(!isNaN(mn)&&mn>=0)setBreakOverride(ent.id,empName,d,mn);
         }
       }
     }
