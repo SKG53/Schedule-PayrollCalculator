@@ -47,9 +47,11 @@ commit.
   `intake.reviewRows` (OCR/manual/imported rows awaiting approval).
 - **Roster/settings:** in-memory maps keyed by `wKey(entityId, empName)`:
   `wageRates`, `wageBlank`, `flatWages`, `flatWagesDisplayNames`, `payMethod`,
-  `splitAmounts`, `breakOverrides`, `payrollSortMode`, `rosterActive`. Entity-level:
-  `breakMinutes`, `breakMinutesSet`. `rosterActive` stores only the `false` entries —
-  absence means active, so the default is true everywhere.
+  `splitAmounts`, `breakOverrides`, `payrollSortMode`, `rosterActive`,
+  `rosterAliases`. Entity-level: `breakMinutes`, `breakMinutesSet`. `rosterActive`
+  stores only the `false` entries — absence means active, so the default is true
+  everywhere. `rosterAliases` holds arrays of observed spellings, stored with the
+  case typed and compared lower/trimmed.
 - **Computed payroll:** never stored — recomputed on every render by
   `computePayrollForEntity(idx)`.
 - **Persistence — the tool is NOT fully stateless. Browser storage IS used:**
@@ -67,16 +69,19 @@ commit.
 - **What survives a refresh:** the Gemini API key, model choices, and auto-escalate
   flag (localStorage). All schedule/actuals/payroll data is gone — correct.
 - **Settings export fields:** `Entity | Employee | Wage/hour | Type | Flat Amount |
-  Pay Method | Deposit Amount | Deposit Typed As | Active` (schema tag
+  Pay Method | Deposit Amount | Deposit Typed As | Active | Aliases` (schema tag
   `SPCalcPayrollSettingsV3`), optionally + 15 break columns: `Default Break (min)`
   and per-day `<Day> Break` / `<Day> Break Status` pairs (tag
   `SPCalcPayrollSettingsV2` appended to the description). Round-trip: wage
   (including explicit-blank state), type, flat amount, pay method, typed deposit +
-  whole/decimal flag, and the active flag survive. Break columns survive only when
-  the "Include per-day breaks" toggle is on for both export AND import.
-  The importer matches on **column name**, so V1 and V2 files still load and any
-  column they lack takes its default (`Active` → true). **Not carried:** roster
-  itself (comes from the schedule file), aliases.
+  whole/decimal flag, the active flag and the alias list survive. Aliases are a JSON
+  array in one cell (`["Variant One","Ferrer, Angelyca"]`), so commas and quotes
+  inside a name round-trip; a hand-typed comma-separated cell is accepted as a
+  fallback. Break columns survive only when the "Include per-day breaks" toggle is on
+  for both export AND import. The importer matches on **column name**, so V1 and V2
+  files still load and any column they lack takes its default (`Active` → true,
+  aliases left untouched). **Not carried:** the roster itself, which still comes from
+  the schedule file.
 
 ## 3. Screens
 
@@ -129,10 +134,11 @@ has a name):
   re-runs low-confidence TC images with Pro. Images >2048 px or >1.5 MB are
   downscaled client-side before upload.
 - **Name matching** (`matchEmployeeName`): exact case-insensitive → auto-applied;
-  else substring/first-name containment → suggestion (row keeps OCR text, flag
-  "Name unsure", bucketed under the suggested employee, and `syncActualsFromReview`
-  routes its punches to the suggested schedule name); else Levenshtein similarity
-  ≥ 0.85 → suggestion; else "Not on schedule". There is no alias table.
+  else **registered alias** → auto-applied to the canonical name, silently and with
+  no flag (returns `{exact, viaAlias:true}`); else substring/first-name containment
+  → suggestion (row keeps OCR text, flag "Name unsure", bucketed under the suggested
+  employee, and `syncActualsFromReview` routes its punches to the suggested schedule
+  name); else Levenshtein similarity ≥ 0.85 → suggestion; else "Not on schedule".
 - **Parse failure:** schedule — `alert()` and nothing loads. OCR — per-file error
   status with retry buttons after 3 auto-attempts; failed file's rows are excluded.
   Row-level anomalies (missing punch, bad sequence, >2 pairs, outside week) become
@@ -285,6 +291,13 @@ cross-check block.
   and reported), then per-employee by name key. Blank wage cell imports as
   explicit-blank. Break columns applied only when the include-breaks toggle is on;
   status column drives override set/clear.
+- **Aliases:** per-employee list edited on the break-detail strip in the Payroll
+  Calculation grid (comma-separated in the input, JSON array in the file). Matched on
+  intake ahead of any fuzzy guess and applied with no flag. An alias that duplicates
+  another employee's canonical name, another employee's alias, or the employee's own
+  name is **refused** and reported — two similarly-named people at one entity have
+  been conflated in this data before, and an alias is the mechanism that would do it
+  silently. Refusals surface on both the UI edit and the settings import.
 - **Active flag:** per-employee checkbox in the Payroll Calculation grid, stored in
   `rosterActive` and carried in the settings file. It gates one thing only —
   `parseSchedule`, i.e. loading a **new** week. Inactive employees on the incoming
@@ -384,8 +397,8 @@ cross-check block.
    filters rows by exact entity-name match, silently excluding mismatches; also
    documents none of the three newer re-importable schemas. Its "sample files are
    in this folder" line is now false — the new `.gitignore` excludes `*.xlsx`.
-8. **Settings schema gaps** (confirmed against DOMAIN.md): `active` now exists;
-   aliases and the roster itself still do not. The flat-amount-not-persisting defect
+8. **Settings schema gaps** (confirmed against DOMAIN.md): `active` and `aliases`
+   now exist; the roster itself still does not. The flat-amount-not-persisting defect
    could **not** be reproduced from code reading — `_gatherPayrollSettingsRows` does
    export `flatWages` — needs a live round-trip with a real settings file.
 9. **`collectAllFlags` is dead code** (4820) — the no-show/unsched/orphan/40 h+

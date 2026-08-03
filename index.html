@@ -688,6 +688,73 @@ function setRosterActive(entId,empName,active){
   const k=wKey(entId,empName);
   if(active)delete rosterActive[k];else rosterActive[k]=false;
 }
+
+// Per-employee alias list. Key: wKey(entId, empName) -> array of observed spellings,
+// stored with the case the user typed and compared lower/trimmed. An alias hit on intake
+// resolves to the canonical schedule name silently, with no flag.
+let rosterAliases={};
+function getAliases(entId,empName){return rosterAliases[wKey(entId,empName)]||[]}
+function _aliasNorm(s){return (s||'').toString().toLowerCase().trim()}
+// wKey lowercases the name, so map a key fragment back to the schedule's cased name.
+function _canonicalDisplay(entId,lowName){
+  const ent=entities.find(e=>e.id===entId);
+  const hit=ent&&(ent.employees||[]).find(e=>_aliasNorm(e.name)===lowName);
+  return hit?hit.name:lowName;
+}
+// Returns {ok:true} or {ok:false,reason} — an alias that collides with another employee's
+// canonical name or with another employee's alias is refused. Two similarly-named people
+// at one entity have been conflated in this data before, and an alias is exactly the
+// mechanism that would do it silently.
+function validateAlias(entId,empName,alias){
+  const a=_aliasNorm(alias);
+  if(!a)return{ok:false,reason:'empty'};
+  const self=_aliasNorm(empName);
+  if(a===self)return{ok:false,reason:`"${alias}" is already the employee's own name`};
+  const ent=entities.find(e=>e.id===entId);
+  if(ent){
+    const clash=(ent.employees||[]).find(e=>_aliasNorm(e.name)===a&&_aliasNorm(e.name)!==self);
+    if(clash)return{ok:false,reason:`"${alias}" is ${clash.name}'s own name on this schedule`};
+  }
+  const prefix=entId+'|';
+  for(const k in rosterAliases){
+    if(k.indexOf(prefix)!==0||k===wKey(entId,empName))continue;
+    if((rosterAliases[k]||[]).some(x=>_aliasNorm(x)===a)){
+      return{ok:false,reason:`"${alias}" is already an alias of ${_canonicalDisplay(entId,k.slice(prefix.length))}`};
+    }
+  }
+  return{ok:true};
+}
+// Sets the whole list, dropping blanks, de-duplicating case-insensitively, and skipping
+// anything validateAlias refuses. Returns {applied,rejected:[{alias,reason}]}.
+function setAliases(entId,empName,list){
+  const k=wKey(entId,empName);
+  const out=[],rejected=[],seen=new Set();
+  (list||[]).forEach(raw=>{
+    const a=(raw==null?'':String(raw)).trim();
+    if(!a)return;
+    const n=_aliasNorm(a);
+    if(seen.has(n))return;
+    // Validate against the list as it stands without this employee's old entries.
+    const saved=rosterAliases[k];rosterAliases[k]=out;
+    const v=validateAlias(entId,empName,a);
+    rosterAliases[k]=saved;
+    if(!v.ok){if(v.reason!=='empty')rejected.push({alias:a,reason:v.reason});return;}
+    seen.add(n);out.push(a);
+  });
+  if(out.length)rosterAliases[k]=out;else delete rosterAliases[k];
+  return{applied:out,rejected};
+}
+// Resolves an observed name to a canonical schedule name via the alias table, or null.
+function resolveAlias(entId,name){
+  const n=_aliasNorm(name);
+  if(!n)return null;
+  const prefix=entId+'|';
+  for(const k in rosterAliases){
+    if(k.indexOf(prefix)!==0)continue;
+    if((rosterAliases[k]||[]).some(x=>_aliasNorm(x)===n))return _canonicalDisplay(entId,k.slice(prefix.length));
+  }
+  return null;
+}
 function _bk(entId,empName,dayIdx){return wKey(entId,empName)+'|'+dayIdx}
 function getBreakOverride(entId,empName,dayIdx){
   const v=breakOverrides[_bk(entId,empName,dayIdx)];
@@ -2260,7 +2327,15 @@ function renderPayrollCalc(rows,hasActuals,ent){
       const resetBtn=isOvr?` <button onclick="resetRowBreakOverride(${i},${d})" title="Clear override; revert to Actual" style="background:none;border:none;color:#9A3412;cursor:pointer;font-size:10px;padding:0;text-decoration:underline">reset</button>`:'';
       breakRow+=`<span class="break-day-cell" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:4px 6px;border-radius:6px;${cellStyle}" title="${lbl}${dateLbl}"><span style="font-size:10px;color:var(--text3);font-weight:600">${lbl}</span><input type="number" min="0" step="1" class="break-day-input" value="${inputVal}" placeholder="${placeholder}" data-row="${i}" data-day="${d}" onchange="setRowBreakOverride(${i},${d},this.value)" ${hasActualForDay?'':'disabled'} style="width:48px;padding:2px 4px;font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface);text-align:right"><span style="font-size:9px;${badgeColor};letter-spacing:0.3px">${badgeText}${resetBtn}</span></span>`;
     }
-    breakRow+=`<span style="margin-left:auto;color:var(--text3);font-size:10px">Default: <strong>${ent.breakMinutes||0}m</strong> · Override = exact (0 allowed)</span></div></td></tr>`;
+    breakRow+=`<span style="margin-left:auto;color:var(--text3);font-size:10px">Default: <strong>${ent.breakMinutes||0}m</strong> · Override = exact (0 allowed)</span></div>`;
+    // Alias list — every observed spelling for this person. Intake matches these straight to
+    // the canonical name with no flag, which is what keeps NOT_IN_ROSTER meaningful.
+    const aliasList=getAliases(ent.id,keyName);
+    breakRow+=`<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">
+      <span style="color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">Aliases:</span>
+      <input type="text" value="${escHtml(aliasList.join(', '))}" placeholder="other spellings, comma-separated" onchange="setRowAliases(${i},this.value)" title="Names OCR has produced for this person. Matched before any fuzzy guess, and applied silently. Separate with commas." style="flex:1;min-width:160px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
+      <span style="color:var(--text3);font-size:10px;white-space:nowrap">${aliasList.length} stored</span>
+    </div></td></tr>`;
     html+=breakRow;
   });
   const totDiff=roundDeposit(totFinal-totActual);
@@ -2332,6 +2407,22 @@ function setFlatAmount(rowIdx,val){
   flatWagesDisplayNames[keyName.toLowerCase().trim()]=item.row.name;
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.flat-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
+}
+
+function setRowAliases(rowIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  const name=_rowKey(item);
+  // The input is comma-separated for typing. Storage is a JSON array, so an alias that
+  // arrives from an import with a comma in it survives — it just can't be typed here.
+  const res=setAliases(ent.id,name,(val||'').split(','));
+  renderPayrollEntityContent(item.entityIdx);
+  if(res.rejected.length){
+    showToast(`${res.rejected.length} alias${res.rejected.length===1?'':'es'} refused — see details`,'err');
+    alert('Not added, because these would be ambiguous:\n\n'+res.rejected.map(r=>r.reason).join('\n'));
+  }else{
+    showToast(`${name}: ${res.applied.length} alias${res.applied.length===1?'':'es'} saved`,'ok');
+  }
 }
 
 function setRowActive(rowIdx,checked){
@@ -3225,6 +3316,10 @@ function matchEmployeeName(name,ent){
   const n=name.toLowerCase().trim();
   const schedNames=ent.employees.map(e=>e.name).filter(Boolean);
   for(const s of schedNames){if(s.toLowerCase()===n)return{exact:s};}
+  // Registered alias — a known spelling for this person. Treated as exact: it resolves to
+  // the canonical name silently, with no flag, which is the whole point of keeping the list.
+  const aliasHit=resolveAlias(ent.id,n);
+  if(aliasHit&&schedNames.some(s=>s.toLowerCase()===aliasHit.toLowerCase()))return{exact:aliasHit,viaAlias:true};
   // First name match: schedule name is a single word, OCR name contains it
   for(const s of schedNames){
     const sLow=s.toLowerCase();
@@ -4566,7 +4661,7 @@ async function exportPayrollPdf(){return exportCombinedPdf()}
 // ================================================================
 // 'Active' is appended last so the currency columns keep their positions and any older
 // V1/V2 file still imports — the importer matches on column name, not index.
-const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Active'];
+const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Active','Aliases'];
 const PAYROLL_SETTINGS_SCHEMA_TAG='SPCalcPayrollSettingsV1';
 // Break-extension headers — appended only when the user opts in to "include breaks".
 // Per-day numeric (minutes) + status ('Override' or 'Actual'); plus an entity-default-break column.
@@ -4612,7 +4707,10 @@ function _gatherPayrollSettingsRows(includeBreaks){
         method:methodLabel(method),
         deposit:(method==='both'&&meta.typed)?meta.deposit:'',
         depositTypedAs:(method==='both'&&meta.typed)?(meta.isWhole?'whole':'decimal'):'',
-        active:isRosterActive(ent.id,empName)?'Yes':'No'
+        active:isRosterActive(ent.id,empName)?'Yes':'No',
+        // JSON array in one cell. Survives commas, quotes and apostrophes in a name, which
+        // a delimited list cannot do without an escaping scheme nobody will get right.
+        aliases:(()=>{const a=getAliases(ent.id,empName);return a.length?JSON.stringify(a):''})()
       };
       if(includeBreaks){
         rec.defaultBreak=ent.breakMinutes||0;
@@ -4661,7 +4759,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
   const hdr=ws.addRow(headers);
   hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};c.alignment={vertical:'middle'};});
   rows.forEach(r=>{
-    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.active];
+    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.active,r.aliases];
     if(includeBreaks){
       base.push(r.defaultBreak);
       for(let d=0;d<7;d++){
@@ -4677,7 +4775,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
     // and separators so the round-trip still parses.
     [3,5,7].forEach(ci=>{settingsRow.getCell(ci).numFmt=XL_FMT_MONEY});
   });
-  const baseW=[20,22,12,10,14,18,16,16,10];
+  const baseW=[20,22,12,10,14,18,16,16,10,38];
   const breakW=includeBreaks?[14,10,16,10,16,10,16,10,16,10,16,10,16,10,16]:[];
   const widths=baseW.concat(breakW);
   ws.columns.forEach((col,i)=>{col.width=widths[i]||14;});
@@ -4734,6 +4832,9 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
   const entByName=new Map();
   entities.forEach(e=>{const k=(e.name||'').toLowerCase().trim();if(k)entByName.set(k,e);});
   let updated=0,skipped=0,unmatchedEntities=new Set();
+  // Aliases refused as ambiguous. Reported rather than swallowed — a bad alias silently
+  // routes one person's punches to another.
+  const aliasRejects=[];
   // Track which entities had their default break adjusted so we apply once per entity
   // (multiple rows share the same Default Break column for the same entity).
   const defaultBreaksApplied=new Set();
@@ -4757,6 +4858,23 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     // means active. Only an explicit no/false/0 marks someone inactive.
     if(colMap['active']!=null){
       setRosterActive(ent.id,empName,!['no','false','0','n','inactive'].includes(activeRaw));
+    }
+    // Aliases: JSON array as written by the export. A hand-edited cell holding a plain
+    // comma-separated list is accepted too, so the column stays usable in Excel. An absent
+    // column leaves the existing list alone; a present-but-empty cell clears it.
+    if(colMap['aliases']!=null){
+      const aliasRaw=get(row,'aliases').trim();
+      let list=[];
+      if(aliasRaw){
+        try{
+          const parsed=JSON.parse(aliasRaw);
+          list=Array.isArray(parsed)?parsed:[String(parsed)];
+        }catch(e){
+          list=aliasRaw.split(',');
+        }
+      }
+      const res=setAliases(ent.id,empName,list);
+      if(res.rejected.length)aliasRejects.push(`${empName}: ${res.rejected.map(r=>r.reason).join('; ')}`);
     }
     // Wage
     if(wageRaw===''){
@@ -4832,7 +4950,9 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
   let msg=`Imported settings for ${updated} employee${updated===1?'':'s'}`;
   if(skipped>0)msg+=` · ${skipped} skipped`;
   if(unmatchedEntities.size>0)msg+=` · unmatched entities: ${[...unmatchedEntities].join(', ')}`;
-  showToast(msg,unmatchedEntities.size>0?'err':'ok');
+  if(aliasRejects.length>0)msg+=` · ${aliasRejects.length} alias${aliasRejects.length===1?'':'es'} refused`;
+  showToast(msg,(unmatchedEntities.size>0||aliasRejects.length>0)?'err':'ok');
+  if(aliasRejects.length>0)alert('These aliases were not imported because they are ambiguous:\n\n'+aliasRejects.join('\n'));
 }
 
 
