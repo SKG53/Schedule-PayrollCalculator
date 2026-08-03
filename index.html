@@ -2741,9 +2741,12 @@ function setPayrollSortMode(entityIdx,mode){
 // login, password, or access gate. See docs/DECISIONS.md.
 
 // ------- Settings (API key + per-source model) -------
-function getTcModel(){return localStorage.getItem('pv26_tc_model_custom')||localStorage.getItem('pv26_tc_model')||'gemini-2.5-pro'}
-function getEcModel(){return localStorage.getItem('pv26_ec_model_custom')||localStorage.getItem('pv26_ec_model')||'gemini-2.5-flash'}
-function getAutoEscalate(){return localStorage.getItem('pv26_auto_escalate')==='1'}
+function _prefGet(key){try{return window.localStorage.getItem(key)}catch(_){return null}}
+function _prefSet(key,value){try{window.localStorage.setItem(key,value);return true}catch(_){return false}}
+function _prefRemove(key){try{window.localStorage.removeItem(key);return true}catch(_){return false}}
+function getTcModel(){return _prefGet('pv26_tc_model_custom')||_prefGet('pv26_tc_model')||'gemini-2.5-pro'}
+function getEcModel(){return _prefGet('pv26_ec_model_custom')||_prefGet('pv26_ec_model')||'gemini-2.5-flash'}
+function getAutoEscalate(){return _prefGet('pv26_auto_escalate')==='1'}
 
 // Toast notification
 let _toastTimer=null;
@@ -2757,7 +2760,7 @@ function showToast(msg,kind){
 }
 function updateKeyStatusBadge(){
   const el=document.getElementById('keyStatusBadge');if(!el)return;
-  const key=localStorage.getItem('pv26_api_key')||'';
+  const key=_prefGet('pv26_api_key')||'';
   if(key){
     const masked=key.length>8?key.slice(0,4)+'…'+key.slice(-4):'saved';
     el.textContent='Saved · '+masked;
@@ -2769,36 +2772,36 @@ function updateKeyStatusBadge(){
 }
 function openSettings(){
   document.getElementById('settingsOverlay').style.display='flex';
-  document.getElementById('apiKeyInput').value=localStorage.getItem('pv26_api_key')||'';
+  document.getElementById('apiKeyInput').value=_prefGet('pv26_api_key')||'';
   updateKeyStatusBadge();
   // Migrate legacy single-model value if present
-  const legacy=localStorage.getItem('pv26_model');
+  const legacy=_prefGet('pv26_model');
   const tcSel=document.getElementById('tcModelInput');
   const ecSel=document.getElementById('ecModelInput');
-  const tcStored=localStorage.getItem('pv26_tc_model')||legacy||'gemini-2.5-pro';
-  const ecStored=localStorage.getItem('pv26_ec_model')||legacy||'gemini-2.5-flash';
+  const tcStored=_prefGet('pv26_tc_model')||legacy||'gemini-2.5-pro';
+  const ecStored=_prefGet('pv26_ec_model')||legacy||'gemini-2.5-flash';
   // Only set select value if it matches one of the options; otherwise leave default and rely on custom field
   if([...tcSel.options].some(o=>o.value===tcStored))tcSel.value=tcStored;
   if([...ecSel.options].some(o=>o.value===ecStored))ecSel.value=ecStored;
-  document.getElementById('tcModelCustom').value=localStorage.getItem('pv26_tc_model_custom')||'';
-  document.getElementById('ecModelCustom').value=localStorage.getItem('pv26_ec_model_custom')||'';
+  document.getElementById('tcModelCustom').value=_prefGet('pv26_tc_model_custom')||'';
+  document.getElementById('ecModelCustom').value=_prefGet('pv26_ec_model_custom')||'';
   document.getElementById('autoEscalateInput').checked=getAutoEscalate();
 }
 function closeSettings(){document.getElementById('settingsOverlay').style.display='none'}
 function saveSettings(){
   try {
     const key=document.getElementById('apiKeyInput').value.trim();
-    const hadKey=!!localStorage.getItem('pv26_api_key');
-    if(key)localStorage.setItem('pv26_api_key',key);else localStorage.removeItem('pv26_api_key');
-    localStorage.setItem('pv26_tc_model',document.getElementById('tcModelInput').value);
-    localStorage.setItem('pv26_ec_model',document.getElementById('ecModelInput').value);
+    const hadKey=!!_prefGet('pv26_api_key');
+    if(key)_prefSet('pv26_api_key',key);else _prefRemove('pv26_api_key');
+    _prefSet('pv26_tc_model',document.getElementById('tcModelInput').value);
+    _prefSet('pv26_ec_model',document.getElementById('ecModelInput').value);
     const tcCustom=document.getElementById('tcModelCustom').value.trim();
     const ecCustom=document.getElementById('ecModelCustom').value.trim();
-    if(tcCustom)localStorage.setItem('pv26_tc_model_custom',tcCustom);else localStorage.removeItem('pv26_tc_model_custom');
-    if(ecCustom)localStorage.setItem('pv26_ec_model_custom',ecCustom);else localStorage.removeItem('pv26_ec_model_custom');
-    localStorage.setItem('pv26_auto_escalate',document.getElementById('autoEscalateInput').checked?'1':'0');
+    if(tcCustom)_prefSet('pv26_tc_model_custom',tcCustom);else _prefRemove('pv26_tc_model_custom');
+    if(ecCustom)_prefSet('pv26_ec_model_custom',ecCustom);else _prefRemove('pv26_ec_model_custom');
+    _prefSet('pv26_auto_escalate',document.getElementById('autoEscalateInput').checked?'1':'0');
     // Clear legacy value so it doesn't override the new per-source values
-    localStorage.removeItem('pv26_model');
+    _prefRemove('pv26_model');
     updateKeyStatusBadge();
     updateOcrStatus();
     closeSettings();
@@ -2813,7 +2816,7 @@ function saveSettings(){
 }
 function updateOcrStatus(){
   const el=document.getElementById('ocrStatus');if(!el)return;
-  const key=localStorage.getItem('pv26_api_key');
+  const key=_prefGet('pv26_api_key');
   if(key){el.textContent='OCR ready';el.className='ocr-status ok';}
   else{el.textContent='OCR key not set';el.className='ocr-status missing';}
 }
@@ -3060,7 +3063,7 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
   const jobs=ent.intake._ocrJobs;if(!jobs||!jobs[jobIdx])return;
   const job=jobs[jobIdx];
   if(job.status==='running'||job.status==='retrying'){showToast('Already running','ok');return;}
-  const apiKey=localStorage.getItem('pv26_api_key');
+  const apiKey=_prefGet('pv26_api_key');
   if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return;}
   const tcModel=getTcModel();
   const ecModel=getEcModel();
@@ -3153,7 +3156,7 @@ async function rerunOcrForImage(entIdx, imageName, maxAttempts){
 
 async function runOcrForEntity(idx){
   const ent=entities[idx];ensureIntakeState(ent);
-  const apiKey=localStorage.getItem('pv26_api_key');
+  const apiKey=_prefGet('pv26_api_key');
   if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return}
   const tcModel=getTcModel();
   const ecModel=getEcModel();
