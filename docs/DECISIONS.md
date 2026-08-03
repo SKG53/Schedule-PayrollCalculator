@@ -23,6 +23,7 @@ Never delete an entry — move it between sections and note the date.
 | 11 | **No payroll data persists.** `localStorage` may hold API credentials and UI preferences only. Never roster, wages, punches or figures. Always empty of payroll data on first load. | [DATE] |
 | 12 | No payroll figures, employee names, wages or real data may appear in any tracked file. Real values live in `docs/REFERENCE_WEEKS.md`, which is gitignored. The repository is public. | [DATE] |
 | 13 | The settings file is the only persistence mechanism. Roster, aliases, rates, methods and thresholds all live there. Anything needing to survive between weeks becomes a settings field. | [DATE] |
+| 14 | **The tool has no authentication by design.** It is public framework holding no payroll data — everything arrives by upload and leaves by download, so there is nothing to gate. Do not add a login, password, or access gate. The original plain-text gate was removed in full in Phase 0 (BUILD_SPEC §9B.1); the retired password is burned and must never be reused. | 2026-08-03 |
 
 ---
 

@@ -16,10 +16,22 @@ For this repo, replace with your own username + repo name after you enable Pages
 - **Actuals Intake tab** — drop photos of physical timecards and/or EasyClocking screenshots. Gemini OCR extracts every punch pair. You review each row before it hits payroll.
 - **Payroll tab** — set wages per employee (hourly or flat), set mandatory break minutes per entity, export a payroll report. Employees with no wage are left blank rather than guessed.
 
-No data is saved on any server. Everything lives in your browser's `localStorage`. That means:
-- You can close the tab and come back, your API key is still there.
-- Clearing your browser data wipes the app state.
-- Nothing about your employees or hours ever leaves your machine except the OCR images you send to Google Gemini.
+No data is saved on any server, and **no payroll data is stored in your browser**.
+Schedules, punches, hours, wages and reports live in memory only and are gone the
+moment you refresh or close the tab. That is deliberate.
+
+The only things kept in `localStorage` are your Gemini API key and your model
+preferences. That means:
+- You can close the tab and come back, and your API key is still there.
+- Everything else starts empty every time. Export before you leave.
+- Anything that needs to survive between weeks — roster, wages, pay methods, break
+  settings — goes in the **settings file**, which you export and re-import.
+- Clearing your browser data wipes only the API key and model choices.
+- Nothing about your employees or hours ever leaves your machine except the images
+  and schedule context sent to Google Gemini for OCR.
+
+There is no login and no password. The app is public framework that holds no data,
+so there is nothing to gate.
 
 ## Getting started
 

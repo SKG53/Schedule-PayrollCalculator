@@ -56,9 +56,8 @@ commit.
     `pv26_api_key` (Gemini API key), `pv26_tc_model`, `pv26_ec_model`,
     `pv26_tc_model_custom`, `pv26_ec_model_custom`, `pv26_auto_escalate`,
     `pv26_model` (legacy, cleared on save).
-  - **`sessionStorage`** (login gate, lines 2414/2426): `pv26_unlocked`. The gate
-    itself is disabled at init (4843–4847) so this is write-only dead code, but the
-    calls exist.
+  - **`sessionStorage`: none.** The `pv26_unlocked` flag was removed with the login
+    gate in Phase 0.
   - No cookies, no IndexedDB.
   - **Permitted.** CLAUDE.md rule 3 explicitly allows API credentials and model/UI
     preferences in `localStorage`; only payroll data, roster, wages and
@@ -303,9 +302,9 @@ cross-check block.
    displays the OCR text.
 6. **"Ignore Time Cards"** per employee: punches excluded from payroll at the calc
    boundary, day renders "IGNORED" instead of NO SHOW, data retained in intake.
-7. **Login gate is disabled** at init; a hardcoded `LOGIN_PASSWORD` constant
-   remains in the public source, with an unused `PASSWORD_HASH` placeholder above
-   it. See §10 defect 6.
+7. **There is no authentication.** The tool loads straight to the Schedules tab.
+   The former login gate was deleted in full in Phase 0 — this is by design, not an
+   oversight. See DECISIONS.md Settled #14.
 8. **Schedule data goes to Google:** OCR prompts embed the full roster and every
    employee's scheduled shifts (schedule anchors) plus week dates.
 9. **Auto-escalation:** low-confidence (<75%) TC rows optionally re-OCR'd with
@@ -361,10 +360,9 @@ cross-check block.
    `k.includes(firstWord)` can attach one employee's OCR full name to another
    whose first name is a substring. This is the same-rate/same-method conflation
    hazard DOMAIN.md warns about, reachable through code rather than data entry.
-6. **Plain-text shared password in the public source** (2402): a hardcoded
-   `LOGIN_PASSWORD` constant with the gate disabled at init, plus a misleading
-   unused `PASSWORD_HASH` placeholder above it. Rotate the value out of the file
-   rather than quoting it here.
+6. ~~Plain-text shared password in the public source.~~ **Fixed in Phase 0** — the
+   entire login gate is deleted. The retired value survives in Git history from
+   earlier commits of `index.html` and must never be reused.
 7. **FORMATS.md is stale** (see §7): claims the combined-file Entity column
    "doesn't have to match the entity tab name" — but the legacy combined import
    filters rows by exact entity-name match, silently excluding mismatches; also

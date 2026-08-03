@@ -227,7 +227,6 @@ table.sched tr.orphan-row td.name-cell::before{content:"⚠ ";color:var(--red);f
 .overlay-panel details summary{padding:4px 0}
 .overlay-panel input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,0.12)}
 .overlay-panel .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
-.overlay-panel .err{color:var(--red);font-size:12px;margin-top:-8px;margin-bottom:10px;min-height:16px}
 .overlay-panel .hint{font-size:11px;color:var(--text3);margin-top:-10px;margin-bottom:14px;line-height:1.5}
 
 /* === ACTUALS INTAKE TAB === */
@@ -298,10 +297,6 @@ table.review tr.source-ec{}
 .alias-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap}
 .alias-row .alias-unknown{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--amber)}
 .alias-row select{padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--surface)}
-
-/* Password gate wraps everything */
-#appContainer{display:none}
-#appContainer.visible{display:block}
 
 /* Disabled overlay helper */
 .disabled-hint{font-size:11px;color:var(--amber);margin-left:8px}
@@ -441,18 +436,6 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
 </head>
 <body>
 
-<!-- ===== LOGIN OVERLAY ===== -->
-<div id="loginOverlay" class="overlay">
-  <div class="overlay-panel">
-    <h2>Schedule Planning &amp; Payroll Calculation</h2>
-    <p class="sub">Enter the shared password to continue.</p>
-    <label>Password</label>
-    <input type="password" id="loginPassword" autocomplete="off" onkeydown="if(event.key==='Enter')tryLogin()">
-    <div class="err" id="loginErr"></div>
-    <div class="actions"><button class="btn btn-primary" onclick="tryLogin()">Unlock</button></div>
-  </div>
-</div>
-
 <!-- ===== SETTINGS OVERLAY ===== -->
 <div id="settingsOverlay" class="overlay" style="display:none">
   <div class="overlay-panel">
@@ -509,7 +492,6 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div class="header-actions">
       <span id="ocrStatus" class="ocr-status"></span>
       <button class="btn" onclick="openSettings()">Settings</button>
-      <button class="btn" onclick="logOut()">Log out</button>
     </div>
   </div>
 
@@ -2392,40 +2374,9 @@ function setPayrollSortMode(entityIdx,mode){
 // ============ PAYROLL v26 ADDITIONS BEGIN ========================
 // ================================================================
 
-// ------- Password gate -------
-// The password hash is precomputed. Default: "payroll2026" — change PASSWORD_HASH below.
-// To set a new password, open this file, replace PASSWORD_HASH with SHA-256 of your choice.
-// Users enter password → hashed → compared.
-const PASSWORD_HASH='3c7e75f31dda2c5b1e99e7c78f0e4e9c18b5e2c5d3cd7b6b1d7b3e1f6d5c8e2a'; // placeholder — regenerated at runtime if missing
-// Actually for simplicity we store the password in a constant and compare hashes.
-// If you want to change the password, update LOGIN_PASSWORD below.
-const LOGIN_PASSWORD='payroll2026';
-
-async function sha256(str){
-  const buf=new TextEncoder().encode(str);
-  const hash=await crypto.subtle.digest('SHA-256',buf);
-  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-async function tryLogin(){
-  const val=document.getElementById('loginPassword').value;
-  const errEl=document.getElementById('loginErr');
-  if(val===LOGIN_PASSWORD){
-    sessionStorage.setItem('pv26_unlocked','1');
-    document.getElementById('loginOverlay').style.display='none';
-    document.getElementById('appContainer').classList.add('visible');
-    errEl.textContent='';
-    updateOcrStatus();
-  }else{
-    errEl.textContent='Incorrect password.';
-    document.getElementById('loginPassword').value='';
-  }
-}
-
-function logOut(){
-  sessionStorage.removeItem('pv26_unlocked');
-  location.reload();
-}
+// The tool has no authentication by design. It is public framework that holds no
+// payroll data — all data arrives by upload and leaves by download. Do not add a
+// login, password, or access gate. See docs/DECISIONS.md.
 
 // ------- Settings (API key + per-source model) -------
 function getTcModel(){return localStorage.getItem('pv26_tc_model_custom')||localStorage.getItem('pv26_tc_model')||'gemini-2.5-pro'}
@@ -4840,11 +4791,6 @@ function collectAllFlags(allEntityResults){
 // ================================================================
 // INIT
 // ================================================================
-// Login gate disabled — the app doesn't store any data server-side, so a client-side
-// password wasn't adding real security. If you want it back, remove the two lines below
-// and un-comment the original sessionStorage check.
-document.getElementById('loginOverlay').style.display='none';
-document.getElementById('appContainer').classList.add('visible');
 updateOcrStatus();
 renderEntityTabBar();
 syncEntityHeader();

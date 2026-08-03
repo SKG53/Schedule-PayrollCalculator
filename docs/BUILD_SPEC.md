@@ -284,7 +284,7 @@ Ordered by dependency, not by value. Items in a phase can be built in parallel.
 
 | Phase | Contents | Rationale |
 |---|---|---|
-| **0** | Remove the plain-text password and dead session flag (§9B.1) | Security. Minutes of work. Do first. |
+| **0** | ~~Remove the login gate (§9B.1)~~ — **done** | Security. The tool has no authentication by design. |
 | **1** | Mutable session (§1) + mutation dispatcher (§4) + roster registry (§2) + test harness (§9B.5) | Foundation. The dispatcher must land with the session, not after. |
 | **2** | Schedule editing (§3.1), incremental intake (§3.2), rename cascade (§3.3) | All three fall out of Phase 1 with modest additional work. |
 | **3** | Change log panel (§4), reassignment toast, row-count indicator | Dispatcher already emits the events; this is the UI over them. |
@@ -294,7 +294,7 @@ Ordered by dependency, not by value. Items in a phase can be built in parallel.
 
 **Progress:**
 
-- [ ] Phase 0 — remove password and dead session flag
+- [x] Phase 0 — login gate removed in full (password, session flag, all attached code)
 - [ ] Phase 1 — mutable session, mutation dispatcher, roster registry, test harness
 - [ ] Phase 2 — schedule editing, incremental intake, rename cascade
 - [ ] Phase 3 — change log panel, reassignment toast, row-count indicator
@@ -310,12 +310,21 @@ Phase 4 items are individually small enough to slot into any earlier phase if co
 
 Found while surveying the codebase. Not yet fixed.
 
-### 9B.1 Security — do first (Phase 0)
+### 9B.1 Security — done (Phase 0)
 
-| Item | Detail |
-|---|---|
-| Plain-text password | `payroll2026` at index.html:2402, in a public repository. The login gate is disabled, so nothing is currently exposed, but it must be removed. |
-| Dead session flag | `pv26_unlocked` in `sessionStorage` (index.html:2414, 2426) — dead code behind the disabled gate. Remove with the password. |
+**Resolved.** The login gate has been removed in full: the plain-text password
+constant and its unused hash placeholder, the `sha256` helper, `tryLogin`,
+`logOut`, the `pv26_unlocked` `sessionStorage` flag, the login overlay markup,
+the Log out button, and the gate's CSS. Nothing is disabled-but-present; it is
+deleted.
+
+The tool has **no authentication by design** — it is public framework holding no
+payroll data. Do not reintroduce a login, password, or access gate. See
+`docs/DECISIONS.md` Settled #14.
+
+The retired password value is deliberately not recorded here. It remains in Git
+history via earlier commits of `index.html`; treat it as burned and never reuse
+it.
 
 ### 9B.2 Data leaving the system
 
