@@ -673,6 +673,21 @@ let wageBlank={};
 let breakOverrides={};
 // Per-entity: 'name' (default insertion order) or 'paytype' (Cash → Both → Deposit grouping).
 let payrollSortMode={};
+
+// Roster active flag. Key: wKey(entId, empName) -> false once the employee has left.
+// Absence means active, so employees never touched and settings files written before this
+// column existed both default to true.
+//
+// Scope: this gates who loads when a NEW schedule is parsed. It never removes anyone from
+// the week already on screen — an employee at 0.00 hours who is still active is a fact
+// worth seeing, and departure is expressed by this flag rather than by silent omission
+// (CLAUDE.md hard rule 5, DECISIONS settled #6).
+let rosterActive={};
+function isRosterActive(entId,empName){return rosterActive[wKey(entId,empName)]!==false}
+function setRosterActive(entId,empName,active){
+  const k=wKey(entId,empName);
+  if(active)delete rosterActive[k];else rosterActive[k]=false;
+}
 function _bk(entId,empName,dayIdx){return wKey(entId,empName)+'|'+dayIdx}
 function getBreakOverride(entId,empName,dayIdx){
   const v=breakOverrides[_bk(entId,empName,dayIdx)];
@@ -1007,7 +1022,18 @@ function parseSchedule(rows,idx){
     employees.push({name,shifts});
   }
   if(employees.length===0){alert('No employees found');return}
-  entities[idx].employees=employees;
+  // Parsing a schedule is the "new week" boundary — the one place the active flag applies.
+  // Anyone marked inactive is left out here, and we say who: a roster entry vanishing from
+  // a payroll week without a word is the failure mode this tool exists to avoid.
+  const entId=entities[idx].id;
+  const dropped=employees.filter(e=>!isRosterActive(entId,e.name)).map(e=>e.name);
+  const kept=employees.filter(e=>isRosterActive(entId,e.name));
+  if(kept.length===0){
+    alert(`Every employee on this schedule (${dropped.length}) is marked inactive, so nothing would load.\n\nUncheck Active for whoever should be on this week, in Payroll → Payroll Calculation.`);
+    return;
+  }
+  entities[idx].employees=kept;
+  if(dropped.length)showToast(`${dropped.length} inactive employee${dropped.length===1?'':'s'} not loaded: ${dropped.join(', ')}`,'ok');
   if(idx===activeEntityIdx)showScheduleUI();
   renderEntityTabBar();
 }
@@ -2128,8 +2154,9 @@ function renderPayrollCalc(rows,hasActuals,ent){
   // here matches the _flatRows index used by setWage/setRowBreakOverride/etc.
   // Total columns = 11 (name + 10 data cols). Date labels for break-detail row chips.
   const dLabels=ent.dateLabels||['','','','','','',''];
-  const COLSPAN=11;
+  const COLSPAN=12;
   let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th>';
+  html+='<th style="width:58px" title="Unchecked employees are left out when a new schedule is uploaded. This week is unaffected.">Active</th>';
   html+='<th>Actual Break Hrs</th><th>Actual Hours</th>';
   html+='<th>Wage ($/hr)</th><th style="width:110px">Type</th>';
   html+='<th style="width:200px">Pay Method</th>';
@@ -2145,7 +2172,9 @@ function renderPayrollCalc(rows,hasActuals,ent){
       totDeposit+=breakdown.deposit;totCash+=breakdown.cash;totActual+=breakdown.actualFinal;totFinal+=breakdown.roundedFinal;
     }
 
+    const rowActive=isRosterActive(ent.id,keyName);
     html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${escHtml(r.name||'(unnamed)')}</td>`;
+    html+=`<td style="text-align:center;padding:6px"><input type="checkbox" ${rowActive?'checked':''} onchange="setRowActive(${i},this.checked)" title="${rowActive?'Active — will load with the next schedule':'Inactive — will not load with the next schedule'}" style="width:15px;height:15px;cursor:pointer"></td>`;
     html+=`<td class="num-cell" style="color:var(--text3)">${r.actualBreakH.toFixed(2)}</td>`;
     html+=`<td class="num-cell" style="color:var(--text2)">${r.actualHours.toFixed(2)}</td>`;
 
@@ -2237,7 +2266,7 @@ function renderPayrollCalc(rows,hasActuals,ent){
   const totDiff=roundDeposit(totFinal-totActual);
   const totDiffStr=Math.abs(totDiff)>=0.005?(totDiff>0?'+':'')+'$'+totDiff.toFixed(2):'—';
   html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td>';
-  html+=`<td></td><td></td><td></td><td></td><td></td>`;
+  html+=`<td></td><td></td><td></td><td></td><td></td><td></td>`;
   html+=`<td class="pay-cell">$${totDeposit.toFixed(2)}</td>`;
   html+=`<td class="pay-cell">$${totCash}</td>`;
   html+=`<td class="pay-cell">$${totActual.toFixed(2)}</td>`;
@@ -2303,6 +2332,16 @@ function setFlatAmount(rowIdx,val){
   flatWagesDisplayNames[keyName.toLowerCase().trim()]=item.row.name;
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.flat-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
+}
+
+function setRowActive(rowIdx,checked){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  setRosterActive(ent.id,_rowKey(item),!!checked);
+  renderPayrollEntityContent(item.entityIdx);
+  showToast(checked
+    ?`${_rowKey(item)} is active — loads with the next schedule`
+    :`${_rowKey(item)} is inactive — will not load with the next schedule. This week is unchanged.`,'ok');
 }
 
 function setPayMethodForRow(rowIdx,method){
@@ -4525,7 +4564,9 @@ async function exportPayrollPdf(){return exportCombinedPdf()}
 // and Deposit Amount (only if user manually typed it). Re-importable.
 // Schema tag: SPCalcPayrollSettingsV1.
 // ================================================================
-const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As'];
+// 'Active' is appended last so the currency columns keep their positions and any older
+// V1/V2 file still imports — the importer matches on column name, not index.
+const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Active'];
 const PAYROLL_SETTINGS_SCHEMA_TAG='SPCalcPayrollSettingsV1';
 // Break-extension headers — appended only when the user opts in to "include breaks".
 // Per-day numeric (minutes) + status ('Override' or 'Actual'); plus an entity-default-break column.
@@ -4542,6 +4583,10 @@ const PAYROLL_SETTINGS_BREAK_HEADERS=[
   'Sat Break','Sat Break Status'
 ];
 const PAYROLL_SETTINGS_SCHEMA_TAG_V2='SPCalcPayrollSettingsV2';
+// V3 adds the roster columns (Active, and Aliases once that lands). Columns are optional:
+// the importer keys off names it finds, so V1 and V2 files load unchanged and anything
+// missing takes its default.
+const PAYROLL_SETTINGS_SCHEMA_TAG_V3='SPCalcPayrollSettingsV3';
 
 function _gatherPayrollSettingsRows(includeBreaks){
   const out=[];
@@ -4566,7 +4611,8 @@ function _gatherPayrollSettingsRows(includeBreaks){
         flat:isFlat?flatWages[k]:'',
         method:methodLabel(method),
         deposit:(method==='both'&&meta.typed)?meta.deposit:'',
-        depositTypedAs:(method==='both'&&meta.typed)?(meta.isWhole?'whole':'decimal'):''
+        depositTypedAs:(method==='both'&&meta.typed)?(meta.isWhole?'whole':'decimal'):'',
+        active:isRosterActive(ent.id,empName)?'Yes':'No'
       };
       if(includeBreaks){
         rec.defaultBreak=ent.breakMinutes||0;
@@ -4603,7 +4649,9 @@ async function exportPayrollSettingsExcel(includeBreaks){
   if(rows.length===0){showToast('No employees to export settings for','err');return;}
   const ewb=new ExcelJS.Workbook();
   ewb.creator='Schedule & Payroll Calculator';
-  const tag=includeBreaks?PAYROLL_SETTINGS_SCHEMA_TAG_V2:PAYROLL_SETTINGS_SCHEMA_TAG;
+  // V3 either way — the roster columns ship in both variants. The V2 tag stays meaningful
+  // as "has break columns", so keep both facts in the description.
+  const tag=PAYROLL_SETTINGS_SCHEMA_TAG_V3+(includeBreaks?' · '+PAYROLL_SETTINGS_SCHEMA_TAG_V2:'');
   ewb.description=tag;
   const ws=ewb.addWorksheet('Payroll Settings');
   ws.addRow(['Wage / Payroll Calculation Settings'+(includeBreaks?' (with breaks)':'')]).font={bold:true,size:13};
@@ -4613,7 +4661,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
   const hdr=ws.addRow(headers);
   hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};c.alignment={vertical:'middle'};});
   rows.forEach(r=>{
-    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs];
+    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.active];
     if(includeBreaks){
       base.push(r.defaultBreak);
       for(let d=0;d<7;d++){
@@ -4629,7 +4677,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
     // and separators so the round-trip still parses.
     [3,5,7].forEach(ci=>{settingsRow.getCell(ci).numFmt=XL_FMT_MONEY});
   });
-  const baseW=[20,22,12,10,14,18,16,16];
+  const baseW=[20,22,12,10,14,18,16,16,10];
   const breakW=includeBreaks?[14,10,16,10,16,10,16,10,16,10,16,10,16,10,16]:[];
   const widths=baseW.concat(breakW);
   ws.columns.forEach((col,i)=>{col.width=widths[i]||14;});
@@ -4704,6 +4752,12 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     const methodRaw=get(row,'pay method','method');
     const depRaw=money(get(row,'deposit amount','deposit'));
     const depTypedAsRaw=get(row,'deposit typed as','deposit typed').trim().toLowerCase();
+    const activeRaw=get(row,'active').trim().toLowerCase();
+    // Active: absent column (V1/V2 file) leaves the current flag alone; present but blank
+    // means active. Only an explicit no/false/0 marks someone inactive.
+    if(colMap['active']!=null){
+      setRosterActive(ent.id,empName,!['no','false','0','n','inactive'].includes(activeRaw));
+    }
     // Wage
     if(wageRaw===''){
       delete wageRates[k];

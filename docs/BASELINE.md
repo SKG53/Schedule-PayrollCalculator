@@ -47,8 +47,9 @@ commit.
   `intake.reviewRows` (OCR/manual/imported rows awaiting approval).
 - **Roster/settings:** in-memory maps keyed by `wKey(entityId, empName)`:
   `wageRates`, `wageBlank`, `flatWages`, `flatWagesDisplayNames`, `payMethod`,
-  `splitAmounts`, `breakOverrides`, `payrollSortMode`. Entity-level: `breakMinutes`,
-  `breakMinutesSet`.
+  `splitAmounts`, `breakOverrides`, `payrollSortMode`, `rosterActive`. Entity-level:
+  `breakMinutes`, `breakMinutesSet`. `rosterActive` stores only the `false` entries —
+  absence means active, so the default is true everywhere.
 - **Computed payroll:** never stored — recomputed on every render by
   `computePayrollForEntity(idx)`.
 - **Persistence — the tool is NOT fully stateless. Browser storage IS used:**
@@ -66,14 +67,16 @@ commit.
 - **What survives a refresh:** the Gemini API key, model choices, and auto-escalate
   flag (localStorage). All schedule/actuals/payroll data is gone — correct.
 - **Settings export fields:** `Entity | Employee | Wage/hour | Type | Flat Amount |
-  Pay Method | Deposit Amount | Deposit Typed As` (schema tag
-  `SPCalcPayrollSettingsV1`), optionally + 15 break columns: `Default Break (min)`
+  Pay Method | Deposit Amount | Deposit Typed As | Active` (schema tag
+  `SPCalcPayrollSettingsV3`), optionally + 15 break columns: `Default Break (min)`
   and per-day `<Day> Break` / `<Day> Break Status` pairs (tag
-  `SPCalcPayrollSettingsV2`). Round-trip: wage (including explicit-blank state),
-  type, flat amount, pay method, typed deposit + whole/decimal flag survive.
-  Break columns survive only when the "Include per-day breaks" toggle is on for both
-  export AND import. **Not carried:** roster itself (comes from the schedule file),
-  aliases, active/inactive flag — none of these exist in the schema.
+  `SPCalcPayrollSettingsV2` appended to the description). Round-trip: wage
+  (including explicit-blank state), type, flat amount, pay method, typed deposit +
+  whole/decimal flag, and the active flag survive. Break columns survive only when
+  the "Include per-day breaks" toggle is on for both export AND import.
+  The importer matches on **column name**, so V1 and V2 files still load and any
+  column they lack takes its default (`Active` → true). **Not carried:** roster
+  itself (comes from the schedule file), aliases.
 
 ## 3. Screens
 
@@ -101,9 +104,9 @@ has a name):
    Confirm; unconfirmed shows orange and export asks to confirm). Weekly Actuals
    grid (sched vs punches per day, status coloring, per-day hours). Two sub-tabs:
    *Time Card Data* (expected/actual break + hours, diff, avg in/out lateness,
-   40 h+ flag) and *Payroll Calculation* (wage input, Hourly/Flat toggle, pay
-   method Deposit/Cash/Deposit+Cash, split deposit input, Actual Total / Rounded
-   Final / Diff, plus a per-day break override row per employee). Sort toggle:
+   40 h+ flag) and *Payroll Calculation* (Active checkbox, wage input, Hourly/Flat
+   toggle, pay method Deposit/Cash/Deposit+Cash, split deposit input, Actual Total /
+   Rounded Final / Diff, plus a per-day break override row per employee). Sort toggle:
    schedule order vs pay-type grouping (Cash → Deposit+Cash → Deposit). All-entity
    preview table mirroring the export. 12 export buttons + settings export/import.
 
@@ -282,6 +285,12 @@ cross-check block.
   and reported), then per-employee by name key. Blank wage cell imports as
   explicit-blank. Break columns applied only when the include-breaks toggle is on;
   status column drives override set/clear.
+- **Active flag:** per-employee checkbox in the Payroll Calculation grid, stored in
+  `rosterActive` and carried in the settings file. It gates one thing only —
+  `parseSchedule`, i.e. loading a **new** week. Inactive employees on the incoming
+  schedule are left out and named in a toast; if every employee on the file is
+  inactive the load is refused with an alert rather than producing an empty roster.
+  Marking someone inactive never removes them from the week already loaded.
 - **Missing roster entry for an intake employee:** the row buckets under
   "Unrecognized" (or a fuzzy suggestion); if approved with a non-schedule name it
   becomes an **orphan** row in payroll — computed, flagged, exported with
@@ -375,10 +384,10 @@ cross-check block.
    filters rows by exact entity-name match, silently excluding mismatches; also
    documents none of the three newer re-importable schemas. Its "sample files are
    in this folder" line is now false — the new `.gitignore` excludes `*.xlsx`.
-8. **Settings schema gaps** (confirmed against DOMAIN.md): no `active` flag, no
-   aliases, roster not carried. The flat-amount-not-persisting defect could **not**
-   be reproduced from code reading — `_gatherPayrollSettingsRows` does export
-   `flatWages` — needs a live round-trip with a real settings file.
+8. **Settings schema gaps** (confirmed against DOMAIN.md): `active` now exists;
+   aliases and the roster itself still do not. The flat-amount-not-persisting defect
+   could **not** be reproduced from code reading — `_gatherPayrollSettingsRows` does
+   export `flatWages` — needs a live round-trip with a real settings file.
 9. **`collectAllFlags` is dead code** (4820) — the no-show/unsched/orphan/40 h+
    rollup is computed nowhere and shown nowhere.
 10. **Node.js is now installed** (v24.19.0, npm 11.17.0, `C:\Program Files\nodejs`,
