@@ -1,255 +1,264 @@
-// Focused unit tests for the break-override + pay-type-sort logic added in this commit.
-// These tests run in Node and shadow only the small set of helpers/state/calc functions
-// that they exercise. They MUST stay in sync with the corresponding snippets in index.html.
-//
-// What's verified:
-//   1. Effective break == default when no override is set.
-//   2. Editing a row's day-break creates an Override and payroll billable hours uses the override.
-//   3. Default-break change with "keep" preserves overrides.
-//   4. Default-break change with "overwrite" clears overrides (default applies everywhere).
-//   5. Settings export without breaks omits break columns;
-//      with breaks includes them; import without breaks doesn't touch break state;
-//      import with breaks restores break overrides + status.
-//   6. Export pay-type sort order = Cash, both (Cash + Deposit), Deposit within entity.
-//   7. Display sort uses the same order without breaking calculations.
-//
-// Run: node tests/break_and_sort.test.js
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { loadApp, resetToSingleEntity } = require('./load-app');
 
-let passes=0,fails=0;
-function eq(a,b,label){
-  const ok=JSON.stringify(a)===JSON.stringify(b);
-  if(ok){passes++;console.log('✓',label);}
-  else{fails++;console.error('✗',label,'\n   expected',JSON.stringify(b),'\n   got     ',JSON.stringify(a));}
-}
-function approx(a,b,label,eps=1e-6){
-  const ok=Math.abs(a-b)<eps;
-  if(ok){passes++;console.log('✓',label);}
-  else{fails++;console.error('✗',label,'\n   expected ~',b,'got',a);}
+function approx(actual, expected, message) {
+  assert.ok(Math.abs(actual - expected) < 1e-6, `${message}: expected ${expected}, got ${actual}`);
 }
 
-// ---- Mirror state + helpers from index.html ----
-let breakOverrides={};
-const wKey=(entId,empName)=>entId+'|'+empName.toLowerCase().trim();
-const _bk=(entId,empName,dayIdx)=>wKey(entId,empName)+'|'+dayIdx;
-const getBreakOverride=(entId,empName,dayIdx)=>{
-  const v=breakOverrides[_bk(entId,empName,dayIdx)];
-  return v==null?null:v;
-};
-const setBreakOverride=(entId,empName,dayIdx,mins)=>{
-  const m=parseFloat(mins);if(isNaN(m)||m<0)return;
-  breakOverrides[_bk(entId,empName,dayIdx)]=Math.round(m);
-};
-const clearBreakOverride=(entId,empName,dayIdx)=>{delete breakOverrides[_bk(entId,empName,dayIdx)]};
-const hasAnyBreakOverrides=(entId)=>{
-  const prefix=entId+'|';
-  for(const k in breakOverrides){if(k.indexOf(prefix)===0)return true}
-  return false;
-};
-const clearAllBreakOverridesForEntity=(entId)=>{
-  const prefix=entId+'|';
-  Object.keys(breakOverrides).forEach(k=>{if(k.indexOf(prefix)===0)delete breakOverrides[k]});
-};
-
-// Replicates the per-day calc step in computePayrollForEntity.
-function computeDayBillable({spanH,workedH,defaultBreakMin,override}){
-  const mandBreakH=defaultBreakMin/60;
-  const actualBreakH_raw=Math.max(0,spanH-workedH);
-  let effectiveBreakH;
-  if(override!=null){
-    effectiveBreakH=Math.max(0,Math.min(override/60,spanH));
-  }else{
-    effectiveBreakH=Math.max(mandBreakH,actualBreakH_raw);
-  }
-  const billableH=Math.max(0,spanH-effectiveBreakH);
-  return{effectiveBreakH,billableH};
-}
-
-// Pay-type sort (mirrors sortRowsByPayType / _paytypeExportSortFn).
-const PAYTYPE_SORT_ORDER={cash:0,both:1,deposit:2};
-function sortByPayType(rows){
-  return rows.slice().sort((a,b)=>{
-    const ra=PAYTYPE_SORT_ORDER[a.method]==null?99:PAYTYPE_SORT_ORDER[a.method];
-    const rb=PAYTYPE_SORT_ORDER[b.method]==null?99:PAYTYPE_SORT_ORDER[b.method];
-    return ra-rb;
+function seedHourlyWeek(api, { defaultBreakMin = 30, pairs, shift = '7AM - 3PM' }) {
+  resetToSingleEntity(api, {
+    id: 0,
+    name: 'Payroll Entity',
+    employees: [{ name: 'Bob', shifts: ['', shift, '', '', '', '', ''] }],
+    dateLabels: ['', 'Mon Apr 13 2026', '', '', '', '', ''],
+    breakMinutes: defaultBreakMin,
+    breakMinutesSet: true,
+    actualDays: [{
+      empName: 'Bob',
+      entityName: 'Payroll Entity',
+      date: '2026-04-13',
+      dayIdx: 1,
+      pairs,
+    }],
   });
+  api.wageRates[api.wKey(0, 'Bob')] = 20;
 }
 
-// Settings IO simulation: just verify break columns show up only when includeBreaks=true,
-// and the importer respects the includeBreaks flag.
-const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As'];
-const PAYROLL_SETTINGS_BREAK_HEADERS=['Default Break (min)','Sun Break','Sun Break Status','Mon Break','Mon Break Status','Tue Break','Tue Break Status','Wed Break','Wed Break Status','Thu Break','Thu Break Status','Fri Break','Fri Break Status','Sat Break','Sat Break Status'];
-function buildExportHeaders(includeBreaks){return includeBreaks?PAYROLL_SETTINGS_HEADERS.concat(PAYROLL_SETTINGS_BREAK_HEADERS):PAYROLL_SETTINGS_HEADERS}
-function buildExportRow(rec,includeBreaks){
-  const base=[rec.entity,rec.employee,rec.wage,rec.type,rec.flat,rec.method,rec.deposit,rec.depositTypedAs];
-  if(!includeBreaks)return base;
-  base.push(rec.defaultBreak);
-  for(let d=0;d<7;d++){const day=rec.dayBreaks[d];base.push(day.minutes==null?'':day.minutes);base.push(day.status);}
-  return base;
-}
+test('span-based hours formula uses default break as a floor', () => {
+  const api = loadApp();
 
-// ---- 1. Effective break equals default when no override ----
-console.log('\n-- Test 1: no override → default applies --');
-{
-  const r=computeDayBillable({spanH:8,workedH:8,defaultBreakMin:30,override:null});
-  approx(r.effectiveBreakH,0.5,'effective break = 30m (0.5h)');
-  approx(r.billableH,7.5,'billable = 8h - 0.5h = 7.5h');
-}
+  seedHourlyWeek(api, {
+    defaultBreakMin: 30,
+    pairs: [
+      { in: 7, out: 10, outAdj: 10, minutes: 180 },
+      { in: 10.25, out: 15, outAdj: 15, minutes: 285 },
+    ],
+  });
 
-// ---- 2. Override creates an Override and billable uses it ----
-console.log('\n-- Test 2: override edit overrides default --');
-{
-  breakOverrides={};
-  setBreakOverride(1,'Emily',2,15);
-  eq(getBreakOverride(1,'Emily',2),15,'override stored as 15m');
-  eq(getBreakOverride(1,'Emily',1),null,'no override on a different day');
-  const r=computeDayBillable({spanH:8,workedH:8,defaultBreakMin:30,override:getBreakOverride(1,'Emily',2)});
-  approx(r.effectiveBreakH,0.25,'override 15m wins over default 30m');
-  approx(r.billableH,7.75,'billable = 8h - 0.25h = 7.75h');
-  // Pay = wage * billable hours — verify wage multiplication uses override.
-  const pay=r.billableH*20;
-  approx(pay,155,'pay = 7.75h * $20 = $155');
-}
+  const { results } = api.computePayrollForEntity(0);
+  assert.equal(results.length, 1);
+  approx(results[0].actualHours, 7.5, 'raw break below default should use the 30m floor');
+  approx(results[0].actualBreakH, 0.5, 'effective break should be 0.5h');
+  approx(results[0].pay, 150, 'pay should use billable hours');
+});
 
-// ---- 2b. 0-minute override is honored (means "no break") ----
-console.log('\n-- Test 2b: override 0 means no break --');
-{
-  breakOverrides={};
-  setBreakOverride(1,'Emily',3,0);
-  const r=computeDayBillable({spanH:8,workedH:8,defaultBreakMin:30,override:getBreakOverride(1,'Emily',3)});
-  approx(r.effectiveBreakH,0,'0-minute override = 0 break');
-  approx(r.billableH,8,'full 8h billable');
-}
+test('span-based hours formula uses actual break when it exceeds the default floor', () => {
+  const api = loadApp();
 
-// ---- 3. Default break change with "keep" preserves overrides ----
-console.log('\n-- Test 3: keep overrides on default change --');
-{
-  breakOverrides={};
-  setBreakOverride(1,'Emily',2,15);
-  setBreakOverride(1,'Marcus',4,45);
-  // Simulate "keep" branch of resolveBreakChange: just bump default; do NOT touch overrides.
-  // (No code-state mutation needed; we just verify overrides survive.)
-  eq(getBreakOverride(1,'Emily',2),15,'Emily Tue override survives');
-  eq(getBreakOverride(1,'Marcus',4,45),45,'Marcus Thu override survives');
-  // After "keep", a non-override day uses the NEW default.
-  const newDefault=20;
-  const r=computeDayBillable({spanH:8,workedH:8,defaultBreakMin:newDefault,override:null});
-  approx(r.effectiveBreakH,20/60,'non-override day uses new default 20m');
-  // Override day still uses override.
-  const r2=computeDayBillable({spanH:8,workedH:8,defaultBreakMin:newDefault,override:getBreakOverride(1,'Emily',2)});
-  approx(r2.effectiveBreakH,15/60,'Emily Tue still uses 15m override');
-}
+  seedHourlyWeek(api, {
+    defaultBreakMin: 30,
+    pairs: [
+      { in: 7, out: 10, outAdj: 10, minutes: 180 },
+      { in: 10.75, out: 15, outAdj: 15, minutes: 255 },
+    ],
+  });
 
-// ---- 4. Default break change with "overwrite" clears overrides ----
-console.log('\n-- Test 4: overwrite clears overrides --');
-{
-  breakOverrides={};
-  setBreakOverride(1,'Emily',2,15);
-  setBreakOverride(2,'Other',3,45); // different entity — should NOT be cleared
-  clearAllBreakOverridesForEntity(1);
-  eq(hasAnyBreakOverrides(1),false,'entity 1 overrides cleared');
-  eq(hasAnyBreakOverrides(2),true,'entity 2 overrides untouched');
-  const r=computeDayBillable({spanH:8,workedH:8,defaultBreakMin:30,override:getBreakOverride(1,'Emily',2)});
-  approx(r.effectiveBreakH,0.5,'after overwrite, default applies');
-}
+  const { results } = api.computePayrollForEntity(0);
+  approx(results[0].actualHours, 7.25, 'raw 45m break should exceed the 30m floor');
+  approx(results[0].actualBreakH, 0.75, 'effective break should be 0.75h');
+  approx(results[0].pay, 145, 'pay should use billable hours');
+});
 
-// ---- 5. Settings export/import with/without breaks ----
-console.log('\n-- Test 5: settings IO with/without breaks --');
-{
-  const headersWithout=buildExportHeaders(false);
-  eq(headersWithout.length,8,'8 headers when includeBreaks=false');
-  eq(headersWithout.includes('Default Break (min)'),false,'no Default Break col when off');
-  eq(headersWithout.includes('Sun Break'),false,'no day break cols when off');
+test('per-day break override is exact, including zero', () => {
+  const api = loadApp();
 
-  const headersWith=buildExportHeaders(true);
-  eq(headersWith.length,8+15,'23 headers when includeBreaks=true');
-  eq(headersWith.includes('Default Break (min)'),true,'Default Break col present when on');
-  eq(headersWith.includes('Sun Break'),true,'Sun Break col present when on');
-  eq(headersWith.includes('Sat Break Status'),true,'Sat Break Status col present when on');
+  seedHourlyWeek(api, {
+    defaultBreakMin: 30,
+    pairs: [
+      { in: 7, out: 11, outAdj: 11, minutes: 240 },
+      { in: 11.5, out: 15, outAdj: 15, minutes: 210 },
+    ],
+  });
 
-  // Build a sample record and export it both ways.
-  const rec={
-    entity:'Downtown',employee:'Emily',wage:18.5,type:'Hourly',flat:'',
-    method:'Cash',deposit:'',depositTypedAs:'',defaultBreak:30,
-    dayBreaks:[
-      {minutes:null,status:'Actual'},
-      {minutes:null,status:'Actual'},
-      {minutes:15,status:'Override'},
-      {minutes:null,status:'Actual'},
-      {minutes:0,status:'Override'},
-      {minutes:null,status:'Actual'},
-      {minutes:null,status:'Actual'}
-    ]
-  };
-  const rowWithout=buildExportRow(rec,false);
-  eq(rowWithout.length,8,'export row length 8 without breaks');
-  const rowWith=buildExportRow(rec,true);
-  eq(rowWith.length,8+15,'export row length 23 with breaks');
-  eq(rowWith[8],30,'default break value at index 8');
-  // Tue (dayIdx=2) override of 15m → cols 13 (val) and 14 (status)
-  // Indexing: 8=default, 9=Sun min, 10=Sun status, 11=Mon min, 12=Mon status, 13=Tue min, 14=Tue status
-  eq(rowWith[13],15,'Tue Break = 15m');
-  eq(rowWith[14],'Override','Tue Break Status = Override');
-  // Thu (dayIdx=4) override 0 — preserved as numeric 0, not blank.
-  // 8 + 1 + 4*2 = 17 (min), 18 (status)
-  eq(rowWith[17],0,'Thu Break = 0 (zero-minute override)');
-  eq(rowWith[18],'Override','Thu Break Status = Override');
+  let { results } = api.computePayrollForEntity(0);
+  approx(results[0].actualHours, 7.5, 'no override should bill 7.5h');
 
-  // Import simulation: when includeBreaks=false, even if file has break cols, ignore them.
-  // Strategy: after import("without"), break state should equal what it was before.
-  breakOverrides={};
-  setBreakOverride(1,'Emily',2,15); // pre-existing override
-  // Simulate "import without breaks": no-op on breakOverrides.
-  eq(getBreakOverride(1,'Emily',2),15,'pre-existing override survives import-without-breaks');
+  api.setBreakOverride(0, 'Bob', 1, 0);
+  ({ results } = api.computePayrollForEntity(0));
+  approx(results[0].actualHours, 8, '0-minute override should mean no break');
+  approx(results[0].pay, 160, 'pay should reflect 8 billable hours');
 
-  // Now simulate "import with breaks" — file says Emily Tue=20 Override, Mon=Actual (clears any).
-  breakOverrides={};
-  setBreakOverride(1,'Emily',1,99); // a stale override that should be cleared
-  // Mock _ingestPayrollSettings break loop:
-  // Mon (1): status='Actual' → clearBreakOverride
-  clearBreakOverride(1,'Emily',1);
-  // Tue (2): status='Override', min=20 → setBreakOverride
-  setBreakOverride(1,'Emily',2,20);
-  eq(getBreakOverride(1,'Emily',1),null,'Mon override cleared by Actual status');
-  eq(getBreakOverride(1,'Emily',2),20,'Tue override set to 20');
-}
+  api.setBreakOverride(0, 'Bob', 1, 60);
+  ({ results } = api.computePayrollForEntity(0));
+  approx(results[0].actualHours, 7, '60-minute override should bill 7h');
+  approx(results[0].pay, 140, 'pay should reflect 7 billable hours');
+});
 
-// ---- 6. Export grouping order: cash → both → deposit ----
-console.log('\n-- Test 6: export grouping order --');
-{
-  const rows=[
-    {name:'Alice',method:'deposit'},
-    {name:'Bob',method:'cash'},
-    {name:'Cara',method:'both'},
-    {name:'Dan',method:'cash'},
-    {name:'Eve',method:'deposit'}
+test('pay breakdown rules keep cash whole and deposit cents-exact', () => {
+  const api = loadApp();
+
+  const cash = api.computePayBreakdown({ schedName: 'Cash Emp', pay: 123.45 }, 0);
+  assert.deepEqual(cash, {
+    method: 'deposit',
+    total: 123.45,
+    deposit: 123.45,
+    cash: 0,
+    final: 123.45,
+    roundedFinal: 123.45,
+    actualFinal: 123.45,
+    roundingDiff: 0,
+  }, 'default pay method should be deposit');
+
+  api.setPayMethod(0, 'Cash Emp', 'cash');
+  const cashOnly = api.computePayBreakdown({ schedName: 'Cash Emp', pay: 123.45 }, 0);
+  assert.equal(cashOnly.cash, 123);
+  assert.equal(cashOnly.deposit, 0);
+  assert.equal(cashOnly.roundingDiff, -0.45);
+
+  api.setPayMethod(0, 'Deposit Emp', 'deposit');
+  const depositOnly = api.computePayBreakdown({ schedName: 'Deposit Emp', pay: 123.45 }, 0);
+  assert.equal(depositOnly.deposit, 123.45);
+  assert.equal(depositOnly.cash, 0);
+  assert.equal(depositOnly.roundingDiff, 0);
+});
+
+test('Deposit + Cash whole-number deposit sends decimal remainder to cash then rounds cash', () => {
+  const api = loadApp();
+
+  api.setPayMethod(0, 'Split Emp', 'both');
+  api.setSplitDeposit(0, 'Split Emp', 100, { typed: true, isWhole: true });
+
+  const split = api.computePayBreakdown({ schedName: 'Split Emp', pay: 123.45 }, 0);
+  assert.equal(split.method, 'both');
+  assert.equal(split.deposit, 100);
+  assert.equal(split.cash, 23);
+  assert.equal(split.roundedFinal, 123);
+  assert.equal(split.actualFinal, 123.45);
+  assert.equal(split.roundingDiff, -0.45);
+});
+
+test('Deposit + Cash decimal deposit preserves Deposit + Cash equals actual total', () => {
+  const api = loadApp();
+
+  api.setPayMethod(0, 'Split Emp', 'both');
+  api.setSplitDeposit(0, 'Split Emp', 100.25, { typed: true, isWhole: false });
+
+  const split = api.computePayBreakdown({ schedName: 'Split Emp', pay: 123.45 }, 0);
+  assert.equal(split.deposit, 100.45);
+  assert.equal(split.cash, 23);
+  assert.equal(split.roundedFinal, 123.45);
+  assert.equal(split.actualFinal, 123.45);
+  assert.equal(split.roundingDiff, 0);
+});
+
+test('export row filtering includes both-method rows in both cash and deposit files', () => {
+  const api = loadApp();
+  const rows = [
+    { _breakdown: { method: 'cash' }, name: 'Cash' },
+    { _breakdown: { method: 'both' }, name: 'Both' },
+    { _breakdown: { method: 'deposit' }, name: 'Deposit' },
   ];
-  const sorted=sortByPayType(rows);
-  const order=sorted.map(r=>r.method);
-  // Expect: cash, cash, both, deposit, deposit
-  eq(order,['cash','cash','both','deposit','deposit'],'grouped Cash → both → Deposit');
-  // Names within group keep their original (stable) order.
-  eq(sorted.map(r=>r.name),['Bob','Dan','Cara','Alice','Eve'],'stable within groups');
-}
 
-// ---- 7. Display sort same order, doesn't break calc ----
-console.log('\n-- Test 7: display sort doesn\'t affect calc --');
-{
-  // Each row has independent billable calculation; sort is just a render order.
-  const rows=[
-    {name:'A',method:'deposit',hours:5,wage:10},
-    {name:'B',method:'cash',hours:8,wage:15},
-    {name:'C',method:'both',hours:6,wage:12}
+  assert.deepEqual(api._filterRowsForKind(rows, 'cashOnly').map(r => r.name), ['Cash', 'Both']);
+  assert.deepEqual(api._filterRowsForKind(rows, 'depositOnly').map(r => r.name), ['Both', 'Deposit']);
+  assert.deepEqual(api._filterRowsForKind(rows, 'combined').map(r => r.name), ['Cash', 'Both', 'Deposit']);
+});
+
+test('settings import with breaks restores defaults, overrides, zero overrides, active, aliases, and flat amount', () => {
+  const api = loadApp();
+  resetToSingleEntity(api, {
+    id: 0,
+    name: 'Settings Entity',
+    employees: [{ name: 'Alice', shifts: ['', '', '', '', '', '', ''] }],
+    breakMinutes: 10,
+    breakMinutesSet: true,
+  });
+
+  const headers = api.PAYROLL_SETTINGS_HEADERS.concat(api.PAYROLL_SETTINGS_BREAK_HEADERS);
+  const colMap = {};
+  headers.forEach((h, i) => { colMap[h.toLowerCase()] = i; });
+
+  const row = [
+    'Settings Entity',
+    'Alice',
+    '',
+    'Flat',
+    '$125.00',
+    'Deposit + Cash',
+    '$50.00',
+    'whole',
+    'No',
+    '["Alicia"]',
+    30,
+    '', 'Actual',
+    '', 'Actual',
+    15, 'Override',
+    '', 'Actual',
+    0, 'Override',
+    '', 'Actual',
+    '', 'Actual',
   ];
-  rows.forEach(r=>r.pay=r.hours*r.wage);
-  const sorted=sortByPayType(rows);
-  // Pay totals must be unchanged regardless of sort.
-  const totalBefore=rows.reduce((s,r)=>s+r.pay,0);
-  const totalAfter=sorted.reduce((s,r)=>s+r.pay,0);
-  approx(totalBefore,totalAfter,'sum pay invariant under sort');
-  eq(sorted.map(r=>r.name),['B','C','A'],'order = cash, both, deposit');
-  // Each row still has its own pay = hours*wage (unchanged).
-  eq(sorted.find(r=>r.name==='C').pay,72,'C pay still 6*12=72');
-}
 
-console.log(`\n${passes} passed, ${fails} failed.`);
-process.exit(fails===0?0:1);
+  api._ingestPayrollSettings([row], colMap, true);
+
+  assert.equal(api.isRosterActive(0, 'Alice'), false);
+  assert.deepEqual(api.getAliases(0, 'Alice'), ['Alicia']);
+  assert.equal(api.entities[0].breakMinutes, 30);
+  assert.equal(api.getBreakOverride(0, 'Alice', 2), 15);
+  assert.equal(api.getBreakOverride(0, 'Alice', 4), 0);
+  assert.equal(api.flatWages[api.wKey(0, 'Alice')], 125);
+  assert.equal(api.getPayMethod(0, 'Alice'), 'both');
+  assert.deepEqual(api.getSplitMeta(0, 'Alice'), { deposit: 50, typed: true, isWhole: true });
+});
+
+test('settings import without breaks leaves existing break state untouched', () => {
+  const api = loadApp();
+  resetToSingleEntity(api, {
+    id: 0,
+    name: 'Settings Entity',
+    employees: [{ name: 'Alice', shifts: ['', '', '', '', '', '', ''] }],
+    breakMinutes: 10,
+    breakMinutesSet: true,
+  });
+  api.setBreakOverride(0, 'Alice', 2, 99);
+
+  const headers = api.PAYROLL_SETTINGS_HEADERS.concat(api.PAYROLL_SETTINGS_BREAK_HEADERS);
+  const colMap = {};
+  headers.forEach((h, i) => { colMap[h.toLowerCase()] = i; });
+
+  const row = [
+    'Settings Entity', 'Alice', '20', 'Hourly', '', 'Cash', '', '', 'Yes', '',
+    30, '', 'Actual', '', 'Actual', 15, 'Override', '', 'Actual', 0, 'Override', '', 'Actual', '', 'Actual',
+  ];
+
+  api._ingestPayrollSettings([row], colMap, false);
+
+  assert.equal(api.entities[0].breakMinutes, 10);
+  assert.equal(api.getBreakOverride(0, 'Alice', 2), 99);
+  assert.equal(api.getPayMethod(0, 'Alice'), 'cash');
+});
+
+test('alias matching resolves before fuzzy fallback without flagging a suggestion', () => {
+  const api = loadApp();
+  const ent = resetToSingleEntity(api, {
+    id: 0,
+    name: 'Alias Entity',
+    employees: [{ name: 'Bob Smith', shifts: [] }, { name: 'Robert Jones', shifts: [] }],
+  });
+
+  const res = api.setAliases(0, 'Bob Smith', ['Bobby']);
+  assert.deepEqual(res.rejected, []);
+
+  assert.deepEqual(api.matchEmployeeName('Bobby', ent), { exact: 'Bob Smith', viaAlias: true });
+  assert.deepEqual(api.matchEmployeeName('Bob', ent), { suggestion: 'Bob Smith' });
+});
+
+test('zero-hour scheduled employee remains in payroll results', () => {
+  const api = loadApp();
+  resetToSingleEntity(api, {
+    id: 0,
+    name: 'Zero Entity',
+    employees: [{ name: 'No Punch', shifts: ['', '7AM - 3PM', '', '', '', '', ''] }],
+    dateLabels: ['', 'Mon Apr 13 2026', '', '', '', '', ''],
+    breakMinutes: 30,
+    breakMinutesSet: true,
+    actualDays: [],
+  });
+
+  const { results } = api.computePayrollForEntity(0);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].schedName, 'No Punch');
+  assert.equal(results[0].actualHours, 0);
+  assert.equal(results[0].days[1].status, 'noshow');
+});
