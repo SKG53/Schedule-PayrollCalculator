@@ -6,6 +6,16 @@ function approx(actual, expected, message) {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${message}: expected ${expected}, got ${actual}`);
 }
 
+function makeColMap(headers) {
+  const colMap = {};
+  headers.forEach((h, i) => { colMap[h.toLowerCase()] = i; });
+  return colMap;
+}
+
+function makeSettingsRow(headers, values) {
+  return headers.map(h => Object.prototype.hasOwnProperty.call(values, h) ? values[h] : '');
+}
+
 function seedHourlyWeek(api, { defaultBreakMin = 30, pairs, shift = '7AM - 3PM' }) {
   resetToSingleEntity(api, {
     id: 0,
@@ -166,34 +176,39 @@ test('settings import with breaks restores defaults, overrides, zero overrides, 
   });
 
   const headers = api.PAYROLL_SETTINGS_HEADERS.concat(api.PAYROLL_SETTINGS_BREAK_HEADERS);
-  const colMap = {};
-  headers.forEach((h, i) => { colMap[h.toLowerCase()] = i; });
+  const colMap = makeColMap(headers);
 
-  const row = [
-    'Settings Entity',
-    'Alice',
-    '',
-    'Flat',
-    '$125.00',
-    'Deposit + Cash',
-    '$50.00',
-    'whole',
-    'No',
-    '["Alicia"]',
-    30,
-    '', 'Actual',
-    '', 'Actual',
-    15, 'Override',
-    '', 'Actual',
-    0, 'Override',
-    '', 'Actual',
-    '', 'Actual',
-  ];
+  const row = makeSettingsRow(headers, {
+    Entity: 'Settings Entity',
+    Employee: 'Alice',
+    'Wage/hour': '',
+    Type: 'Flat',
+    'Flat Amount': '$125.00',
+    'Pay Method': 'Deposit + Cash',
+    'Deposit Amount': '$50.00',
+    'Deposit Typed As': 'whole',
+    'Employee ID': 'e11111111',
+    Aliases: '["Alicia"]',
+    Active: 'No',
+    'Final Pass Method': 'Contract Check',
+    Notes: 'seasonal',
+    'Default Break (min)': 30,
+    'Sun Break': '', 'Sun Break Status': 'Actual',
+    'Mon Break': '', 'Mon Break Status': 'Actual',
+    'Tue Break': 15, 'Tue Break Status': 'Override',
+    'Wed Break': '', 'Wed Break Status': 'Actual',
+    'Thu Break': 0, 'Thu Break Status': 'Override',
+    'Fri Break': '', 'Fri Break Status': 'Actual',
+    'Sat Break': '', 'Sat Break Status': 'Actual',
+  });
 
   api._ingestPayrollSettings([row], colMap, true);
 
+  assert.equal(api.wKey(0, 'Alice'), 'e11111111');
   assert.equal(api.isRosterActive(0, 'Alice'), false);
   assert.deepEqual(api.getAliases(0, 'Alice'), ['Alicia']);
+  assert.equal(api.getFinalPassMethod(0, 'Alice'), 'Contract Check');
+  assert.equal(api.getRosterNotes(0, 'Alice'), 'seasonal');
   assert.equal(api.entities[0].breakMinutes, 30);
   assert.equal(api.getBreakOverride(0, 'Alice', 2), 15);
   assert.equal(api.getBreakOverride(0, 'Alice', 4), 0);
@@ -214,19 +229,80 @@ test('settings import without breaks leaves existing break state untouched', () 
   api.setBreakOverride(0, 'Alice', 2, 99);
 
   const headers = api.PAYROLL_SETTINGS_HEADERS.concat(api.PAYROLL_SETTINGS_BREAK_HEADERS);
-  const colMap = {};
-  headers.forEach((h, i) => { colMap[h.toLowerCase()] = i; });
+  const colMap = makeColMap(headers);
 
-  const row = [
-    'Settings Entity', 'Alice', '20', 'Hourly', '', 'Cash', '', '', 'Yes', '',
-    30, '', 'Actual', '', 'Actual', 15, 'Override', '', 'Actual', 0, 'Override', '', 'Actual', '', 'Actual',
-  ];
+  const row = makeSettingsRow(headers, {
+    Entity: 'Settings Entity',
+    Employee: 'Alice',
+    'Wage/hour': '20',
+    Type: 'Hourly',
+    'Pay Method': 'Cash',
+    Active: 'Yes',
+    'Default Break (min)': 30,
+    'Sun Break': '', 'Sun Break Status': 'Actual',
+    'Mon Break': '', 'Mon Break Status': 'Actual',
+    'Tue Break': 15, 'Tue Break Status': 'Override',
+    'Wed Break': '', 'Wed Break Status': 'Actual',
+    'Thu Break': 0, 'Thu Break Status': 'Override',
+    'Fri Break': '', 'Fri Break Status': 'Actual',
+    'Sat Break': '', 'Sat Break Status': 'Actual',
+  });
 
   api._ingestPayrollSettings([row], colMap, false);
 
   assert.equal(api.entities[0].breakMinutes, 10);
   assert.equal(api.getBreakOverride(0, 'Alice', 2), 99);
   assert.equal(api.getPayMethod(0, 'Alice'), 'cash');
+});
+
+test('B5 flat settings export/import round-trip preserves amount and stable employee id', () => {
+  const api = loadApp();
+  resetToSingleEntity(api, {
+    id: 0,
+    name: 'Flat Entity',
+    employees: [{ name: 'Flat Person', shifts: ['', '', '', '', '', '', ''] }],
+  });
+
+  const id = api.wKey(0, 'Flat Person');
+  api.dispatch({ type: 'flatWage', screen: 'payroll', target: { kind: 'employee', entity: 0, id, field: 'flatWage' }, from: null, to: 200, meta: { empName: 'Flat Person' } });
+  api.setPayMethod(0, 'Flat Person', 'both');
+  api.setSplitDeposit(0, 'Flat Person', 75, { typed: true, isWhole: true });
+
+  const exported = api._gatherPayrollSettingsRows(false)[0];
+  assert.equal(exported.employeeId, id);
+  assert.equal(exported.type, 'Flat');
+  assert.equal(exported.flat, 200);
+  assert.equal(exported.method, 'Deposit + Cash');
+  assert.equal(exported.deposit, 75);
+
+  const headers = api.PAYROLL_SETTINGS_HEADERS;
+  const row = makeSettingsRow(headers, {
+    Entity: exported.entity,
+    Employee: exported.employee,
+    'Wage/hour': exported.wage,
+    Type: exported.type,
+    'Flat Amount': `$${exported.flat.toFixed(2)}`,
+    'Pay Method': exported.method,
+    'Deposit Amount': `$${exported.deposit.toFixed(2)}`,
+    'Deposit Typed As': exported.depositTypedAs,
+    'Employee ID': exported.employeeId,
+    Aliases: exported.aliases,
+    Active: exported.active,
+    'Final Pass Method': exported.finalPassMethod,
+    Notes: exported.notes,
+  });
+
+  resetToSingleEntity(api, {
+    id: 0,
+    name: 'Flat Entity',
+    employees: [{ name: 'Flat Person', shifts: ['', '', '', '', '', '', ''] }],
+  });
+  api._ingestPayrollSettings([row], makeColMap(headers), false);
+
+  assert.equal(api.wKey(0, 'Flat Person'), id);
+  assert.equal(api.flatWages[id], 200);
+  assert.equal(api.getPayMethod(0, 'Flat Person'), 'both');
+  assert.deepEqual(api.getSplitMeta(0, 'Flat Person'), { deposit: 75, typed: true, isWhole: true });
 });
 
 test('alias matching resolves before fuzzy fallback without flagging a suggestion', () => {

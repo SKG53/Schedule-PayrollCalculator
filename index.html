@@ -651,28 +651,79 @@ const BIZ_START=7,BIZ_END=23,OT_THRESHOLD=40;
 // ================================================================
 // STATE
 // ================================================================
+// The session is transient in-memory state only. It is intentionally empty on a fresh
+// page load and is never persisted to localStorage. Values that must survive weeks
+// round-trip through exported settings files instead.
+function _emptyEntity(){
+  return{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]};
+}
+let _testMode=false;
+function setTestMode(v){_testMode=!!v}
+function _isUserIntentStore(name){return['wageRates','wageBlank','payMethod','splitAmounts','flatWages','breakOverrides','rosterActive','rosterAliases','payrollSortMode'].includes(name)}
+function _guardedStore(name){
+  const obj={};
+  return new Proxy(obj,{
+    set(target,prop,value){
+      if(_testMode&&_isUserIntentStore(name)&&!(session&&session._dispatching))throw new Error(`Direct write to ${name}.${String(prop)} outside dispatch`);
+      target[prop]=value;return true;
+    },
+    deleteProperty(target,prop){
+      if(_testMode&&_isUserIntentStore(name)&&!(session&&session._dispatching))throw new Error(`Direct delete from ${name}.${String(prop)} outside dispatch`);
+      delete target[prop];return true;
+    }
+  });
+}
+function createSession(){
+  return{
+    startedAt:Date.now(),
+    seq:0,
+    entities:[_emptyEntity()],
+    roster:{byId:{},keyToId:{}},
+    intake:{},
+    log:[],
+    actualDays:[],
+    wageRates:_guardedStore('wageRates'),
+    roundingFactors:{},
+    payMethod:_guardedStore('payMethod'),
+    splitAmounts:_guardedStore('splitAmounts'),
+    wageBlank:_guardedStore('wageBlank'),
+    breakOverrides:_guardedStore('breakOverrides'),
+    payrollSortMode:_guardedStore('payrollSortMode'),
+    rosterActive:_guardedStore('rosterActive'),
+    rosterAliases:_guardedStore('rosterAliases'),
+    flatWages:_guardedStore('flatWages'),
+    flatWagesDisplayNames:{},
+    _dispatching:false
+  };
+}
+let session=createSession();
+function _withSessionMutation(fn){
+  const prev=session._dispatching;
+  session._dispatching=true;
+  try{return fn()}finally{session._dispatching=prev}
+}
 // Each entity: {name, employees, dateLabels, newDateLabels, newWeekStartVal, breakMinutes}
 let nextEntityId=1;
 // Each entity has a stable `id` so wages/rounding survive entity renames
-let entities=[{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]}];
+let entities=session.entities;
 let activeEntityIdx=0;
 let activePayrollEntityIdx=0;
 let actualsMode='separate'; // always 'separate' now (uploads moved to Intake tab per entity)
 let currentView='employee',currentTab='schedule',flagView='employee',activeEmp=null;
-let actualDays=[]; // combined mode global   // [{empName,entityName,date,dayIdx,pairs:[{in,out,outAdj,minutes}]}]
-let wageRates={};    // key: wKey(entityId, empName) — survives entity renames
-let roundingFactors={}; // legacy — no-op retained for back-compat
-let payMethod={};     // key: wKey(entId, empName) -> 'deposit' | 'cash' | 'both'
-let splitAmounts={};  // key: wKey -> {deposit:number, typed:boolean, isWhole:boolean}
+let actualDays=session.actualDays; // combined mode global   // [{empName,entityName,date,dayIdx,pairs:[{in,out,outAdj,minutes}]}]
+let wageRates=session.wageRates;    // key: stable employee id from wKey(entityId, empName)
+let roundingFactors=session.roundingFactors; // legacy — no-op retained for back-compat
+let payMethod=session.payMethod;     // key: stable employee id -> 'deposit' | 'cash' | 'both'
+let splitAmounts=session.splitAmounts;  // key: stable employee id -> {deposit:number, typed:boolean, isWhole:boolean}
 let activePayrollSubTab={}; // key: entityIdx -> 'timecard' | 'payroll'
 // wageBlank[k]=true means the user has explicitly cleared the wage; render as blank, export as blank.
-let wageBlank={};
+let wageBlank=session.wageBlank;
 
 // Per-day break overrides. Key: `${wKey(entId,empName)}|${dayIdx}` -> minutes (number, integer >=0).
 // Presence of a key means the row/day is an Override; absence means Actual (effective default).
-let breakOverrides={};
+let breakOverrides=session.breakOverrides;
 // Per-entity: 'name' (default insertion order) or 'paytype' (Cash → Both → Deposit grouping).
-let payrollSortMode={};
+let payrollSortMode=session.payrollSortMode;
 
 // Roster active flag. Key: wKey(entId, empName) -> false once the employee has left.
 // Absence means active, so employees never touched and settings files written before this
@@ -682,30 +733,69 @@ let payrollSortMode={};
 // the week already on screen — an employee at 0.00 hours who is still active is a fact
 // worth seeing, and departure is expressed by this flag rather than by silent omission
 // (CLAUDE.md hard rule 5, DECISIONS settled #6).
-let rosterActive={};
-function isRosterActive(entId,empName){return rosterActive[wKey(entId,empName)]!==false}
-function setRosterActive(entId,empName,active){
-  const k=wKey(entId,empName);
-  if(active)delete rosterActive[k];else rosterActive[k]=false;
-}
+let rosterActive=session.rosterActive;
 
 // Per-employee alias list. Key: wKey(entId, empName) -> array of observed spellings,
 // stored with the case the user typed and compared lower/trimmed. An alias hit on intake
 // resolves to the canonical schedule name silently, with no flag.
-let rosterAliases={};
+let rosterAliases=session.rosterAliases;
+let flatWages=session.flatWages;
+let flatWagesDisplayNames=session.flatWagesDisplayNames; // name -> name (case preserved)
+
+function _rosterKey(entId,name){return entId+'|'+_aliasNorm(name)}
+function _mintEmployeeId(){
+  let id;
+  do{id='e'+Math.floor(Math.random()*0x100000000).toString(16).padStart(8,'0')}while(session.roster.byId[id]);
+  return id;
+}
+function ensureRosterRecord(entId,empName,existingId){
+  const canonical=(empName||'').toString().trim();
+  const key=_rosterKey(entId,canonical);
+  let id=existingId&&/^e[0-9a-f]{8}$/i.test(existingId)?existingId:session.roster.keyToId[key];
+  if(!id)id=_mintEmployeeId();
+  let rec=session.roster.byId[id];
+  if(!rec){
+    rec={id,canonical_name:canonical,entity:entId,aliases:[],rate:null,pay_method:'deposit',final_pass_method:'',deposit_amount:null,flat_amount:null,active:true,notes:''};
+    session.roster.byId[id]=rec;
+  }
+  rec.entity=entId;
+  if(canonical&&(!rec.canonical_name||_aliasNorm(rec.canonical_name)===_aliasNorm(canonical)))rec.canonical_name=canonical;
+  else if(canonical&&_aliasNorm(rec.canonical_name)!==_aliasNorm(canonical)){
+    if(rec.canonical_name)delete session.roster.keyToId[_rosterKey(entId,rec.canonical_name)];
+    rec.canonical_name=canonical;
+  }
+  session.roster.keyToId[key]=id;
+  return rec;
+}
+function getRosterRecord(entId,empName){return ensureRosterRecord(entId,empName)}
+function _recordForId(id){return session.roster.byId[id]||null}
+function _recordForKey(entId,empName){return session.roster.byId[session.roster.keyToId[_rosterKey(entId,empName)]]||null}
+function _employeeIdFor(entId,empName){return ensureRosterRecord(entId,empName).id}
+function _applyRecordMirror(entId,empName,field,value){
+  const rec=ensureRosterRecord(entId,empName);
+  if(field==='rate')rec.rate=value;
+  else if(field==='pay_method')rec.pay_method=value||'deposit';
+  else if(field==='deposit_amount')rec.deposit_amount=value==null?null:value;
+  else if(field==='flat_amount')rec.flat_amount=value==null?null:value;
+  else if(field==='active')rec.active=value!==false;
+  else if(field==='aliases')rec.aliases=Array.isArray(value)?value.slice():[];
+  else if(field==='final_pass_method')rec.final_pass_method=(value||'').toString();
+  else if(field==='notes')rec.notes=(value||'').toString();
+}
 function getAliases(entId,empName){return rosterAliases[wKey(entId,empName)]||[]}
 function _aliasNorm(s){return (s||'').toString().toLowerCase().trim()}
-// wKey lowercases the name, so map a key fragment back to the schedule's cased name.
-function _canonicalDisplay(entId,lowName){
-  const ent=entities.find(e=>e.id===entId);
-  const hit=ent&&(ent.employees||[]).find(e=>_aliasNorm(e.name)===lowName);
-  return hit?hit.name:lowName;
+// Employee IDs are now the settings-file round-trip identity. wKey is retained as the
+// old call-site API, but resolves name -> stable employee id inside the transient registry.
+function wKey(entId,empName){return _employeeIdFor(entId,empName)}
+function _canonicalDisplayById(id){
+  const rec=_recordForId(id);
+  return rec?(rec.canonical_name||id):id;
 }
 // Returns {ok:true} or {ok:false,reason} — an alias that collides with another employee's
 // canonical name or with another employee's alias is refused. Two similarly-named people
 // at one entity have been conflated in this data before, and an alias is exactly the
 // mechanism that would do it silently.
-function validateAlias(entId,empName,alias){
+function validateAlias(entId,empName,alias,proposedSelfList){
   const a=_aliasNorm(alias);
   if(!a)return{ok:false,reason:'empty'};
   const self=_aliasNorm(empName);
@@ -715,13 +805,15 @@ function validateAlias(entId,empName,alias){
     const clash=(ent.employees||[]).find(e=>_aliasNorm(e.name)===a&&_aliasNorm(e.name)!==self);
     if(clash)return{ok:false,reason:`"${alias}" is ${clash.name}'s own name on this schedule`};
   }
-  const prefix=entId+'|';
+  const selfId=wKey(entId,empName);
   for(const k in rosterAliases){
-    if(k.indexOf(prefix)!==0||k===wKey(entId,empName))continue;
+    const rec=_recordForId(k);
+    if(!rec||rec.entity!==entId||k===selfId)continue;
     if((rosterAliases[k]||[]).some(x=>_aliasNorm(x)===a)){
-      return{ok:false,reason:`"${alias}" is already an alias of ${_canonicalDisplay(entId,k.slice(prefix.length))}`};
+      return{ok:false,reason:`"${alias}" is already an alias of ${_canonicalDisplayById(k)}`};
     }
   }
+  if(proposedSelfList&&(proposedSelfList||[]).filter(x=>_aliasNorm(x)===a).length>1)return{ok:false,reason:`"${alias}" is duplicated`};
   return{ok:true};
 }
 // Sets the whole list, dropping blanks, de-duplicating case-insensitively, and skipping
@@ -734,24 +826,21 @@ function setAliases(entId,empName,list){
     if(!a)return;
     const n=_aliasNorm(a);
     if(seen.has(n))return;
-    // Validate against the list as it stands without this employee's old entries.
-    const saved=rosterAliases[k];rosterAliases[k]=out;
-    const v=validateAlias(entId,empName,a);
-    rosterAliases[k]=saved;
+    const v=validateAlias(entId,empName,a,out);
     if(!v.ok){if(v.reason!=='empty')rejected.push({alias:a,reason:v.reason});return;}
     seen.add(n);out.push(a);
   });
-  if(out.length)rosterAliases[k]=out;else delete rosterAliases[k];
+  dispatch({type:'rosterFieldSet',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'aliases'},from:getAliases(entId,empName),to:out,meta:{empName}});
   return{applied:out,rejected};
 }
 // Resolves an observed name to a canonical schedule name via the alias table, or null.
 function resolveAlias(entId,name){
   const n=_aliasNorm(name);
   if(!n)return null;
-  const prefix=entId+'|';
   for(const k in rosterAliases){
-    if(k.indexOf(prefix)!==0)continue;
-    if((rosterAliases[k]||[]).some(x=>_aliasNorm(x)===n))return _canonicalDisplay(entId,k.slice(prefix.length));
+    const rec=_recordForId(k);
+    if(!rec||rec.entity!==entId)continue;
+    if((rosterAliases[k]||[]).some(x=>_aliasNorm(x)===n))return rec.canonical_name;
   }
   return null;
 }
@@ -763,17 +852,19 @@ function getBreakOverride(entId,empName,dayIdx){
 function setBreakOverride(entId,empName,dayIdx,mins){
   const m=parseFloat(mins);
   if(isNaN(m)||m<0)return;
-  breakOverrides[_bk(entId,empName,dayIdx)]=Math.round(m);
+  const key=_bk(entId,empName,dayIdx);
+  dispatch({type:'breakOverride',screen:'payroll',target:{kind:'employee',entity:entId,id:wKey(entId,empName),field:'breakOverride',day:dayIdx},from:breakOverrides[key],to:Math.round(m)});
 }
-function clearBreakOverride(entId,empName,dayIdx){delete breakOverrides[_bk(entId,empName,dayIdx)]}
+function clearBreakOverride(entId,empName,dayIdx){
+  const key=_bk(entId,empName,dayIdx);
+  dispatch({type:'breakOverride',screen:'payroll',target:{kind:'employee',entity:entId,id:wKey(entId,empName),field:'breakOverride',day:dayIdx},from:breakOverrides[key],to:null});
+}
 function hasAnyBreakOverrides(entId){
-  const prefix=entId+'|';
-  for(const k in breakOverrides){if(k.indexOf(prefix)===0)return true}
+  for(const k in breakOverrides){const id=k.split('|')[0];const rec=_recordForId(id);if(rec&&rec.entity===entId)return true}
   return false;
 }
 function clearAllBreakOverridesForEntity(entId){
-  const prefix=entId+'|';
-  Object.keys(breakOverrides).forEach(k=>{if(k.indexOf(prefix)===0)delete breakOverrides[k]});
+  Object.keys(breakOverrides).forEach(k=>{const id=k.split('|')[0];const rec=_recordForId(id);if(rec&&rec.entity===entId)_withSessionMutation(()=>delete breakOverrides[k])});
 }
 // Pay-type sort order: Cash first, then Cash+Deposit (both), then Deposit.
 const PAYTYPE_SORT_ORDER={cash:0,both:1,deposit:2};
@@ -796,19 +887,20 @@ function methodLabel(method){return method==='cash'?'Cash':method==='deposit'?'D
 function getPayMethod(entId,empName){return payMethod[wKey(entId,empName)]||'deposit'}
 function setPayMethod(entId,empName,method){
   const k=wKey(entId,empName);
-  payMethod[k]=method;
-  if(method!=='both')delete splitAmounts[k];
+  dispatch({type:'payMethod',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'payMethod'},from:payMethod[k]||'deposit',to:method,meta:{empName}});
 }
 function getSplitDeposit(entId,empName){const s=splitAmounts[wKey(entId,empName)];return s?s.deposit:0}
 function getSplitMeta(entId,empName){const s=splitAmounts[wKey(entId,empName)];return s?{deposit:s.deposit||0,typed:!!s.typed,isWhole:!!s.isWhole}:{deposit:0,typed:false,isWhole:false}}
 function setSplitDeposit(entId,empName,amt,opts){
   const k=wKey(entId,empName);
-  if(!splitAmounts[k])splitAmounts[k]={deposit:0,typed:false,isWhole:false};
-  splitAmounts[k].deposit=amt;
-  if(opts&&typeof opts.typed==='boolean')splitAmounts[k].typed=opts.typed;
-  if(opts&&typeof opts.isWhole==='boolean')splitAmounts[k].isWhole=opts.isWhole;
+  const prev=getSplitMeta(entId,empName);
+  const next={deposit:amt,typed:!!(opts&&opts.typed),isWhole:!!(opts&&opts.isWhole)};
+  dispatch({type:'splitDeposit',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'splitDeposit'},from:prev,to:next,meta:{empName}});
 }
-function clearSplitDeposit(entId,empName){delete splitAmounts[wKey(entId,empName)];}
+function clearSplitDeposit(entId,empName){
+  const k=wKey(entId,empName);
+  dispatch({type:'splitDeposit',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'splitDeposit'},from:getSplitMeta(entId,empName),to:null,meta:{empName}});
+}
 // Rounding rules: cash = 0dp, deposit = 2dp, both = deposit 2dp + cash 0dp
 function roundCash(n){return Math.round(n||0)}
 function roundDeposit(n){return Math.round((n||0)*100)/100}
@@ -849,9 +941,123 @@ function computePayBreakdown(row,entId){
   return _computeBothBreakdown(total,meta);
 }
 
-// Wage/rounding key uses stable entity id + employee name (case-insensitive).
-// Survives entity renames; does not survive entity deletion.
-function wKey(entId,empName){return entId+'|'+empName.toLowerCase().trim()}
+function _nextLogEntry(change){
+  const seq=++session.seq;
+  return Object.assign({id:'l'+seq,seq,t:Date.now()-session.startedAt,reverted:false},change);
+}
+function _applyChange(entry,invert){
+  const target=entry.target||{};
+  const entId=target.entity;
+  const empName=(entry.meta&&entry.meta.empName)||(_recordForId(target.id)||{}).canonical_name||'';
+  const key=target.id||wKey(entId,empName);
+  const value=invert?entry.from:entry.to;
+  _withSessionMutation(()=>{
+    if(entry.type==='wage'){
+      if(value==null||value===''){delete wageRates[key];wageBlank[key]=true;_applyRecordMirror(entId,empName,'rate',null);}
+      else{wageRates[key]=parseFloat(value)||0;delete wageBlank[key];_applyRecordMirror(entId,empName,'rate',wageRates[key]);}
+    }else if(entry.type==='wageBlank'){
+      delete wageRates[key];wageBlank[key]=true;_applyRecordMirror(entId,empName,'rate',null);
+    }else if(entry.type==='payMethod'){
+      payMethod[key]=value||'deposit';
+      if(payMethod[key]!=='both')delete splitAmounts[key];
+      _applyRecordMirror(entId,empName,'pay_method',payMethod[key]);
+    }else if(entry.type==='splitDeposit'){
+      if(value==null){delete splitAmounts[key];_applyRecordMirror(entId,empName,'deposit_amount',null);}
+      else{splitAmounts[key]={deposit:parseFloat(value.deposit)||0,typed:!!value.typed,isWhole:!!value.isWhole};_applyRecordMirror(entId,empName,'deposit_amount',splitAmounts[key].deposit);}
+    }else if(entry.type==='flatWage'){
+      if(value==null){delete flatWages[key];if(empName)delete flatWagesDisplayNames[_aliasNorm(empName)];_applyRecordMirror(entId,empName,'flat_amount',null);}
+      else{flatWages[key]=parseFloat(value)||0;if(empName)flatWagesDisplayNames[_aliasNorm(empName)]=empName;_applyRecordMirror(entId,empName,'flat_amount',flatWages[key]);}
+    }else if(entry.type==='breakOverride'){
+      const bk=key+'|'+target.day;
+      if(value==null)delete breakOverrides[bk];else breakOverrides[bk]=Math.round(parseFloat(value)||0);
+    }else if(entry.type==='entityBreak'){
+      const ent=entities.find(e=>e.id===entId);
+      if(ent){ent.breakMinutes=Math.max(0,Math.round(parseFloat(value)||0));ent.breakMinutesSet=!!(entry.meta&&entry.meta.confirmed);}
+    }else if(entry.type==='sortMode'){
+      payrollSortMode[entId]=value==='paytype'?'paytype':'name';
+    }else if(entry.type==='rosterAdd'){
+      ensureRosterRecord(entId,empName,(value&&value.id)||target.id);
+    }else if(entry.type==='rosterRename'){
+      const rec=_recordForId(key)||ensureRosterRecord(entId,empName,key);
+      const fromName=entry.from||rec.canonical_name;
+      const toName=value||fromName;
+      delete session.roster.keyToId[_rosterKey(entId,fromName)];
+      rec.canonical_name=toName;
+      session.roster.keyToId[_rosterKey(entId,toName)]=rec.id;
+      const aliases=(rosterAliases[rec.id]||[]).slice();
+      if(fromName&&_aliasNorm(fromName)!==_aliasNorm(toName)&&!aliases.some(a=>_aliasNorm(a)===_aliasNorm(fromName)))aliases.push(fromName);
+      rosterAliases[rec.id]=aliases;
+      rec.aliases=aliases.slice();
+    }else if(entry.type==='rosterAliasAdd'){
+      const aliases=(rosterAliases[key]||[]).slice();
+      if(value&&!aliases.some(a=>_aliasNorm(a)===_aliasNorm(value)))aliases.push(value);
+      if(aliases.length)rosterAliases[key]=aliases;else delete rosterAliases[key];
+      _applyRecordMirror(entId,empName,'aliases',aliases);
+    }else if(entry.type==='rosterAliasRemove'){
+      const aliases=(rosterAliases[key]||[]).filter(a=>_aliasNorm(a)!==_aliasNorm(value));
+      if(aliases.length)rosterAliases[key]=aliases;else delete rosterAliases[key];
+      _applyRecordMirror(entId,empName,'aliases',aliases);
+    }else if(entry.type==='rosterActiveSet'){
+      if(value===false)rosterActive[key]=false;else delete rosterActive[key];
+      _applyRecordMirror(entId,empName,'active',value!==false);
+    }else if(entry.type==='rosterFieldSet'){
+      if(target.field==='aliases'){
+        const aliases=Array.isArray(value)?value.slice():[];
+        if(aliases.length)rosterAliases[key]=aliases;else delete rosterAliases[key];
+        _applyRecordMirror(entId,empName,'aliases',aliases);
+      }else if(target.field==='final_pass_method'){
+        _applyRecordMirror(entId,empName,'final_pass_method',value||'');
+      }else if(target.field==='notes'){
+        _applyRecordMirror(entId,empName,'notes',value||'');
+      }else{
+        _applyRecordMirror(entId,empName,target.field,value);
+      }
+    }
+  });
+}
+const _reducers={
+  wage:_applyChange,wageBlank:_applyChange,payMethod:_applyChange,splitDeposit:_applyChange,flatWage:_applyChange,
+  breakOverride:_applyChange,entityBreak:_applyChange,sortMode:_applyChange,rosterAdd:_applyChange,rosterRename:_applyChange,
+  rosterAliasAdd:_applyChange,rosterAliasRemove:_applyChange,rosterActiveSet:_applyChange,rosterFieldSet:_applyChange
+};
+function dispatch(change){
+  if(!change||!change.type)return null;
+  const reducer=_reducers[change.type];
+  if(!reducer)return null;
+  const entry=_nextLogEntry(change);
+  reducer(entry,false);
+  session.log.push(entry);
+  return entry;
+}
+function revert(id){
+  const original=session.log.find(e=>e.id===id);
+  if(!original)return null;
+  _applyChange(original,true);
+  original.reverted=true;
+  const entry=_nextLogEntry({type:'revert',screen:'log',target:original.target,from:original.to,to:original.from,originalId:original.id});
+  session.log.push(entry);
+  return entry;
+}
+function recompute(opts){
+  const idx=entities.findIndex(e=>e.id===(opts&&opts.entity));
+  if(idx<0)return null;
+  return computePayrollForEntity(idx);
+}
+function isRosterActive(entId,empName){return rosterActive[wKey(entId,empName)]!==false}
+function setRosterActive(entId,empName,active){
+  const k=wKey(entId,empName);
+  dispatch({type:'rosterActiveSet',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'active'},from:isRosterActive(entId,empName),to:!!active,meta:{empName}});
+}
+function getFinalPassMethod(entId,empName){return (getRosterRecord(entId,empName).final_pass_method||'')}
+function setFinalPassMethod(entId,empName,val){
+  const k=wKey(entId,empName);
+  dispatch({type:'rosterFieldSet',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'final_pass_method'},from:getFinalPassMethod(entId,empName),to:(val||'').toString(),meta:{empName}});
+}
+function getRosterNotes(entId,empName){return (getRosterRecord(entId,empName).notes||'')}
+function setRosterNotes(entId,empName,val){
+  const k=wKey(entId,empName);
+  dispatch({type:'rosterFieldSet',screen:'payroll',target:{kind:'employee',entity:entId,id:k,field:'notes'},from:getRosterNotes(entId,empName),to:(val||'').toString(),meta:{empName}});
+}
 
 // ================================================================
 // UTILITIES
@@ -1093,6 +1299,7 @@ function parseSchedule(rows,idx){
   // Anyone marked inactive is left out here, and we say who: a roster entry vanishing from
   // a payroll week without a word is the failure mode this tool exists to avoid.
   const entId=entities[idx].id;
+  employees.forEach(e=>dispatch({type:'rosterAdd',screen:'schedule',target:{kind:'employee',entity:entId,id:wKey(entId,e.name),field:'canonical_name'},from:null,to:getRosterRecord(entId,e.name),meta:{empName:e.name}}));
   const dropped=employees.filter(e=>!isRosterActive(entId,e.name)).map(e=>e.name);
   const kept=employees.filter(e=>isRosterActive(entId,e.name));
   if(kept.length===0){
@@ -1177,8 +1384,18 @@ function readTableState(){
   const employees=[];
   rows.forEach(row=>{
     const ni=row.querySelector('.name-input');
+    const idx=parseInt(row.dataset.empIdx);
+    const oldEmp=entities[activeEntityIdx].employees[idx];
+    const oldName=oldEmp&&oldEmp.name?oldEmp.name.trim():'';
     const name=ni?ni.value.trim():'';
     if(!name)return;
+    if(oldName&&name&&_aliasNorm(oldName)!==_aliasNorm(name)){
+      const ent=entities[activeEntityIdx];
+      dispatch({type:'rosterRename',screen:'schedule',target:{kind:'employee',entity:ent.id,id:wKey(ent.id,oldName),field:'canonical_name'},from:oldName,to:name,meta:{empName:oldName}});
+    }else if(name){
+      const ent=entities[activeEntityIdx];
+      dispatch({type:'rosterAdd',screen:'schedule',target:{kind:'employee',entity:ent.id,id:wKey(ent.id,name),field:'canonical_name'},from:null,to:getRosterRecord(ent.id,name),meta:{empName:name}});
+    }
     const shifts=[];
     for(let d=0;d<7;d++){const inp=row.querySelector(`[data-day="${d}"]`);shifts.push(inp?inp.value.trim():'OFF')}
     employees.push({name,shifts});
@@ -2010,9 +2227,7 @@ function setEntityBreak(idx,val){
     if(inp)inp.value=oldBreak;
     return;
   }
-  ent.breakMinutes=newBreak;
-  // Any edit unsets the confirmed flag so the user must explicitly confirm the new value
-  ent.breakMinutesSet=false;
+  dispatch({type:'entityBreak',screen:'payroll',target:{kind:'employee',entity:ent.id,field:'entityBreak'},from:oldBreak,to:newBreak});
   renderPayrollEntityContent(idx);
 }
 
@@ -2028,7 +2243,7 @@ function showBreakChangeModal(idx,oldBreak,newBreak){
   host.className='overlay';
   host.style.zIndex=3000;
   const ent=entities[idx];
-  const ovrCount=Object.keys(breakOverrides).filter(k=>k.indexOf(ent.id+'|')===0).length;
+  const ovrCount=Object.keys(breakOverrides).filter(k=>{const rec=_recordForId(k.split('|')[0]);return rec&&rec.entity===ent.id;}).length;
   host.innerHTML=`
     <div class="overlay-panel" style="max-width:480px">
       <h2>Change default break to ${newBreak}m?</h2>
@@ -2054,8 +2269,7 @@ function resolveBreakChange(idx,newBreak,action){
   if(action==='cancel'){renderPayrollEntityContent(idx);return;}
   if(action==='overwrite'){clearAllBreakOverridesForEntity(ent.id);}
   // 'keep' = leave overrides untouched. Calc engine already uses override when present.
-  ent.breakMinutes=newBreak;
-  ent.breakMinutesSet=false;
+  dispatch({type:'entityBreak',screen:'payroll',target:{kind:'employee',entity:ent.id,field:'entityBreak'},from:ent.breakMinutes||0,to:newBreak});
   renderPayrollEntityContent(idx);
   showToast(action==='overwrite'?`Default set to ${newBreak}m; overrides cleared`:`Default set to ${newBreak}m; overrides preserved`,'ok');
 }
@@ -2335,6 +2549,14 @@ function renderPayrollCalc(rows,hasActuals,ent){
       <span style="color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">Aliases:</span>
       <input type="text" value="${escHtml(aliasList.join(', '))}" placeholder="other spellings, comma-separated" onchange="setRowAliases(${i},this.value)" title="Names OCR has produced for this person. Matched before any fuzzy guess, and applied silently. Separate with commas." style="flex:1;min-width:160px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
       <span style="color:var(--text3);font-size:10px;white-space:nowrap">${aliasList.length} stored</span>
+    </div>`;
+    const finalPass=getFinalPassMethod(ent.id,keyName);
+    const notes=getRosterNotes(ent.id,keyName);
+    breakRow+=`<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">
+      <span style="color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">Final pass:</span>
+      <input type="text" value="${escHtml(finalPass)}" placeholder="e.g. Contract Check" onchange="setRowFinalPassMethod(${i},this.value)" title="Optional final-pass method or manual review note. Exported with payroll settings." style="width:170px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
+      <span style="color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap">Notes:</span>
+      <input type="text" value="${escHtml(notes)}" placeholder="optional notes" onchange="setRowNotes(${i},this.value)" title="Optional roster/payroll note. Exported with payroll settings." style="flex:1;min-width:180px;padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
     </div></td></tr>`;
     html+=breakRow;
   });
@@ -2363,12 +2585,10 @@ function setWage(rowIdx,val){
   const raw=(val==null?'':String(val)).trim();
   if(raw===''){
     // Explicit blank: preserve as blank (no implicit 0).
-    delete wageRates[k];
-    wageBlank[k]=true;
+    dispatch({type:'wageBlank',screen:'payroll',target:{kind:'employee',entity:entities[item.entityIdx].id,id:k,field:'wage'},from:wageRates[k],to:null,meta:{empName:_rowKey(item)}});
   }else{
     const n=parseFloat(raw);
-    wageRates[k]=isNaN(n)?0:n;
-    delete wageBlank[k];
+    dispatch({type:'wage',screen:'payroll',target:{kind:'employee',entity:entities[item.entityIdx].id,id:k,field:'wage'},from:wageRates[k],to:isNaN(n)?0:n,meta:{empName:_rowKey(item)}});
   }
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.wage-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
@@ -2381,12 +2601,10 @@ function toggleFlat(rowIdx){
   const k=wKey(ent.id,keyName);
   if(flatWages[k]!=null){
     // Currently flat -> switch back to hourly
-    delete flatWages[k];
-    delete flatWagesDisplayNames[keyName.toLowerCase().trim()];
+    dispatch({type:'flatWage',screen:'payroll',target:{kind:'employee',entity:ent.id,id:k,field:'flatWage'},from:flatWages[k],to:null,meta:{empName:keyName}});
   }else{
     // Switch to flat; seed with current computed pay
-    flatWages[k]=Math.round((item.row.pay||0)*100)/100;
-    flatWagesDisplayNames[keyName.toLowerCase().trim()]=item.row.name;
+    dispatch({type:'flatWage',screen:'payroll',target:{kind:'employee',entity:ent.id,id:k,field:'flatWage'},from:null,to:Math.round((item.row.pay||0)*100)/100,meta:{empName:keyName,displayName:item.row.name}});
   }
   renderPayrollEntityContent(item.entityIdx);
 }
@@ -2403,8 +2621,7 @@ function setFlatAmount(rowIdx,val){
   const ent=entities[item.entityIdx];
   const amt=parseFloat(val);if(isNaN(amt)||amt<0)return;
   const keyName=_rowKey(item);
-  flatWages[wKey(ent.id,keyName)]=amt;
-  flatWagesDisplayNames[keyName.toLowerCase().trim()]=item.row.name;
+  dispatch({type:'flatWage',screen:'payroll',target:{kind:'employee',entity:ent.id,id:wKey(ent.id,keyName),field:'flatWage'},from:flatWages[wKey(ent.id,keyName)],to:amt,meta:{empName:keyName,displayName:item.row.name}});
   renderPayrollEntityContent(item.entityIdx);
   setTimeout(()=>{const inp=document.querySelectorAll('.flat-input');if(inp[rowIdx])inp[rowIdx].focus();},0);
 }
@@ -2433,6 +2650,20 @@ function setRowActive(rowIdx,checked){
   showToast(checked
     ?`${_rowKey(item)} is active — loads with the next schedule`
     :`${_rowKey(item)} is inactive — will not load with the next schedule. This week is unchanged.`,'ok');
+}
+
+function setRowFinalPassMethod(rowIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  setFinalPassMethod(ent.id,_rowKey(item),val);
+  renderPayrollEntityContent(item.entityIdx);
+}
+
+function setRowNotes(rowIdx,val){
+  const item=_flatRows[rowIdx];if(!item)return;
+  const ent=entities[item.entityIdx];
+  setRosterNotes(ent.id,_rowKey(item),val);
+  renderPayrollEntityContent(item.entityIdx);
 }
 
 function setPayMethodForRow(rowIdx,method){
@@ -2496,7 +2727,7 @@ function resetRowBreakOverride(rowIdx,dayIdx){
 // ---- Display sort by pay type (Cash → Cash+Deposit → Deposit) ----
 function setPayrollSortMode(entityIdx,mode){
   const ent=entities[entityIdx];if(!ent)return;
-  payrollSortMode[ent.id]=mode==='paytype'?'paytype':'name';
+  dispatch({type:'sortMode',screen:'payroll',target:{kind:'employee',entity:ent.id,field:'sortMode'},from:payrollSortMode[ent.id]||'name',to:mode==='paytype'?'paytype':'name'});
   renderPayrollEntityContent(entityIdx);
 }
 
@@ -4659,9 +4890,9 @@ async function exportPayrollPdf(){return exportCombinedPdf()}
 // and Deposit Amount (only if user manually typed it). Re-importable.
 // Schema tag: SPCalcPayrollSettingsV1.
 // ================================================================
-// 'Active' is appended last so the currency columns keep their positions and any older
-// V1/V2 file still imports — the importer matches on column name, not index.
-const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Active','Aliases'];
+// V3 identity/schema columns. The importer matches on column name, not index, so old V1/V2
+// settings files without Employee ID, aliases, active, final-pass method, or notes still load.
+const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Employee ID','Aliases','Active','Final Pass Method','Notes'];
 const PAYROLL_SETTINGS_SCHEMA_TAG='SPCalcPayrollSettingsV1';
 // Break-extension headers — appended only when the user opts in to "include breaks".
 // Per-day numeric (minutes) + status ('Override' or 'Actual'); plus an entity-default-break column.
@@ -4690,7 +4921,8 @@ function _gatherPayrollSettingsRows(includeBreaks){
     const entityName=ent.name||('Entity '+(idx+1));
     const seen=new Set();
     const pushRow=(empName,displayName)=>{
-      const lkLow=empName.toLowerCase().trim();
+      const rec0=ensureRosterRecord(ent.id,empName);
+      const lkLow=rec0.id;
       if(seen.has(lkLow))return;seen.add(lkLow);
       const k=wKey(ent.id,empName);
       const isFlat=flatWages[k]!=null;
@@ -4698,6 +4930,7 @@ function _gatherPayrollSettingsRows(includeBreaks){
       const wageRaw=wageRates[k];
       const method=getPayMethod(ent.id,empName);
       const meta=getSplitMeta(ent.id,empName);
+      const rosterRec=getRosterRecord(ent.id,empName);
       const rec={
         entity:entityName,
         employee:displayName||empName,
@@ -4707,10 +4940,13 @@ function _gatherPayrollSettingsRows(includeBreaks){
         method:methodLabel(method),
         deposit:(method==='both'&&meta.typed)?meta.deposit:'',
         depositTypedAs:(method==='both'&&meta.typed)?(meta.isWhole?'whole':'decimal'):'',
-        active:isRosterActive(ent.id,empName)?'Yes':'No',
+        employeeId:rosterRec.id,
         // JSON array in one cell. Survives commas, quotes and apostrophes in a name, which
         // a delimited list cannot do without an escaping scheme nobody will get right.
-        aliases:(()=>{const a=getAliases(ent.id,empName);return a.length?JSON.stringify(a):''})()
+        aliases:(()=>{const a=getAliases(ent.id,empName);return a.length?JSON.stringify(a):''})(),
+        active:isRosterActive(ent.id,empName)?'Yes':'No',
+        finalPassMethod:getFinalPassMethod(ent.id,empName),
+        notes:getRosterNotes(ent.id,empName)
       };
       if(includeBreaks){
         rec.defaultBreak=ent.breakMinutes||0;
@@ -4726,9 +4962,9 @@ function _gatherPayrollSettingsRows(includeBreaks){
     (ent.employees||[]).forEach(emp=>pushRow(emp.name,emp.name));
     // Flat-wage extras (off-schedule employees with explicit flat amount)
     Object.keys(flatWages).forEach(k=>{
-      const [entIdStr,nmLow]=k.split('|');
-      if(parseInt(entIdStr)!==ent.id)return;
-      const display=Object.keys(flatWagesDisplayNames).find(n=>n.toLowerCase().trim()===nmLow)||nmLow;
+      const rec=_recordForId(k);
+      if(!rec||rec.entity!==ent.id)return;
+      const display=rec.canonical_name||flatWagesDisplayNames[_aliasNorm(rec.canonical_name)]||k;
       pushRow(display,display);
     });
     // Orphans (clocked-in non-scheduled employees) — include so their settings round-trip
@@ -4759,7 +4995,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
   const hdr=ws.addRow(headers);
   hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};c.alignment={vertical:'middle'};});
   rows.forEach(r=>{
-    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.active,r.aliases];
+    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.employeeId,r.aliases,r.active,r.finalPassMethod,r.notes];
     if(includeBreaks){
       base.push(r.defaultBreak);
       for(let d=0;d<7;d++){
@@ -4775,7 +5011,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
     // and separators so the round-trip still parses.
     [3,5,7].forEach(ci=>{settingsRow.getCell(ci).numFmt=XL_FMT_MONEY});
   });
-  const baseW=[20,22,12,10,14,18,16,16,10,38];
+  const baseW=[20,22,12,10,14,18,16,16,14,38,10,20,28];
   const breakW=includeBreaks?[14,10,16,10,16,10,16,10,16,10,16,10,16,10,16]:[];
   const widths=baseW.concat(breakW);
   ws.columns.forEach((col,i)=>{col.width=widths[i]||14;});
@@ -4846,7 +5082,9 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     if(!entityName&&!empName)return;
     const ent=entByName.get(entityName.toLowerCase().trim());
     if(!ent){if(entityName)unmatchedEntities.add(entityName);skipped++;return;}
-    const k=wKey(ent.id,empName);
+    const employeeIdRaw=get(row,'employee id','employeeid','employee_id').trim();
+    const importedRecord=ensureRosterRecord(ent.id,empName,employeeIdRaw);
+    const k=importedRecord.id;
     const wageRaw=money(get(row,'wage/hour','wage'));
     const typeRaw=get(row,'type').trim().toLowerCase();
     const flatRaw=money(get(row,'flat amount','flat'));
@@ -4876,32 +5114,35 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
       const res=setAliases(ent.id,empName,list);
       if(res.rejected.length)aliasRejects.push(`${empName}: ${res.rejected.map(r=>r.reason).join('; ')}`);
     }
+    if(colMap['final pass method']!=null){
+      setFinalPassMethod(ent.id,empName,get(row,'final pass method').trim());
+    }
+    if(colMap['notes']!=null){
+      setRosterNotes(ent.id,empName,get(row,'notes').trim());
+    }
     // Wage
     if(wageRaw===''){
-      delete wageRates[k];
-      wageBlank[k]=true;
+      dispatch({type:'wageBlank',screen:'settings-import',target:{kind:'employee',entity:ent.id,id:k,field:'wage'},from:wageRates[k],to:null,meta:{empName}});
     }else{
       const n=parseFloat(wageRaw);
-      if(!isNaN(n)){wageRates[k]=n;delete wageBlank[k];}
+      if(!isNaN(n))dispatch({type:'wage',screen:'settings-import',target:{kind:'employee',entity:ent.id,id:k,field:'wage'},from:wageRates[k],to:n,meta:{empName}});
     }
     // Type / flat amount
     if(typeRaw==='flat'){
       const fn=parseFloat(flatRaw);
-      flatWages[k]=isNaN(fn)?0:fn;
-      flatWagesDisplayNames[empName.toLowerCase().trim()]=empName;
+      dispatch({type:'flatWage',screen:'settings-import',target:{kind:'employee',entity:ent.id,id:k,field:'flatWage'},from:flatWages[k],to:isNaN(fn)?0:fn,meta:{empName,displayName:empName}});
     }else if(typeRaw==='hourly'){
-      delete flatWages[k];
+      dispatch({type:'flatWage',screen:'settings-import',target:{kind:'employee',entity:ent.id,id:k,field:'flatWage'},from:flatWages[k],to:null,meta:{empName}});
     }
     // Pay method
     const m=_normalizePayMethod(methodRaw);
     if(m){
-      payMethod[k]=m;
-      if(m!=='both')delete splitAmounts[k];
+      setPayMethod(ent.id,empName,m);
     }
     // Deposit amount (only meaningful for 'both')
     if((m==='both'||(payMethod[k]==='both'&&!m))){
       if(depRaw===''){
-        delete splitAmounts[k];
+        clearSplitDeposit(ent.id,empName);
       }else{
         const dn=parseFloat(depRaw);
         if(!isNaN(dn)&&dn>=0){
@@ -4909,7 +5150,7 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
           if(depTypedAsRaw==='whole')isWhole=true;
           else if(depTypedAsRaw==='decimal')isWhole=false;
           else isWhole=!/\./.test(depRaw)||Math.abs(Math.round(dn)-dn)<1e-9;
-          splitAmounts[k]={deposit:dn,typed:true,isWhole};
+          setSplitDeposit(ent.id,empName,dn,{typed:true,isWhole});
         }
       }
     }
@@ -4919,7 +5160,7 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
       if(defBreakRaw!==''&&!defaultBreaksApplied.has(ent.id)){
         const dn=parseFloat(defBreakRaw);
         if(!isNaN(dn)&&dn>=0){
-          ent.breakMinutes=Math.round(dn);
+          dispatch({type:'entityBreak',screen:'settings-import',target:{kind:'entity',entity:ent.id,field:'breakMinutes'},from:ent.breakMinutes,to:Math.round(dn),meta:{confirmed:true}});
           ent.breakMinutesSet=true;
           defaultBreaksApplied.add(ent.id);
         }
@@ -4956,27 +5197,27 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
 }
 
 
-// Flat-wage extras: employees with a flat amount set in wageRates AS A NEGATIVE sentinel
-// Simpler approach: a parallel store `flatWages[wKey]` = amount.
-let flatWages={};
+// Flat-wage extras: employees with a flat amount set in the session's stable employee-id
+// keyed flatWages store.
 function getFlatWageRows(entityName){
   const entityIdx=entities.findIndex(e=>(e.name||('Entity '+(entities.indexOf(e)+1)))===entityName);
   if(entityIdx<0)return [];
   const ent=entities[entityIdx];
-  const schedNames=new Set(ent.employees.map(e=>e.name.toLowerCase().trim()));
+  const schedNames=new Set(ent.employees.map(e=>_aliasNorm(e.name)));
   const out=[];
   Object.keys(flatWages).forEach(k=>{
-    const [entId,nmLow]=k.split('|');
-    if(parseInt(entId)!==ent.id)return;
+    const rec=_recordForId(k);
+    if(!rec||rec.entity!==ent.id)return;
+    const nm=rec.canonical_name||flatWagesDisplayNames[_aliasNorm(rec.canonical_name)]||k;
+    const nmLow=_aliasNorm(nm);
     if(schedNames.has(nmLow))return; // already on the schedule; handled normally
     // Skip if already an orphan (appears in actuals)
-    const inActuals=(ent.actualDays||[]).some(d=>d.empName.toLowerCase().trim()===nmLow);
+    const inActuals=(ent.actualDays||[]).some(d=>_aliasNorm(d.empName)===nmLow);
     if(inActuals)return;
-    out.push({name:Object.keys(flatWagesDisplayNames).find(n=>n.toLowerCase().trim()===nmLow)||nmLow,isFlat:true,flatAmount:flatWages[k],wage:0,pay:flatWages[k],isOrphan:false,actualHours:0,expectedH:0,days:Array(7).fill({status:'off'})});
+    out.push({name:flatWagesDisplayNames[nmLow]||nm,isFlat:true,flatAmount:flatWages[k],wage:0,pay:flatWages[k],isOrphan:false,actualHours:0,expectedH:0,days:Array(7).fill({status:'off'})});
   });
   return out;
 }
-let flatWagesDisplayNames={}; // name -> name (case preserved)
 
 function collectAllFlags(allEntityResults){
   const out=[];

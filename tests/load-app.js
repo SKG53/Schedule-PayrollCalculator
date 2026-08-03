@@ -101,6 +101,7 @@ function loadApp() {
   const returnApi = `
     return {
       DAYS, DAY_SHORT,
+      session,
       entities,
       actualDays,
       wageRates,
@@ -114,6 +115,12 @@ function loadApp() {
       rosterAliases,
       PAYROLL_SETTINGS_HEADERS,
       PAYROLL_SETTINGS_BREAK_HEADERS,
+      setTestMode,
+      dispatch,
+      revert,
+      recompute,
+      ensureRosterRecord,
+      getRosterRecord,
       wKey,
       roundCash,
       roundDeposit,
@@ -139,6 +146,10 @@ function loadApp() {
       _ingestPayrollSettings,
       isRosterActive,
       setRosterActive,
+      getFinalPassMethod,
+      setFinalPassMethod,
+      getRosterNotes,
+      setRosterNotes,
       getAliases,
       setAliases,
       validateAlias,
@@ -174,6 +185,10 @@ function resetToSingleEntity(api, entity = {}) {
     intake: entity.intake ?? null,
   });
   api.actualDays.length = 0;
+  clearObject(api.session.roster.byId);
+  clearObject(api.session.roster.keyToId);
+  api.session.log.length = 0;
+  api.session.seq = 0;
   [
     api.wageRates,
     api.wageBlank,
