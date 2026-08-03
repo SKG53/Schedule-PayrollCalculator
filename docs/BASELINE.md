@@ -260,10 +260,15 @@ Others:
 11. *(Legacy aliases `exportPayroll`/`exportPayrollPdf`/`exportActualsExcel` map to
     the above.)*
 
-**Formatting: every currency value in every export is written as a pre-formatted
-text string (`'$' + n.toFixed(2)`), not a numeric cell with `$#,##0.00` format.**
-Hours are also strings via `.toFixed(2)`. This violates CLAUDE.md hard rule 5 —
-nothing can be summed in Excel. (§10 defect 4.)
+**Formatting: every currency and hours cell in every .xlsx export is a real number
+with a number format** — `$#,##0.00` for currency, `0.00` for hours, and
+`+$#,##0.00;-$#,##0.00` for the signed Diff columns. `rowFn` returns wrapper objects
+(`xlMoney` / `xlHours` / `xlMoneySigned`); `_exportExcel` unwraps to the raw value and
+applies `numFmt`, `_exportPdf` unwraps to display text. Absent values keep their `—` /
+blank placeholders, which `SUM` ignores. The Payroll Settings export carries
+`$#,##0.00` on Wage/hour, Flat Amount and Deposit Amount; its importer strips `$` and
+thousands separators so the round-trip still parses. The Manager Report's hours cells
+were already numeric and now carry `0.00`. PDFs remain rendered text by design.
 
 There is no deck export (BUILD_SPEC §7 is unbuilt), no entity fills, no numeric
 cross-check block.
@@ -343,9 +348,10 @@ cross-check block.
 > span-based hours, the mandatory-break floor, and additive MN merging. Do not
 > "fix" them. The MN overlap rule remains an open decision, not a defect.
 
-1. **All export currency/hours cells are text strings**, not numbers with
-   `$#,##0.00` format (every `rowFn`, `_writeActualsIntakeSheet`, subtotal/grand
-   rows). Violates CLAUDE.md hard rule 5; nothing is summable in Excel.
+1. ~~All export currency/hours cells are text strings.~~ **Fixed** — every `rowFn`,
+   subtotal and grand-total cell now writes a number with `$#,##0.00` / `0.00`.
+   See §7. (`_writeActualsIntakeSheet` was listed here in error: that sheet has no
+   currency or hours columns, and its Confidence cell was already numeric.)
 2. **Avg In/Out Diff columns in the Time Card Data export are always empty**
    (3955–3956): export reads `r.avgInDiffMin`/`r.avgOutDiffMin` but the compute
    sets `avgInDiff`/`avgOutDiff` (1678–1679). On-screen table is correct; the
@@ -374,8 +380,9 @@ cross-check block.
    `flatWages` — needs a live round-trip with a real settings file.
 9. **`collectAllFlags` is dead code** (4820) — the no-show/unsched/orphan/40 h+
    rollup is computed nowhere and shown nowhere.
-10. **Tests cannot run here:** both test files require Node.js, which is not
-    installed on this machine. `break_and_sort.test.js` also only *mirrors* the
+10. **Node.js is now installed** (v24.19.0, npm 11.17.0, `C:\Program Files\nodejs`,
+    on the user PATH as of 2026-08-03), so both test files run. There is still no
+    `package.json` and no runner. `break_and_sort.test.js` only *mirrors* the
     production helpers (drift risk); the smoke test loads the real code.
 11. **Weekly expected-break total overstates on short shifts:**
     `expectedBreakH = scheduledDays × mandBreak` charges a full break to every

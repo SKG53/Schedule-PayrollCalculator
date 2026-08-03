@@ -1345,6 +1345,7 @@ async function exportManager(){
     t2=Math.round(t2*100)/100;hRow.push(t2);
     const hr=ws.addRow(hRow);
     hr.eachCell((c,ci)=>{c.fill=hoursFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};
+      if(ci>1)c.numFmt=XL_FMT_HOURS;
       if(ci===1)c.font={name:'Arial',italic:true,size:10,color:{argb:'FF999999'}};
       else if(ci===9){c.font={name:'Arial',bold:true,size:11,color:{argb:t2>40?'FFC2410C':'FF444444'}};if(t2>40)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFEF2E8'}}}
       else c.font={name:'Arial',size:10,color:{argb:'FF444444'}}});
@@ -1352,7 +1353,7 @@ async function exportManager(){
   const gRow=['TOTAL'];let gt=0;
   for(let d=0;d<7;d++){let dt=0;ent.employees.forEach(emp=>dt+=calcHours(parseShift(emp.shifts[d])));gt+=dt;gRow.push(Math.round(dt*100)/100)}
   gRow.push(Math.round(gt*100)/100);
-  const gr=ws.addRow(gRow);gr.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:medB,bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
+  const gr=ws.addRow(gRow);gr.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:medB,bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};if(ci>1)c.numFmt=XL_FMT_HOURS});
   ws.getColumn(1).width=14;for(let c=2;c<=8;c++)ws.getColumn(c).width=22;ws.getColumn(9).width=14;
   const fname=(ent.name||'Entity')+'_Manager_Report.xlsx';
   downloadBlob(await ewb.xlsx.writeBuffer(),fname);
@@ -3836,6 +3837,27 @@ function _paytypeExportSortFn(a,b){
   return ra-rb;
 }
 
+// ---- Numeric export cells ----
+// Excel must receive real numbers with a number format so totals are summable
+// (CLAUDE.md hard rule 6). The PDF is a rendered document and still needs display text.
+// rowFn returns one of these wrappers for every currency/hours cell and a plain string
+// for everything else; each writer unwraps the way it needs to.
+const XL_FMT_MONEY='$#,##0.00';
+const XL_FMT_MONEY_SIGNED='+$#,##0.00;-$#,##0.00';
+const XL_FMT_HOURS='0.00';
+function _numCell(v,fmt,text){return {_num:true,v,fmt,text}}
+function xlMoney(n){const v=Math.round((n||0)*100)/100;return _numCell(v,XL_FMT_MONEY,'$'+v.toFixed(2))}
+function xlHours(n){const v=Math.round((n||0)*100)/100;return _numCell(v,XL_FMT_HOURS,v.toFixed(2))}
+// Signed money keeps the leading '+' the plain export has always shown on positive drift.
+function xlMoneySigned(n){const v=Math.round((n||0)*100)/100;return _numCell(v,XL_FMT_MONEY_SIGNED,(v>0?'+':'')+'$'+v.toFixed(2))}
+function _isNumCell(c){return !!(c&&c._num)}
+// Display text for a cell — used by the PDF writer and anywhere a string is required.
+function _cellText(c){return _isNumCell(c)?c.text:(c==null?'':c)}
+// Raw value for a cell — used by the Excel writer.
+function _cellValue(c){return _isNumCell(c)?c.v:c}
+// Applies the number format when the source cell carried one. Call inside eachCell.
+function _applyNumFmt(cell,src){if(_isNumCell(src))cell.numFmt=src.fmt}
+
 // ---- Table spec per kind ----
 function _columnsFor(kind){
   const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
@@ -3844,9 +3866,9 @@ function _columnsFor(kind){
       headers:['Entity','Employee','Method','Hours','Rate','Total','Cash Portion'],
       widths:[110,140,90,60,70,80,90],
       rowFn:(r)=>{
-        const hrs=r.isFlat?'':(hasActuals?(r.actualHours||0).toFixed(2):(r.expectedH||0).toFixed(2));
-        const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—'));
-        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Cash',hrs,rate,r._wageBlank?'':'$'+r._totalPay.toFixed(2),r._wageBlank?'':'$'+r._breakdown.cash.toFixed(2)];
+        const hrs=r.isFlat?'':xlHours(hasActuals?(r.actualHours||0):(r.expectedH||0));
+        const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?xlMoney(r.wage):'—'));
+        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Cash',hrs,rate,r._wageBlank?'':xlMoney(r._totalPay),r._wageBlank?'':xlMoney(r._breakdown.cash)];
       },
       numCols:[3,4,5,6],
       sortFn:_paytypeExportSortFn
@@ -3857,9 +3879,9 @@ function _columnsFor(kind){
       headers:['Entity','Employee','Method','Hours','Rate','Total','Deposit Portion'],
       widths:[110,140,90,60,70,80,100],
       rowFn:(r)=>{
-        const hrs=r.isFlat?'':(hasActuals?(r.actualHours||0).toFixed(2):(r.expectedH||0).toFixed(2));
-        const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—'));
-        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Deposit',hrs,rate,r._wageBlank?'':'$'+r._totalPay.toFixed(2),r._wageBlank?'':'$'+r._breakdown.deposit.toFixed(2)];
+        const hrs=r.isFlat?'':xlHours(hasActuals?(r.actualHours||0):(r.expectedH||0));
+        const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?xlMoney(r.wage):'—'));
+        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Deposit',hrs,rate,r._wageBlank?'':xlMoney(r._totalPay),r._wageBlank?'':xlMoney(r._breakdown.deposit)];
       },
       numCols:[3,4,5,6],
       sortFn:_paytypeExportSortFn
@@ -3870,22 +3892,22 @@ function _columnsFor(kind){
       headers:['Entity','Employee','Method','Hours','Rate','Actual Total','Deposit','Cash','Rounded Final','Diff'],
       widths:[100,130,90,60,60,80,70,70,90,60],
       rowFn:(r)=>{
-        const hrs=r.isFlat?'':(hasActuals?(r.actualHours||0).toFixed(2):(r.expectedH||0).toFixed(2));
-        const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?'$'+r.wage.toFixed(2):'—'));
+        const hrs=r.isFlat?'':xlHours(hasActuals?(r.actualHours||0):(r.expectedH||0));
+        const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?xlMoney(r.wage):'—'));
         const methodLbl=methodLabel(r._breakdown.method);
         const diff=r._breakdown.roundingDiff||0;
-        const diffStr=Math.abs(diff)>=0.005?(diff>0?'+':'')+'$'+diff.toFixed(2):'';
+        const diffCell=Math.abs(diff)>=0.005?xlMoneySigned(diff):'';
         return [
           r._entityName,
           r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),
           methodLbl,
           hrs,
           rate,
-          r._wageBlank?'':(r._totalPay>0?'$'+r._breakdown.actualFinal.toFixed(2):'—'),
-          r._breakdown.deposit>0?'$'+r._breakdown.deposit.toFixed(2):'—',
-          r._breakdown.cash>0?'$'+r._breakdown.cash.toFixed(2):'—',
-          r._breakdown.roundedFinal>0?'$'+r._breakdown.roundedFinal.toFixed(2):'—',
-          diffStr
+          r._wageBlank?'':(r._totalPay>0?xlMoney(r._breakdown.actualFinal):'—'),
+          r._breakdown.deposit>0?xlMoney(r._breakdown.deposit):'—',
+          r._breakdown.cash>0?xlMoney(r._breakdown.cash):'—',
+          r._breakdown.roundedFinal>0?xlMoney(r._breakdown.roundedFinal):'—',
+          diffCell
         ];
       },
       numCols:[3,4,5,6,7,8,9],
@@ -3898,11 +3920,11 @@ function _columnsFor(kind){
       widths:[90,120,70,70,70,70,60,70,70,80],
       rowFn:(r)=>{
         if(r.isFlat)return [r._entityName,r._empName+' (flat)','','','','','','','',''];
-        const expBreak=(r.expectedBreakH!=null?r.expectedBreakH:0).toFixed(2);
-        const actBreak=(r.actualBreakH!=null?r.actualBreakH:0).toFixed(2);
-        const expH=(r.expectedH||0).toFixed(2);
-        const actH=(r.actualHours||0).toFixed(2);
-        const diff=((r.actualHours||0)-(r.expectedH||0)).toFixed(2);
+        const expBreak=xlHours(r.expectedBreakH!=null?r.expectedBreakH:0);
+        const actBreak=xlHours(r.actualBreakH!=null?r.actualBreakH:0);
+        const expH=xlHours(r.expectedH||0);
+        const actH=xlHours(r.actualHours||0);
+        const diff=xlHours((r.actualHours||0)-(r.expectedH||0));
         const avgIn=r.avgInDiffMin!=null?(r.avgInDiffMin>0?'+':'')+r.avgInDiffMin.toFixed(0)+'m':'';
         const avgOut=r.avgOutDiffMin!=null?(r.avgOutDiffMin>0?'+':'')+r.avgOutDiffMin.toFixed(0)+'m':'';
         const ot=(r.actualHours||0)>40?'⚠ '+((r.actualHours-40).toFixed(2))+'h over':'';
@@ -3916,13 +3938,13 @@ function _columnsFor(kind){
       headers:['Entity','Employee','Actual Break','Actual Hrs','Wage/Flat','Mode','Method','Deposit','Cash','Actual Total','Rounded Final','Diff'],
       widths:[90,120,70,70,70,50,90,70,70,80,90,60],
       rowFn:(r)=>{
-        const actBreak=r.isFlat?'':(r.actualBreakH!=null?r.actualBreakH.toFixed(2):'0.00');
-        const actH=r.isFlat?'':(r.actualHours||0).toFixed(2);
-        const wageOrFlat=r._wageBlank?'':(r.isFlat?('$'+r.flatAmount.toFixed(2)):(r.wage>0?'$'+r.wage.toFixed(2):'—'));
+        const actBreak=r.isFlat?'':xlHours(r.actualBreakH!=null?r.actualBreakH:0);
+        const actH=r.isFlat?'':xlHours(r.actualHours||0);
+        const wageOrFlat=r._wageBlank?'':(r.isFlat?xlMoney(r.flatAmount):(r.wage>0?xlMoney(r.wage):'—'));
         const mode=r.isFlat?'Flat':'Hourly';
         const methodLbl=methodLabel(r._breakdown.method);
         const diff=r._breakdown.roundingDiff||0;
-        const diffStr=Math.abs(diff)>=0.005?(diff>0?'+':'')+'$'+diff.toFixed(2):'';
+        const diffCell=Math.abs(diff)>=0.005?xlMoneySigned(diff):'';
         return [
           r._entityName,
           r._empName+(r.isOrphan?' (orphan)':''),
@@ -3931,11 +3953,11 @@ function _columnsFor(kind){
           wageOrFlat,
           mode,
           methodLbl,
-          r._breakdown.deposit>0?'$'+r._breakdown.deposit.toFixed(2):'—',
-          r._breakdown.cash>0?'$'+r._breakdown.cash.toFixed(2):'—',
-          r._wageBlank?'':(r._breakdown.actualFinal>0?'$'+r._breakdown.actualFinal.toFixed(2):'—'),
-          r._breakdown.roundedFinal>0?'$'+r._breakdown.roundedFinal.toFixed(2):'—',
-          diffStr
+          r._breakdown.deposit>0?xlMoney(r._breakdown.deposit):'—',
+          r._breakdown.cash>0?xlMoney(r._breakdown.cash):'—',
+          r._wageBlank?'':(r._breakdown.actualFinal>0?xlMoney(r._breakdown.actualFinal):'—'),
+          r._breakdown.roundedFinal>0?xlMoney(r._breakdown.roundedFinal):'—',
+          diffCell
         ];
       },
       numCols:[2,3,4,7,8,9,10,11],
@@ -4004,10 +4026,11 @@ async function _exportExcel(kind){
       let entTotal=0,entHours=0;
       filtered.forEach(r=>{
         const vals=spec.rowFn(r);
-        const row=ws.addRow(vals);
+        const row=ws.addRow(vals.map(_cellValue));
         row.eachCell((cell,ci)=>{
           cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
           cell.border={bottom:thinB,left:thinB,right:thinB};cell.font={name:'Arial',size:10};
+          _applyNumFmt(cell,vals[ci-1]);
         });
         if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
         else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
@@ -4019,15 +4042,16 @@ async function _exportExcel(kind){
       subCells[0]=entityName+' subtotal';
       if(sectionKind==='timecard'){
         // For timecard, subtotal hours in actual hrs col (index 5)
-        subCells[5]=entHours.toFixed(2);
+        subCells[5]=xlHours(entHours);
       }else{
-        subCells[spec.headers.length-1]='$'+entTotal.toFixed(2);
+        subCells[spec.headers.length-1]=xlMoney(entTotal);
       }
-      const sub=ws.addRow(subCells);
+      const sub=ws.addRow(subCells.map(_cellValue));
       sub.eachCell((cell,ci)=>{
         cell.font={name:'Arial',bold:true,size:10};cell.fill=subtotalFill;
         cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
         cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
+        _applyNumFmt(cell,subCells[ci-1]);
       });
       grandTotal+=entTotal;grandHours+=entHours;
     });
@@ -4036,15 +4060,16 @@ async function _exportExcel(kind){
     const grandCells=new Array(spec.headers.length).fill('');
     grandCells[0]='GRAND TOTAL';
     if(sectionKind==='timecard'){
-      grandCells[5]=grandHours.toFixed(2);
+      grandCells[5]=xlHours(grandHours);
     }else{
-      grandCells[spec.headers.length-1]='$'+grandTotal.toFixed(2);
+      grandCells[spec.headers.length-1]=xlMoney(grandTotal);
     }
-    const g=ws.addRow(grandCells);
+    const g=ws.addRow(grandCells.map(_cellValue));
     g.eachCell((cell,ci)=>{
       cell.font={name:'Arial',bold:true,size:11};cell.fill=grandFill;
       cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
       cell.border={top:medB,bottom:medB,left:medB,right:medB};
+      _applyNumFmt(cell,grandCells[ci-1]);
     });
 
     // Column widths
@@ -4109,7 +4134,8 @@ async function _exportPdf(kind){
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
       let entTotal=0,entHours=0;
       filtered.forEach(r=>{
-        body.push(spec.rowFn(r));
+        // PDF is a rendered document — unwrap the numeric cells back to display text.
+        body.push(spec.rowFn(r).map(_cellText));
         if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
         else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
         else entTotal+=r._breakdown.final;
@@ -4118,9 +4144,9 @@ async function _exportPdf(kind){
       const subRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[240,239,233],fontStyle:'bold'}});
       subRow[0]={content:entityName+' subtotal',styles:{fillColor:[240,239,233],fontStyle:'bold'}};
       if(sectionKind==='timecard'){
-        subRow[5]={content:entHours.toFixed(2),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
+        subRow[5]={content:_cellText(xlHours(entHours)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
       }else{
-        subRow[spec.headers.length-1]={content:'$'+entTotal.toFixed(2),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
+        subRow[spec.headers.length-1]={content:_cellText(xlMoney(entTotal)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
       }
       body.push(subRow);
       grandTotal+=entTotal;grandHours+=entHours;
@@ -4129,9 +4155,9 @@ async function _exportPdf(kind){
     const grandRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[224,222,213],fontStyle:'bold'}});
     grandRow[0]={content:'GRAND TOTAL',styles:{fillColor:[224,222,213],fontStyle:'bold'}};
     if(sectionKind==='timecard'){
-      grandRow[5]={content:grandHours.toFixed(2),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
+      grandRow[5]={content:_cellText(xlHours(grandHours)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
     }else{
-      grandRow[spec.headers.length-1]={content:'$'+grandTotal.toFixed(2),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
+      grandRow[spec.headers.length-1]={content:_cellText(xlMoney(grandTotal)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
     }
     body.push(grandRow);
 
@@ -4595,7 +4621,11 @@ async function exportPayrollSettingsExcel(includeBreaks){
         base.push(day.status);
       }
     }
-    ws.addRow(base);
+    const settingsRow=ws.addRow(base);
+    // Wage/hour, Flat Amount and Deposit Amount are currency. They were already written as
+    // numbers; the format makes them read as money in Excel. The importer strips the symbol
+    // and separators so the round-trip still parses.
+    [3,5,7].forEach(ci=>{settingsRow.getCell(ci).numFmt=XL_FMT_MONEY});
   });
   const baseW=[20,22,12,10,14,18,16,16];
   const breakW=includeBreaks?[14,10,16,10,16,10,16,10,16,10,16,10,16,10,16]:[];
@@ -4647,6 +4677,10 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     for(const k of keys){const i=colMap[k];if(i!=null&&i>=0&&row[i]!=null)return row[i].toString();}
     return '';
   };
+  // Currency cells carry a $#,##0.00 format, so sheet_to_json({raw:false}) hands back
+  // '$1,200.00'. Strip the symbol and thousands separators before parsing. Also lets a
+  // hand-typed '$12.50' import instead of silently failing parseFloat.
+  const money=s=>(s||'').replace(/[$ ,\s]/g,'').trim();
   const entByName=new Map();
   entities.forEach(e=>{const k=(e.name||'').toLowerCase().trim();if(k)entByName.set(k,e);});
   let updated=0,skipped=0,unmatchedEntities=new Set();
@@ -4662,11 +4696,11 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     const ent=entByName.get(entityName.toLowerCase().trim());
     if(!ent){if(entityName)unmatchedEntities.add(entityName);skipped++;return;}
     const k=wKey(ent.id,empName);
-    const wageRaw=get(row,'wage/hour','wage').trim();
+    const wageRaw=money(get(row,'wage/hour','wage'));
     const typeRaw=get(row,'type').trim().toLowerCase();
-    const flatRaw=get(row,'flat amount','flat').trim();
+    const flatRaw=money(get(row,'flat amount','flat'));
     const methodRaw=get(row,'pay method','method');
-    const depRaw=get(row,'deposit amount','deposit').trim();
+    const depRaw=money(get(row,'deposit amount','deposit'));
     const depTypedAsRaw=get(row,'deposit typed as','deposit typed').trim().toLowerCase();
     // Wage
     if(wageRaw===''){
