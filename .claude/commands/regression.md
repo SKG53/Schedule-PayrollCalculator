@@ -33,7 +33,9 @@ Pass or fail per week, with exact deltas where any number moved.
 and stop.
 
 If a total moved because the change was *supposed* to move it, say so explicitly, explain
-why, and ask Sastry to confirm before updating the expected values in `docs/DOMAIN.md`.
+why, and ask Sastry to confirm before updating the expected values in
+`docs/REFERENCE_WEEKS.md`. That file is gitignored — never move real totals into a
+tracked file such as `docs/DOMAIN.md`.
 Never update the expected values silently — they are the only independent check that
 exists.
 

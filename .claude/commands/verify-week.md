@@ -11,8 +11,30 @@ Read `docs/DOMAIN.md` first for the calculation rules.
 
 **1. Recompute hours from intake.**
 
-For each employee-day, parse every IN/OUT pair. Sum the pairs. Add 24 hours where OUT ≤
-IN. Apply MN precedence only on overlap. Do not span from first IN to last OUT.
+Hours are **span-based**, not a sum of worked pairs. For each employee-day, parse every
+IN/OUT pair, adding 24 hours where OUT ≤ IN (overnight), then:
+
+```
+workedH          = sum of all IN/OUT pairs
+spanH            = last OUT − first IN
+actualBreakH     = max(0, spanH − workedH)             // observed gap between pairs
+effectiveBreakH  = max(mandatoryBreakH, actualBreakH)  // mandatory acts as a FLOOR
+billableH        = max(0, spanH − effectiveBreakH)
+```
+
+Do **not** substitute a plain sum of worked pairs — it diverges from the tool wherever
+the floor fires, and the divergence is expected, not a defect.
+
+The mandatory break is a per-entity user setting. A per-day override — including 0 —
+is exact and bypasses the floor entirely. Use the values configured for the week being
+reconciled; never assume a default.
+
+Merge all sources **additively**. Every approved row for the same employee and date
+contributes its pairs regardless of TC/EC/MN origin. There is no overlap-supersede rule
+— do not apply one.
+
+Note that EasyClocking's own daily total is a plain sum of worked time and will differ
+from the tool wherever the floor fires. That is not a discrepancy.
 
 **2. Compare against the report.**
 
