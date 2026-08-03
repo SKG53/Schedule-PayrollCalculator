@@ -244,7 +244,7 @@ Payroll group (6 kinds × Excel + PDF, `_exportExcel`/`_exportPdf`; single sheet
 1. **Cash-Only Report** — rows with method cash or both; Cash Portion column; grouped Cash→Both→Deposit.
 2. **Deposit-Only Report** — method deposit or both; Deposit Portion column.
 3. **Combined Report** — all rows; Method/Hours/Rate/Actual Total/Deposit/Cash/Rounded Final/Diff.
-4. **Time Card Data** — expected vs actual break/hours, diff, avg in/out (always blank — §10 defect 5), OT flag.
+4. **Time Card Data** — expected vs actual break/hours, diff, avg in/out (signed minutes), OT flag.
 5. **Payroll Calculation** — break, hours, wage/flat, mode, method, deposit, cash, totals, diff.
 6. **Full Report** — Time Card Data + Payroll Calculation stacked in one sheet/page.
 
@@ -352,10 +352,11 @@ cross-check block.
    subtotal and grand-total cell now writes a number with `$#,##0.00` / `0.00`.
    See §7. (`_writeActualsIntakeSheet` was listed here in error: that sheet has no
    currency or hours columns, and its Confidence cell was already numeric.)
-2. **Avg In/Out Diff columns in the Time Card Data export are always empty**
-   (3955–3956): export reads `r.avgInDiffMin`/`r.avgOutDiffMin` but the compute
-   sets `avgInDiff`/`avgOutDiff` (1678–1679). On-screen table is correct; the
-   export column is dead.
+2. ~~Avg In/Out Diff columns in the Time Card Data export are always empty.~~
+   **Fixed** — the export now reads `avgInDiff`/`avgOutDiff`, the names the
+   compute actually sets. Rendered as signed minutes (`+12m` / `-10m`), blank when
+   the employee has no scheduled shift to compare against (orphans included).
+   The on-screen table uses its own prose wording (`12m late`) and is unchanged.
 3. **No minimum-coverage validation** — the domain's core schedule check (3 staff
    during open hours) is absent; only overstaffing is flagged, with hard-coded
    thresholds that don't match documented store hours.

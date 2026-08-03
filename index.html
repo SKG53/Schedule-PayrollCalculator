@@ -3925,8 +3925,10 @@ function _columnsFor(kind){
         const expH=xlHours(r.expectedH||0);
         const actH=xlHours(r.actualHours||0);
         const diff=xlHours((r.actualHours||0)-(r.expectedH||0));
-        const avgIn=r.avgInDiffMin!=null?(r.avgInDiffMin>0?'+':'')+r.avgInDiffMin.toFixed(0)+'m':'';
-        const avgOut=r.avgOutDiffMin!=null?(r.avgOutDiffMin>0?'+':'')+r.avgOutDiffMin.toFixed(0)+'m':'';
+        // computePayrollForEntity sets avgInDiff/avgOutDiff (integer minutes, already
+        // rounded). This read the non-existent *Min names, so both columns were always blank.
+        const avgIn=r.avgInDiff!=null?(r.avgInDiff>0?'+':'')+r.avgInDiff.toFixed(0)+'m':'';
+        const avgOut=r.avgOutDiff!=null?(r.avgOutDiff>0?'+':'')+r.avgOutDiff.toFixed(0)+'m':'';
         const ot=(r.actualHours||0)>40?'⚠ '+((r.actualHours-40).toFixed(2))+'h over':'';
         return [r._entityName,r._empName+(r.isOrphan?' (orphan)':''),expBreak,expH,actBreak,actH,diff,avgIn,avgOut,ot];
       },
