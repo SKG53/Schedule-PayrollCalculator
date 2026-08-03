@@ -1,0 +1,24 @@
+# Real payroll data — never commit
+docs/REFERENCE_WEEKS.md
+
+# Local intake, settings and output files
+*.xlsx
+*.xls
+*.csv
+*.pdf
+data/
+intake/
+exports/
+timecards/
+settings/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/settings.local.json
