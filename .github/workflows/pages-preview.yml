@@ -1,0 +1,54 @@
+name: Deploy Pages preview
+
+on:
+  push:
+    branches:
+      - tool-v2
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Checkout tool-v2
+        uses: actions/checkout@v4
+        with:
+          ref: tool-v2
+          path: tool-v2
+
+      - name: Assemble Pages site
+        run: |
+          set -euo pipefail
+          mkdir -p site/tool-v2
+          cp main/index.html site/index.html
+          cp tool-v2/index.html site/tool-v2/index.html
+          touch site/.nojekyll
+
+      - name: Publish gh-pages branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd site
+          git init
+          git checkout -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Deploy GitHub Pages preview"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin gh-pages
