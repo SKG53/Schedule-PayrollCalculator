@@ -88,7 +88,8 @@ test('settings row gather uses real active and alias state', () => {
 
   const withoutBreaks = api._gatherPayrollSettingsRows(false);
   assert.equal(withoutBreaks.length, 1);
-  assert.match(withoutBreaks[0].employeeId, /^e[0-9a-f]{8}$/);
+  // FC-00007: employee IDs are now visible EMP_<ENTITY3>_NNNNN, minted per-entity.
+  assert.match(withoutBreaks[0].employeeId, /^EMP_[A-Z0-9]{3}_\d{5}$/);
   assert.equal(withoutBreaks[0].active, 'No');
   assert.equal(withoutBreaks[0].aliases, '["Alicia"]');
   assert.equal(withoutBreaks[0].finalPassMethod, 'Contract Check');

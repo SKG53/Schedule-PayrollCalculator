@@ -561,6 +561,7 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
       <button class="active" onclick="setView('employee')">Employee View</button>
       <button onclick="setView('manager')">Manager View</button>
     </div>
+    <div id="schedDupBanner"></div>
     <div class="sched-table-wrap" id="schedWrap"><table class="sched" id="schedTable"></table></div>
     <h2 id="calHeading" style="display:none;font-size:18px;font-weight:600;margin-bottom:10px">Calendar View</h2>
     <div class="cal-wrapper" id="calWrapper"><div class="cal-grid" id="calGrid"></div></div>
@@ -655,8 +656,20 @@ const BIZ_START=7,BIZ_END=23,OT_THRESHOLD=40;
 // page load and is never persisted to localStorage. Values that must survive weeks
 // round-trip through exported settings files instead.
 function _emptyEntity(){
-  return{id:0,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]};
+  return{id:0,name:'',code:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]};
 }
+// FC-00007: hardcoded 3-char entity codes for the known entities; anything else falls back
+// to the first 3 alphanumeric letters of the name, uppercased. Recomputed on every name edit
+// so `ent.code` is always in sync — it feeds the visible EMP_<CODE>_NNNNN id format.
+function _resolveEntityCode(name){
+  const n=(name||'').toLowerCase();
+  if(n.includes('nirvana'))return'N11';
+  if(n.includes('zion'))return'ZIO';
+  if(n.includes('hefner'))return'HEF';
+  const letters=(name||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase();
+  return(letters.slice(0,3)||'ENT').padEnd(3,'X');
+}
+function _syncEntityCode(ent){ent.code=_resolveEntityCode(ent.name);return ent.code}
 let _testMode=false;
 function setTestMode(v){_testMode=!!v}
 function _isUserIntentStore(name){return['wageRates','wageBlank','payMethod','splitAmounts','flatWages','breakOverrides','rosterActive','rosterAliases','payrollSortMode'].includes(name)}
@@ -743,16 +756,31 @@ let flatWages=session.flatWages;
 let flatWagesDisplayNames=session.flatWagesDisplayNames; // name -> name (case preserved)
 
 function _rosterKey(entId,name){return entId+'|'+_aliasNorm(name)}
-function _mintEmployeeId(){
+// FC-00007: visible, stable IDs of the form EMP_<CODE>_NNNNN (5-digit, per-entity counter).
+// The old 'e' + 8 hex chars format stays *recognized* on import for backward-compat, but any
+// touch (mint or rename) migrates the record to the new format via _migrateAllLegacyIds().
+const OLD_EMP_ID_RE=/^e[0-9a-f]{8}$/i;
+const NEW_EMP_ID_RE=/^EMP_[A-Z0-9]{3}_\d{5}$/;
+function _entityCodeFor(entId){
+  const ent=entities.find(e=>e.id===entId);
+  if(!ent)return'ENT';
+  if(!ent.code)_syncEntityCode(ent);
+  return ent.code||'ENT';
+}
+function _mintEmployeeId(entId){
+  const code=_entityCodeFor(entId);
+  session._empIdSeq=session._empIdSeq||{};
+  let n=session._empIdSeq[code]||0;
   let id;
-  do{id='e'+Math.floor(Math.random()*0x100000000).toString(16).padStart(8,'0')}while(session.roster.byId[id]);
+  do{n++;id=`EMP_${code}_${String(n).padStart(5,'0')}`;}while(session.roster.byId[id]);
+  session._empIdSeq[code]=n;
   return id;
 }
 function ensureRosterRecord(entId,empName,existingId){
   const canonical=(empName||'').toString().trim();
   const key=_rosterKey(entId,canonical);
-  let id=existingId&&/^e[0-9a-f]{8}$/i.test(existingId)?existingId:session.roster.keyToId[key];
-  if(!id)id=_mintEmployeeId();
+  let id=existingId&&(OLD_EMP_ID_RE.test(existingId)||NEW_EMP_ID_RE.test(existingId))?existingId:session.roster.keyToId[key];
+  if(!id)id=_mintEmployeeId(entId);
   let rec=session.roster.byId[id];
   if(!rec){
     rec={id,canonical_name:canonical,entity:entId,aliases:[],rate:null,pay_method:'deposit',final_pass_method:'',deposit_amount:null,flat_amount:null,active:true,notes:''};
@@ -765,9 +793,153 @@ function ensureRosterRecord(entId,empName,existingId){
     rec.canonical_name=canonical;
   }
   session.roster.keyToId[key]=id;
+  // Any touch of an old-format record migrates it to the new visible-ID format in place.
+  if(OLD_EMP_ID_RE.test(rec.id))_migrateRecordId(rec);
   return rec;
 }
+// Reassigns a single legacy-ID roster record to a freshly minted EMP_<CODE>_NNNNN id and
+// re-keys every store that uses the old id, so nothing silently loses its wage/pay-method/etc.
+function _migrateRecordId(rec){
+  const oldId=rec.id;
+  if(!OLD_EMP_ID_RE.test(oldId))return oldId;
+  const newId=_mintEmployeeId(rec.entity);
+  _withSessionMutation(()=>{
+    rec.id=newId;
+    delete session.roster.byId[oldId];
+    session.roster.byId[newId]=rec;
+    Object.keys(session.roster.keyToId).forEach(k=>{if(session.roster.keyToId[k]===oldId)session.roster.keyToId[k]=newId;});
+    const keyedStores=[wageRates,payMethod,splitAmounts,wageBlank,breakOverrides,rosterActive,rosterAliases,flatWages];
+    keyedStores.forEach(store=>{
+      if(store&&Object.prototype.hasOwnProperty.call(store,oldId)){
+        const v=store[oldId];delete store[oldId];store[newId]=v;
+      }
+      // Break overrides are keyed `${empId}|${day}` — migrate every day suffix too.
+      if(store===breakOverrides){
+        Object.keys(store).forEach(k=>{
+          if(k.indexOf(oldId+'|')===0){
+            const suffix=k.slice(oldId.length);
+            store[newId+suffix]=store[k];delete store[k];
+          }
+        });
+      }
+    });
+    if(payrollSortMode&&Object.prototype.hasOwnProperty.call(payrollSortMode,oldId)){
+      payrollSortMode[newId]=payrollSortMode[oldId];delete payrollSortMode[oldId];
+    }
+  });
+  return newId;
+}
+// One-pass migration for session load: walks every roster record once, migrating any that
+// still carry the old hex-suffix id. Safe to call repeatedly (no-op once everything is new).
+function migrateLegacyEmployeeIds(){
+  let migrated=0;
+  Object.keys(session.roster.byId).slice().forEach(id=>{
+    if(OLD_EMP_ID_RE.test(id)){_migrateRecordId(session.roster.byId[id]);migrated++;}
+  });
+  return migrated;
+}
 function getRosterRecord(entId,empName){return ensureRosterRecord(entId,empName)}
+// FC-00007: duplicate-name detection. Two roster records in the SAME entity whose
+// canonical names normalize equal are a duplicate pair — same name across DIFFERENT
+// entities is fine (Robert @ Nirvana and Robert @ Hefner do not collide).
+function _duplicateGroupsForEntity(entId){
+  const byNorm=new Map();
+  Object.keys(session.roster.byId).forEach(id=>{
+    const rec=session.roster.byId[id];
+    if(!rec||rec.entity!==entId)return;
+    const norm=_aliasNorm(rec.canonical_name);
+    if(!norm)return;
+    if(!byNorm.has(norm))byNorm.set(norm,[]);
+    byNorm.get(norm).push(rec);
+  });
+  return[...byNorm.values()].filter(g=>g.length>1);
+}
+function hasDuplicateNames(entId){return _duplicateGroupsForEntity(entId).length>0}
+// Returns the {id,name} entities that currently have at least one duplicate-name pair,
+// for banners/export-block messages that need to name the offending entities.
+function getDuplicateEntities(){
+  return entities.filter(e=>hasDuplicateNames(e.id)).map(e=>({id:e.id,name:e.name||('Entity '+(entities.indexOf(e)+1))}));
+}
+function anyDuplicateNames(){return entities.some(e=>hasDuplicateNames(e.id))}
+// True if this specific employee (by entity+name) is part of a duplicate-name group in
+// their entity — used to render the inline red flag next to their row.
+function isDuplicateNameFor(entId,empName){
+  const norm=_aliasNorm(empName);
+  if(!norm)return false;
+  return _duplicateGroupsForEntity(entId).some(g=>g.some(rec=>_aliasNorm(rec.canonical_name)===norm));
+}
+function _duplicateEntityNameList(){return getDuplicateEntities().map(e=>e.name).join(', ')}
+// ---- FC-00007 shared UI bits: duplicate flag, duplicate banner, id suffix, rename ----
+function _dupFlagHtml(entId,empName){
+  if(!isDuplicateNameFor(entId,empName))return'';
+  return`<span class="dup-name-flag" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:#FEE;color:#B91C1C;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap">\u26A0 Duplicate name \u2014 resolve before export</span>`;
+}
+// Persistent, non-dismissing banner for the top of any page with duplicates in scope.
+function _dupBannerHtml(){
+  const dupEnts=getDuplicateEntities();
+  if(dupEnts.length===0)return'';
+  const names=dupEnts.map(e=>escHtml(e.name)).join(', ');
+  return`<div class="dup-banner" style="background:#FEE;color:#B91C1C;border:1px solid #B91C1C;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-weight:600;font-size:13px">\u26A0 Duplicate employee names in ${names} \u2014 exports blocked until resolved.</div>`;
+}
+// "Name \u00b7 EMP_XXX_NNNNN" suffix for non-table displays (headings, flag lists, alerts).
+function _nameWithId(entId,empName){
+  const id=_employeeIdFor(entId,empName);
+  return `${empName||'(unnamed)'} \u00b7 ${id}`;
+}
+// Shared inline-rename flow used by every click-to-edit entry point and the Roster panel
+// modal button. Confirms, then commits through the existing rosterRename dispatcher so
+// identity (the employee id) never changes — only the display label does.
+function renameEmployeeViaDispatcher(entId,oldName,newName,screen){
+  const from=(oldName||'').trim(),to=(newName||'').trim();
+  if(!to||_aliasNorm(from)===_aliasNorm(to))return false;
+  if(!confirm(`Rename '${from}' \u2192 '${to}'? This updates all pages and exports.`))return false;
+  dispatch({type:'rosterRename',screen:screen||'payroll',target:{kind:'employee',entity:entId,id:wKey(entId,from),field:'canonical_name'},from,to,meta:{empName:from}});
+  return true;
+}
+// Click-to-edit name cell shared by Schedules(read-only tables)/Actuals Intake/Payroll/Roster.
+// Renders the name as a span; clicking swaps it for a text input pre-filled with the
+// current name. Enter/blur commits via renameEmployeeViaDispatcher (which confirms first);
+// Esc cancels and restores the plain span. Re-renders the owning page's table on commit.
+function inlineEditableNameHtml(entId,empName,screen,rerenderFn){
+  const uid='nmedit_'+Math.random().toString(36).slice(2,9);
+  window._fc7Rerender=window._fc7Rerender||{};
+  window._fc7Rerender[uid]=rerenderFn;
+  return `<span class="editable-name" id="${uid}" data-ent="${entId}" data-name="${escHtml(empName)}" data-screen="${screen}" onclick="_fc7StartNameEdit('${uid}')" title="Click to rename" style="cursor:pointer;border-bottom:1px dashed var(--text3)">${escHtml(empName||'(unnamed)')}</span>`;
+}
+// DoD #5: dedicated "Rename Employee" action (Roster panel = payrollCalc table in this app).
+// The codebase has no generic modal component, so this reuses the existing prompt()/confirm()
+// browser-dialog pattern already used elsewhere (e.g. deleteEmployee-adjacent flows) rather than
+// building new modal infrastructure just for this button.
+function openRenameEmployeeModal(entId,empName){
+  const to=prompt(`Rename employee '${empName}' to:`,empName);
+  if(to==null)return false;
+  const ok=renameEmployeeViaDispatcher(entId,empName,to,'payroll');
+  if(ok)renderPayroll();
+  return ok;
+}
+function _fc7StartNameEdit(uid){
+  const span=document.getElementById(uid);if(!span)return;
+  const entId=parseInt(span.dataset.ent),name=span.dataset.name,screen=span.dataset.screen;
+  const input=document.createElement('input');
+  input.type='text';input.value=name;input.className='name-edit-input';
+  input.style.cssText='font:inherit;width:120px;padding:1px 4px';
+  const commit=()=>{
+    const val=input.value.trim();
+    if(val&&val!==name)renameEmployeeViaDispatcher(entId,name,val,screen);
+    const fn=window._fc7Rerender&&window._fc7Rerender[uid];
+    if(fn)fn();else if(screen==='schedule')renderTable(activeEntityIdx);else if(screen==='payroll')renderPayroll();else if(screen==='intake')renderIntake();
+  };
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();commit();}
+    else if(e.key==='Escape'){e.preventDefault();
+      const fn=window._fc7Rerender&&window._fc7Rerender[uid];
+      if(fn)fn();else if(screen==='schedule')renderTable(activeEntityIdx);else if(screen==='payroll')renderPayroll();else if(screen==='intake')renderIntake();
+    }
+  });
+  input.addEventListener('blur',commit);
+  span.replaceWith(input);
+  input.focus();input.select();
+}
 function _recordForId(id){return session.roster.byId[id]||null}
 function _recordForKey(entId,empName){return session.roster.byId[session.roster.keyToId[_rosterKey(entId,empName)]]||null}
 function _employeeIdFor(entId,empName){return ensureRosterRecord(entId,empName).id}
@@ -1172,7 +1344,7 @@ function syncEntityHeader(){
 
 function saveEntityHeaderState(){
   const ent=entities[activeEntityIdx];
-  ent.name=(document.getElementById('entityNameInput').value||'').trim();
+  ent.name=(document.getElementById('entityNameInput').value||'').trim();_syncEntityCode(ent);
 }
 
 function switchEntity(idx){
@@ -1189,7 +1361,7 @@ function switchEntity(idx){
 function addEntity(){
   saveEntityHeaderState();
   readTableState();
-  entities.push({id:nextEntityId++,name:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]});
+  entities.push({id:nextEntityId++,name:'',code:'',employees:[],dateLabels:['','','','','','',''],newDateLabels:['','','','','','',''],newWeekStartVal:'',breakMinutes:0,breakMinutesSet:false,actualDays:[]});
   activeEntityIdx=entities.length-1;
   activeEmp=null;
   renderEntityTabBar();
@@ -1209,9 +1381,10 @@ function removeEntity(){
 
 function onEntityNameInput(val){
   entities[activeEntityIdx].name=val.trim();
+  _syncEntityCode(entities[activeEntityIdx]);
   renderEntityTabBar();
 }
-function onEntityNameChange(val){entities[activeEntityIdx].name=val.trim();renderEntityTabBar();}
+function onEntityNameChange(val){entities[activeEntityIdx].name=val.trim();_syncEntityCode(entities[activeEntityIdx]);renderEntityTabBar();}
 
 function renderScheduleContent(){
   const ent=entities[activeEntityIdx];
@@ -1391,6 +1564,10 @@ function readTableState(){
     if(!name)return;
     if(oldName&&name&&_aliasNorm(oldName)!==_aliasNorm(name)){
       const ent=entities[activeEntityIdx];
+      // FC-00007: a plain schedule-table edit still renames (no confirm here — this input
+      // is the free-typing schedule cell, not the dedicated click-to-edit affordance). The
+      // dedicated inline click-to-edit control (startNameEdit/commitNameEdit) below is what
+      // shows the confirm dialog for the DoD's rename entry points.
       dispatch({type:'rosterRename',screen:'schedule',target:{kind:'employee',entity:ent.id,id:wKey(ent.id,oldName),field:'canonical_name'},from:oldName,to:name,meta:{empName:oldName}});
     }else if(name){
       const ent=entities[activeEntityIdx];
@@ -1419,20 +1596,24 @@ function renderTable(idx){
   const table=document.getElementById('schedTable');
   document.getElementById('schedWrap').style.display='block';
   const nl=ent.newDateLabels;
-  let html='<thead><tr><th style="border-right:2px solid #999">Name</th>';
+  const dupBanner=document.getElementById('schedDupBanner');
+  if(dupBanner)dupBanner.innerHTML=_dupBannerHtml();
+  let html='<thead><tr><th style="border-right:2px solid #999">Name</th><th style="border-right:2px solid #999">Employee ID</th>';
   for(let d=0;d<7;d++)html+=`<th>${DAYS[d]}</th>`;
-  html+='</tr><tr><th class="date-row" style="border-right:2px solid #999"></th>';
+  html+='</tr><tr><th class="date-row" style="border-right:2px solid #999"></th><th class="date-row" style="border-right:2px solid #999"></th>';
   for(let d=0;d<7;d++)html+=`<th class="date-row">${nl[d]||''}</th>`;
   html+='</tr></thead><tbody>';
   ent.employees.forEach((emp,ei)=>{
-    html+=`<tr data-emp-idx="${ei}"><td class="name-cell"><input class="name-input" value="${escHtml(emp.name)}" onchange="onTableChange()" style="border:none;background:transparent;font-weight:600;font-size:13px;text-align:center;width:calc(100% - 20px);font-family:Outfit,sans-serif"><button class="del-btn" onclick="deleteEmployee(${ei})" title="Remove">×</button></td>`;
+    const empId=emp.name?_employeeIdFor(ent.id,emp.name):'';
+    html+=`<tr data-emp-idx="${ei}"><td class="name-cell"><input class="name-input" value="${escHtml(emp.name)}" onchange="onTableChange()" style="border:none;background:transparent;font-weight:600;font-size:13px;text-align:center;width:calc(100% - 20px);font-family:Outfit,sans-serif"><button class="del-btn" onclick="deleteEmployee(${ei})" title="Remove">×</button>${_dupFlagHtml(ent.id,emp.name)}</td>`;
+    html+=`<td class="name-cell emp-id-cell" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3);text-align:center">${empId}</td>`;
     for(let d=0;d<7;d++){
       const raw=emp.shifts[d];const shift=parseShift(raw);
       html+=`<td class="shift-cell"><input class="shift-input ${!shift?'off-val':'shift-val'}" value="${escHtml(raw)}" data-day="${d}" onchange="onTableChange()" oninput="styleInput(this)"></td>`;
     }
     html+='</tr>';
     if(currentView==='manager'){
-      html+=`<tr class="hours-row"><td class="hours-cell" style="border-right:2px solid #999;font-style:italic;color:var(--text3);font-size:10px">Hours</td>`;
+      html+=`<tr class="hours-row"><td class="hours-cell" style="border-right:2px solid #999;font-style:italic;color:var(--text3);font-size:10px">Hours</td><td class="hours-cell" style="border-right:2px solid #999"></td>`;
       for(let d=0;d<7;d++){const h=calcHours(parseShift(emp.shifts[d]));html+=`<td class="hours-cell">${h>0?h.toFixed(1):''}</td>`}
       html+='</tr>';
     }
@@ -1614,7 +1795,16 @@ function renderCalendar(idx){
 // ================================================================
 // SCHEDULE EXPORTS
 // ================================================================
+// FC-00007: shared export gate. Every export entry point calls this first; if any entity
+// has a duplicate employee name, refuse and toast instead of producing a file.
+function _blockExportIfDuplicates(){
+  if(!anyDuplicateNames())return false;
+  const list=_duplicateEntityNameList();
+  showToast(`Cannot export \u2014 duplicate employee names in ${list}. Rename to resolve.`,'err');
+  return true;
+}
 async function exportEmployee(){
+  if(_blockExportIfDuplicates())return;
   readTableState();
   const ent=entities[activeEntityIdx];
   const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Employee Schedule');
@@ -1636,6 +1826,7 @@ async function exportEmployee(){
 }
 
 async function exportManager(){
+  if(_blockExportIfDuplicates())return;
   readTableState();
   const ent=entities[activeEntityIdx];
   const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Manager Report');
@@ -2092,6 +2283,7 @@ function renderPayrollEntityContent(idx){
   const activeSub=activePayrollSubTab[idx]||'timecard';
 
   container.innerHTML=`
+    ${_dupBannerHtml()}
     <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px;flex-wrap:wrap">
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
@@ -2341,14 +2533,17 @@ function renderPayrollGrid(rows,ent,hasActuals){
   const table=document.getElementById('payrollGrid');if(!table)return;
   // Use the original schedule week dates; actuals are filtered against dateLabels too.
   const dLabels=ent.dateLabels;
-  let html='<thead><tr><th style="border-right:2px solid #999">Name</th>';
+  let html='<thead><tr><th style="border-right:2px solid #999">Name</th><th style="border-right:2px solid #999">Employee ID</th>';
   for(let d=0;d<7;d++)html+=`<th>${DAYS[d]}</th>`;
   html+='<th style="background:#DAD8D2">Weekly</th></tr><tr>';
-  html+='<th class="date-row" style="border-right:2px solid #999"></th>';
+  html+='<th class="date-row" style="border-right:2px solid #999"></th><th class="date-row" style="border-right:2px solid #999"></th>';
   for(let d=0;d<7;d++)html+=`<th class="date-row">${dLabels[d]||''}</th>`;
   html+='<th class="date-row" style="background:#DAD8D2"></th></tr></thead><tbody>';
   rows.forEach(r=>{
-    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell">${escHtml(r.name||'(unnamed)')}</td>`;
+    const keyName=r.schedName||r.name;
+    const empId=keyName?_employeeIdFor(ent.id,keyName):'';
+    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${_dupFlagHtml(ent.id,keyName)}</td>`;
+    html+=`<td class="name-cell emp-id-cell" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${empId}</td>`;
     for(let d=0;d<7;d++)html+=renderPayDayCell(r.days[d],r.isOrphan,hasActuals);
     const diff=r.actualHours-r.expectedH,absDiff=Math.abs(diff);
     // Blanket pay-centric rule: more hours = red, less hours = green (applied to the entire weekly cell)
@@ -2379,7 +2574,7 @@ function renderPayrollGrid(rows,ent,hasActuals){
 // ---- TIME CARD DATA sub-tab: name, expected break, expected hours, actual break, actual hours, diff, avg in/out, OT ----
 function renderTimeCardData(rows,hasActuals,ent){
   const table=document.getElementById('timecardDataTable');if(!table)return;
-  let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th>';
+  let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th><th style="border-right:2px solid #999">Employee ID</th>';
   html+='<th>Expected Break Hrs</th><th>Expected Hours</th>';
   if(hasActuals){
     html+='<th>Actual Break Hrs</th><th>Actual Hours</th><th>Difference</th>';
@@ -2398,7 +2593,10 @@ function renderTimeCardData(rows,hasActuals,ent){
       else if(diff>0){diffStr=`${abs.toFixed(2)}h More`;diffCls='diff-pos';}
       else{diffStr=`${abs.toFixed(2)}h Less`;diffCls='diff-neg';}
     }
-    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${escHtml(r.name||'(unnamed)')}</td>`;
+    const keyName=r.schedName||r.name;
+    const empId=keyName?_employeeIdFor(ent.id,keyName):'';
+    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${_dupFlagHtml(ent.id,keyName)}</td>`;
+    html+=`<td class="name-cell emp-id-cell" style="padding:8px 6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${empId}</td>`;
     html+=`<td class="num-cell" style="color:var(--text3)">${r.expectedBreakH.toFixed(2)}</td>`;
     html+=`<td class="num-cell" style="color:var(--text2)">${r.expectedH.toFixed(2)}</td>`;
     if(hasActuals){
@@ -2415,7 +2613,7 @@ function renderTimeCardData(rows,hasActuals,ent){
     }
     html+='</tr>';
   });
-  html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td>';
+  html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td><td class="name-cell"></td>';
   html+=`<td class="num-cell">${totExpBreak.toFixed(2)}</td><td class="num-cell">${totExp.toFixed(2)}</td>`;
   if(hasActuals){
     const tDiff=totAct-totExp,absT=Math.abs(tDiff);
@@ -2435,8 +2633,8 @@ function renderPayrollCalc(rows,hasActuals,ent){
   // here matches the _flatRows index used by setWage/setRowBreakOverride/etc.
   // Total columns = 11 (name + 10 data cols). Date labels for break-detail row chips.
   const dLabels=ent.dateLabels||['','','','','','',''];
-  const COLSPAN=12;
-  let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th>';
+  const COLSPAN=13;
+  let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th><th style="border-right:2px solid #999">Employee ID</th>';
   html+='<th style="width:58px" title="Unchecked employees are left out when a new schedule is uploaded. This week is unaffected.">Active</th>';
   html+='<th>Actual Break Hrs</th><th>Actual Hours</th>';
   html+='<th>Wage ($/hr)</th><th style="width:110px">Type</th>';
@@ -2454,7 +2652,12 @@ function renderPayrollCalc(rows,hasActuals,ent){
     }
 
     const rowActive=isRosterActive(ent.id,keyName);
-    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${escHtml(r.name||'(unnamed)')}</td>`;
+    const empId=keyName?_employeeIdFor(ent.id,keyName):'';
+    // FC-00007: the payroll-calc table doubles as the Roster panel — name is click-to-edit
+    // inline, and a dedicated "Rename" button gives the same flow via an explicit action.
+    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}
+      <button class="btn btn-small" onclick="openRenameEmployeeModal(${ent.id},'${escJs(keyName)}')" title="Rename Employee" style="margin-left:6px;font-size:10px;padding:2px 6px">Rename Employee</button>${_dupFlagHtml(ent.id,keyName)}</td>`;
+    html+=`<td class="name-cell emp-id-cell" style="padding:8px 6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${empId}</td>`;
     html+=`<td style="text-align:center;padding:6px"><input type="checkbox" ${rowActive?'checked':''} onchange="setRowActive(${i},this.checked)" title="${rowActive?'Active — will load with the next schedule':'Inactive — will not load with the next schedule'}" style="width:15px;height:15px;cursor:pointer"></td>`;
     html+=`<td class="num-cell" style="color:var(--text3)">${r.actualBreakH.toFixed(2)}</td>`;
     html+=`<td class="num-cell" style="color:var(--text2)">${r.actualHours.toFixed(2)}</td>`;
@@ -2562,7 +2765,7 @@ function renderPayrollCalc(rows,hasActuals,ent){
   });
   const totDiff=roundDeposit(totFinal-totActual);
   const totDiffStr=Math.abs(totDiff)>=0.005?(totDiff>0?'+':'')+'$'+totDiff.toFixed(2):'—';
-  html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td>';
+  html+='<tr class="total-row"><td class="name-cell" style="padding:8px 6px">TOTAL</td><td class="name-cell"></td>';
   html+=`<td></td><td></td><td></td><td></td><td></td><td></td>`;
   html+=`<td class="pay-cell">$${totDeposit.toFixed(2)}</td>`;
   html+=`<td class="pay-cell">$${totCash}</td>`;
@@ -2857,7 +3060,8 @@ function renderIntake(){
     return;
   }
   // Top-level toolbar: import a previously-exported Actuals Intake .xlsx to skip OCR
-  let html='<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px"><button class="btn" onclick="document.getElementById(\'actualsIntakeImportInput\').click()" title="Re-import a previously exported Actuals Intake .xlsx — restores approved rows so payroll can be calculated without redoing OCR" style="font-size:12px;padding:6px 14px">⤴ Import Actuals Intake (.xlsx)</button></div>';
+  let html=_dupBannerHtml();
+  html+='<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px"><button class="btn" onclick="document.getElementById(\'actualsIntakeImportInput\').click()" title="Re-import a previously exported Actuals Intake .xlsx — restores approved rows so payroll can be calculated without redoing OCR" style="font-size:12px;padding:6px 14px">⤴ Import Actuals Intake (.xlsx)</button></div>';
   entities.forEach((ent,idx)=>{
     ensureIntakeState(ent);
     const name=ent.name||('Entity '+(idx+1));
@@ -3662,7 +3866,7 @@ function renderReviewTableHtml(ent,idx){
     const b=buckets.get(n)||[];
     const needs=b.filter(r=>r.needsReview&&!r.approved).length;
     const active=n===activeKey?' active':'';
-    html+=`<button class="emp-subtab${active}" onclick="setEmpSubtab(${idx},'${escJs(n)}')" title="${escHtml(n)} — ${b.length} row${b.length===1?'':'s'}">${escHtml(n)}<span class="cnt">${b.length}</span>${needs>0?'<span class="warn-dot" title="'+needs+' need review"></span>':''}</button>`;
+    html+=`<button class="emp-subtab${active}" onclick="setEmpSubtab(${idx},'${escJs(n)}')" title="${escHtml(n)} — ${b.length} row${b.length===1?'':'s'}">${escHtml(n)}<span class="cnt">${b.length}</span>${needs>0?'<span class="warn-dot" title="'+needs+' need review"></span>':''}${_dupFlagHtml(ent.id,n)}</button>`;
   });
   const unrec=buckets.get('__unrecognized__')||[];
   const unrecActive=activeKey==='__unrecognized__'?' active':'';
@@ -3708,6 +3912,7 @@ function renderReviewTableHtml(ent,idx){
   html+='<th style="width:38px">Source</th>';
   html+='<th>Image</th>';
   html+='<th>Employee</th>';
+  html+='<th style="width:110px">Employee ID</th>';
   html+='<th style="width:56px">Day</th>';
   html+='<th>Date</th>';
   html+='<th>In 1</th><th>Out 1</th><th>In 2</th><th>Out 2</th>';
@@ -3751,6 +3956,15 @@ function renderReviewTableHtml(ent,idx){
       html+=`<option value="${escHtml(cur)}" selected>${escHtml(cur)} (not on schedule)</option>`;
     }
     html+='</select></td>';
+    // 3b. Employee ID + duplicate-name flag (only meaningful once the row is matched to a
+    // scheduled roster name; unmatched/OCR-only rows show a blank ID since they aren't a
+    // roster record yet).
+    if(effectiveMatchesSched){
+      const empId=_employeeIdFor(ent.id,effective);
+      html+=`<td class="emp-id-cell" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text3)">${empId}${_dupFlagHtml(ent.id,effective)}</td>`;
+    }else{
+      html+='<td class="emp-id-cell" style="font-size:10px;color:var(--text3)">\u2014</td>';
+    }
     // 4. Day of week (derived from date, read-only)
     const dayLbl=r.date?(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(r.date+'T00:00:00').getDay()]||''):'';
     html+=`<td style="text-align:center;font-size:11px;color:var(--text2);font-family:'IBM Plex Mono',monospace">${dayLbl}</td>`;
@@ -4339,6 +4553,7 @@ function _columnsFor(kind){
 
 // ---- Excel writer ----
 async function _exportExcel(kind){
+  if(_blockExportIfDuplicates())return;
   if(!_confirmBreaksOrBail())return;
   const data=_collectExportData();
   if(data.length===0){alert('No data to export.');return;}
@@ -4461,6 +4676,7 @@ async function _exportExcel(kind){
 
 // ---- PDF writer ----
 async function _exportPdf(kind){
+  if(_blockExportIfDuplicates())return;
   if(!_confirmBreaksOrBail())return;
   if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
   const {jsPDF}=window.jspdf;
@@ -4651,6 +4867,7 @@ function _writeActualsIntakeSheet(ws,rows,opts){
 }
 
 async function exportActualsIntakeExcel(){
+  if(_blockExportIfDuplicates())return;
   const all=_gatherActualsIntakeRows();
   if(all.length===0){showToast('No actuals data to export','err');return;}
   const ewb=new ExcelJS.Workbook();
@@ -4685,6 +4902,7 @@ async function exportActualsIntakeExcel(){
 }
 
 async function exportActualsIntakePdf(){
+  if(_blockExportIfDuplicates())return;
   if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
   const all=_gatherActualsIntakeRows();
   if(all.length===0){showToast('No actuals data to export','err');return;}
@@ -4982,6 +5200,7 @@ function _gatherPayrollSettingsRows(includeBreaks){
 }
 
 async function exportPayrollSettingsExcel(includeBreaks){
+  if(_blockExportIfDuplicates())return;
   const rows=_gatherPayrollSettingsRows(!!includeBreaks);
   if(rows.length===0){showToast('No employees to export settings for','err');return;}
   const ewb=new ExcelJS.Workbook();
@@ -5190,6 +5409,11 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     }
     updated++;
   });
+  // DoD #2: explicit one-pass migration sweep after a settings import (a full "session load"
+  // of employee data) — catches any old-format IDs left over from rows this pass didn't
+  // touch (e.g. imported into a differently-cased/matched entity than expected), on top of
+  // the per-touch auto-migration already happening via ensureRosterRecord above.
+  migrateLegacyEmployeeIds();
   if(currentTab==='payroll')renderPayroll();
   let msg=`Imported settings for ${updated} employee${updated===1?'':'s'}`;
   if(skipped>0)msg+=` · ${skipped} skipped`;
