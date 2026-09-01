@@ -174,6 +174,8 @@ function loadApp() {
       switchEntity,
       addEntity,
       renderPayrollEntityContent,
+      renderPayrollExportPreviewHtml,
+      renderFc00013PreviewPanel,
       actualDays,
       wageRates,
       wageBlank,
