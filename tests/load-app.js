@@ -114,7 +114,7 @@ function loadApp() {
 
   const sandbox = {
     document: fakeDoc,
-    window: { scrollX: 0, scrollY: 0, scrollTo: () => {} },
+    window: { scrollX: 0, scrollY: 0, scrollTo: () => {}, jspdf: null }, // .jspdf wired to sandbox.jspdf below
     console,
     setTimeout,
     clearTimeout,
@@ -151,12 +151,64 @@ function loadApp() {
       }
     },
     XLSX: { read: () => ({ SheetNames: [], Sheets: {} }), utils: { sheet_to_json: () => [] } },
-    jspdf: null,
+    jspdf: null, // replaced below with a real (recording) mock
     sessionStorage: { getItem: () => null, setItem: noop, removeItem: noop },
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
     navigator: {},
     location: { reload: noop },
   };
+  // FC-00015: _exportPdf drives jsPDF + the autoTable plugin directly (doc.autoTable(...)).
+  // The mock records every autoTable() call's options (most importantly `didParseCell`,
+  // which _exportPdf uses to paint per-entity palette fills) plus every simulated cell it
+  // parses through that hook, so tests can assert the exact fillColor applied per row/col
+  // without a real PDF renderer. `sandbox.__lastAutoTableCalls` accumulates one entry per
+  // doc.autoTable() call across the life of a single loaded app instance.
+  sandbox.__lastAutoTableCalls = [];
+  function makeJsPdfDoc(opts) {
+    const calls = sandbox.__lastAutoTableCalls;
+    const doc = {
+      __opts: opts,
+      internal: { pageSize: { getWidth: () => 792, getHeight: () => 612 } },
+      setFont: noop,
+      setFontSize: noop,
+      text: noop,
+      addPage: noop,
+      save: noop,
+      autoTable(tableOpts) {
+        // Simulate autoTable's own didParseCell invocation: for every head + body cell it
+        // calls the hook with a `data` object shaped like { section, row, column, cell }
+        // so _exportPdf's hook can inspect/mutate cell.styles.fillColor exactly as it would
+        // against the real plugin.
+        const parsedCells = [];
+        const invoke = (section, rowIndex, sourceRow) => {
+          (sourceRow || []).forEach((raw, colIndex) => {
+            const cell = {
+              raw,
+              styles: (raw && typeof raw === 'object' && raw.styles) ? Object.assign({}, raw.styles) : {},
+            };
+            const data = {
+              section,
+              row: { index: rowIndex, raw: sourceRow },
+              column: { index: colIndex },
+              cell,
+            };
+            if (typeof tableOpts.didParseCell === 'function') tableOpts.didParseCell(data);
+            parsedCells.push({ section, rowIndex, colIndex, fillColor: cell.styles.fillColor, fontStyle: cell.styles.fontStyle });
+          });
+        };
+        (tableOpts.head || []).forEach((r, i) => invoke('head', i, r));
+        (tableOpts.body || []).forEach((r, i) => invoke('body', i, r));
+        calls.push({ options: tableOpts, parsedCells });
+        doc.lastAutoTable = { finalY: (tableOpts.startY || 56) + 100 };
+        return doc;
+      },
+      lastAutoTable: { finalY: 56 },
+    };
+    return doc;
+  }
+  sandbox.jspdf = { jsPDF: function jsPDF(opts) { return makeJsPdfDoc(opts); } };
+  sandbox.window.jspdf = sandbox.jspdf; // _exportPdf reads window.jspdf.jsPDF, not the bare `jspdf` binding
+
   sandbox.global = sandbox;
   sandbox.globalThis = sandbox;
 
@@ -259,6 +311,14 @@ function loadApp() {
       exportCombinedExcel,
       exportTimecardExcel,
       exportPayrollCalcExcel,
+      _exportPdf,
+      exportCashPdf,
+      exportDepositPdf,
+      exportCombinedPdf,
+      exportTimecardPdf,
+      exportPayrollCalcPdf,
+      exportFullPdf,
+      _argbToRgbTriplet,
       FC12_PALETTES,
       _fc12PaletteFor,
       _applyEntityPalette,
@@ -297,6 +357,7 @@ function loadApp() {
   const api = fn.apply(null, keys.map(k => sandbox[k]).concat([sandbox]));
   api.__sandbox = sandbox;
   Object.defineProperty(api, '__lastExcelWorkbook', { get: () => sandbox.__lastExcelWorkbook });
+  Object.defineProperty(api, '__lastAutoTableCalls', { get: () => sandbox.__lastAutoTableCalls });
   return api;
 }
 
