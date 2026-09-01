@@ -54,19 +54,63 @@ function loadApp() {
     removeEventListener: noop,
   };
 
-  const workbookSheet = () => ({
-    addRow: () => ({
-      eachCell: noop,
-      getCell: () => ({ font: {}, alignment: {}, fill: {}, border: {}, numFmt: '' }),
-      number: 1,
-      font: {},
-      height: 0,
-    }),
-    mergeCells: noop,
-    getColumn: () => ({ width: 0 }),
-    columns: [],
-    views: [],
-  });
+  // FC-00012: exports (_exportExcel) apply per-entity color fills to cells and rely on
+  // real column widths, so this mock has to actually record row/cell state instead of
+  // returning no-ops. `sheet.rows` is a 1-indexed array of row records (each row record
+  // is a 1-indexed array of cell records: { value, fill, font, alignment, border, numFmt }),
+  // and `sheet.colWidths` is a 1-indexed array of widths set via `getColumn(i).width = w`.
+  function makeCell() {
+    return { value: undefined, font: {}, alignment: {}, fill: {}, border: {}, numFmt: '' };
+  }
+  function workbookSheet() {
+    // rows[0] is unused (ExcelJS rows are 1-indexed); rows[1] is the first added row.
+    const rows = [null];
+    const colWidths = []; // colWidths[colNumber] = width, 1-indexed
+    const merges = [];
+    const sheet = {
+      rows,
+      colWidths,
+      merges,
+      addRow(values) {
+        const cells = [undefined]; // 1-indexed within the row too
+        (values || []).forEach((v, i) => {
+          const cell = makeCell();
+          cell.value = v;
+          cells[i + 1] = cell;
+        });
+        rows.push(cells);
+        const rowNumber = rows.length - 1;
+        const rowApi = {
+          number: rowNumber,
+          font: {},
+          height: 0,
+          getCell(ci) {
+            if (!cells[ci]) cells[ci] = makeCell();
+            return cells[ci];
+          },
+          eachCell(fn) {
+            for (let ci = 1; ci < cells.length; ci++) {
+              if (cells[ci] === undefined) continue;
+              fn(cells[ci], ci);
+            }
+          },
+        };
+        return rowApi;
+      },
+      mergeCells(r1, c1, r2, c2) {
+        merges.push([r1, c1, r2, c2]);
+      },
+      getColumn(i) {
+        return {
+          get width() { return colWidths[i]; },
+          set width(w) { colWidths[i] = w; },
+        };
+      },
+      columns: [],
+      views: [],
+    };
+    return sheet;
+  }
 
   const sandbox = {
     document: fakeDoc,
@@ -91,9 +135,19 @@ function loadApp() {
         constructor() {
           this.creator = '';
           this.description = '';
+          this.worksheets = [];
           this.xlsx = { writeBuffer: async () => new ArrayBuffer(0) };
+          // FC-00012: tests need to inspect the workbook an export just built (fills,
+          // column widths, cell values) — track the most recently constructed one on
+          // the sandbox so it's reachable from the returned API as __lastExcelWorkbook.
+          sandbox.__lastExcelWorkbook = this;
         }
-        addWorksheet() { return workbookSheet(); }
+        addWorksheet(name) {
+          const ws = workbookSheet();
+          ws.name = name;
+          this.worksheets.push(ws);
+          return ws;
+        }
       }
     },
     XLSX: { read: () => ({ SheetNames: [], Sheets: {} }), utils: { sheet_to_json: () => [] } },
@@ -196,6 +250,21 @@ function loadApp() {
       _employeeIdFor,
       exportPayrollSettingsExcel,
       exportActualsIntakeExcel,
+      _exportExcel,
+      exportCashExcel,
+      exportDepositExcel,
+      exportCombinedExcel,
+      exportTimecardExcel,
+      exportPayrollCalcExcel,
+      FC12_PALETTES,
+      _fc12PaletteFor,
+      _applyEntityPalette,
+      _collectExportData,
+      _columnsFor,
+      xlMoney,
+      xlHours,
+      _cellValue,
+      _cellText,
       showToast,
       _rosterKey,
       _withSessionMutation,
@@ -218,6 +287,7 @@ function loadApp() {
   const fn = new Function(...keys, `with(arguments[arguments.length - 1]) { ${js}; ${returnApi} }`);
   const api = fn.apply(null, keys.map(k => sandbox[k]).concat([sandbox]));
   api.__sandbox = sandbox;
+  Object.defineProperty(api, '__lastExcelWorkbook', { get: () => sandbox.__lastExcelWorkbook });
   return api;
 }
 
