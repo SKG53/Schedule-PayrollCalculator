@@ -9,6 +9,7 @@ function makeElement() {
     textContent: '',
     value: '',
     checked: false,
+    options: [],
     className: '',
     classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
     dataset: {},
@@ -69,7 +70,7 @@ function loadApp() {
 
   const sandbox = {
     document: fakeDoc,
-    window: {},
+    window: { scrollX: 0, scrollY: 0, scrollTo: () => {} },
     console,
     setTimeout,
     clearTimeout,
@@ -198,6 +199,18 @@ function loadApp() {
       showToast,
       _rosterKey,
       _withSessionMutation,
+      ensureIntakeState,
+      processReviewRow,
+      runOcrForEntity,
+      addIntakeFiles,
+      clearIntake,
+      approveReviewRow,
+      unapproveReviewRow,
+      updateReviewField,
+      renderReviewTableHtml,
+      refreshReviewTable,
+      _ingestActualsIntakeRows,
+      importActualsIntakeFile,
     };
   `;
 

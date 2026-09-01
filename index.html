@@ -370,6 +370,13 @@ table.review tr.approved{background:rgba(22,163,74,0.04)}
 table.review tr.approved td{opacity:1}
 table.review tr.approved .name-field,table.review tr.approved .date-field{color:var(--text2)}
 
+/* === FC-00011: brief highlight when "Add more timecards" scrolls a drop zone into view === */
+.intake-drop.add-more-highlight{border-color:var(--blue)!important;box-shadow:0 0 0 3px rgba(37,99,235,0.25);transition:box-shadow 0.2s,border-color 0.2s}
+
+/* === New-since-last-upload badge (FC-00011 mid-process append) === */
+.new-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:#FEF9C3;color:#854D0E;border:1px solid #FDE68A;margin-left:6px;white-space:nowrap;letter-spacing:0.2px}
+table.review tr.new-since-upload td{background:rgba(250,204,21,0.08)}
+
 /* === Intake tab: upload option chooser === */
 .intake-upload-chooser{display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap}
 .intake-upload-chooser .upload-mode-btn{flex:1;min-width:160px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);text-align:center;transition:all 0.15s}
@@ -3100,6 +3107,7 @@ function renderIntake(){
       <div class="actions-row">
         <button class="btn btn-primary" onclick="runOcrForEntity(${idx})" ${(tcCount+ecCount+(ent.intake.mixedFiles||[]).length===0)?'disabled style="opacity:0.4;cursor:not-allowed"':''}>Run OCR</button>
         <button class="btn" onclick="clearIntake(${idx})">Clear</button>
+        <button class="btn" onclick="scrollToIntakeUpload(${idx})" title="Upload additional timecards for this entity without losing any approved or edited rows">+ Add more timecards</button>
       </div>
 
       <div class="progress-bar ${ent.intake.ocrInProgress?'active':''}" id="progressBar_${idx}"><div class="progress-fill" id="progressFill_${idx}" style="width:0%"></div></div>
@@ -3109,7 +3117,7 @@ function renderIntake(){
       <div class="ocr-results ${ent.intake.reviewRows.length>0||ent.intake.ocrDone?'active':''}" id="ocrResults_${idx}">
         ${renderReviewSummary(ent)}
         <div class="review-legend"><strong>Legend</strong><span><span class="legend-abbr">TC</span> = Timecard photo</span><span><span class="legend-abbr">EC</span> = EasyClocking</span><span><span class="legend-abbr">MN</span> = Manual</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><button class="btn" onclick="addManualRowEntity(${idx})" title="Add a row for an employee not already in the table" style="font-size:12px;padding:5px 12px">✚ Add employee row</button><span style="font-size:11px;color:var(--text3)">Use when an entire employee is missing</span><span style="flex:1"></span><button class="btn" onclick="document.getElementById('actualsIntakeImportInput').click()" title="Re-import a previously exported Actuals Intake .xlsx — restores approved rows so payroll can be calculated without redoing OCR" style="font-size:12px;padding:5px 12px">⤴ Import Actuals (.xlsx)</button><button class="btn btn-green" onclick="exportActualsIntakeExcel()" title="Export reviewed actuals across all entities — re-importable, includes both approved and unapproved rows (unapproved rows are clearly marked)" style="font-size:12px;padding:5px 14px">📥 Export Actuals (.xlsx)</button><button class="btn" onclick="exportActualsIntakePdf()" title="Export reviewed actuals as a human-readable PDF — record only, not re-importable" style="font-size:12px;padding:5px 14px">📄 Export Actuals (.pdf)</button></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><button class="btn" onclick="addManualRowEntity(${idx})" title="Add a row for an employee not already in the table" style="font-size:12px;padding:5px 12px">✚ Add employee row</button><button class="btn" onclick="scrollToIntakeUpload(${idx})" title="Upload additional timecards for this entity without losing any approved or edited rows — new rows join the queue marked as new" style="font-size:12px;padding:5px 12px">📎 Add more timecards</button><span style="font-size:11px;color:var(--text3)">Use when an entire employee is missing</span><span style="flex:1"></span><button class="btn" onclick="document.getElementById('actualsIntakeImportInput').click()" title="Re-import a previously exported Actuals Intake .xlsx — restores approved rows so payroll can be calculated without redoing OCR" style="font-size:12px;padding:5px 12px">⤴ Import Actuals (.xlsx)</button><button class="btn btn-green" onclick="exportActualsIntakeExcel()" title="Export reviewed actuals across all entities — re-importable, includes both approved and unapproved rows (unapproved rows are clearly marked)" style="font-size:12px;padding:5px 14px">📥 Export Actuals (.xlsx)</button><button class="btn" onclick="exportActualsIntakePdf()" title="Export reviewed actuals as a human-readable PDF — record only, not re-importable" style="font-size:12px;padding:5px 14px">📄 Export Actuals (.pdf)</button></div>
         <div id="reviewTable_${idx}">${renderReviewTableHtml(ent,idx)}</div>
       </div>
     </div>`;
@@ -3135,6 +3143,19 @@ function wireIntakeDrop(dropId,inputId,cb){
   dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
   dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');cb(Array.from(e.dataTransfer.files))});
   fi.addEventListener('change',e=>{cb(Array.from(e.target.files));fi.value='';});
+}
+
+// FC-00011: "Add more timecards" — scrolls the entity's upload drop zones into view and
+// gives them a brief highlight. The drop zones themselves (tcDrop/ecDrop/mixDrop) are
+// always rendered for every entity block regardless of empty state or OCR-key state, so
+// this never needs to create new UI — it just directs the user back to the existing
+// upload affordance, which flows into the same addIntakeFiles/runOcrForEntity pipeline
+// (now append-safe) as the very first upload.
+function scrollToIntakeUpload(idx){
+  const el=document.getElementById('mixDrop_'+idx)||document.getElementById('tcDrop_'+idx);
+  if(!el)return;
+  if(el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});
+  if(el.classList){el.classList.add('add-more-highlight');setTimeout(()=>el.classList.remove('add-more-highlight'),1500);}
 }
 
 function addIntakeFiles(idx,kind,files){
@@ -3367,7 +3388,13 @@ async function runOcrForEntity(idx){
 
   ent.intake.ocrInProgress=true;
   ent.intake.lastOcrError='';
-  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.source==='MN'); // keep manual rows
+  // FC-00011: append, don't replace. Newly-queued files (tcFiles/ecFiles/mixFiles) are always
+  // the ones added since the last Run OCR — addIntakeFiles() only ever concats, and files are
+  // cleared from the queue below once processed, so this list never contains already-OCR'd
+  // files. Approved/edited rows from a prior run are therefore never touched here.
+  // The "new since last upload" badge only ever describes the freshest batch, so clear it
+  // off rows from any earlier batch before this run's rows get tagged with it below.
+  ent.intake.reviewRows.forEach(r=>{if(r._newSinceUpload)delete r._newSinceUpload;});
   renderIntake();
 
   const scheduleNames=ent.employees.map(e=>e.name).filter(Boolean);
@@ -3379,6 +3406,10 @@ async function runOcrForEntity(idx){
     ...ecFiles.map(f=>({name:f.name,kind:'EC',file:f,status:'queued',detail:''})),
     ...mixFiles.map(f=>({name:f.name,kind:'MIX',file:f,status:'queued',detail:'auto-classifying…'}))
   ];
+  // FC-00011: this batch's files are now captured in `jobs` (each job holds its own file
+  // handle) — clear the upload queues so a later "Add more timecards" + Run OCR doesn't
+  // resubmit files that are already mid-flight or done. Existing reviewRows are untouched.
+  ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];ent.intake.mixedFiles=[];
   const total=jobs.length;
   let done=0,errCount=0;
   const updateBar=()=>{
@@ -3425,10 +3456,10 @@ async function runOcrForEntity(idx){
               rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
             }catch(e){/* keep original rows if Pro call fails */}
           }
-          rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+          rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(Object.assign(processReviewRow(r,ent),{_newSinceUpload:true}));});
         } else {
           rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
-          rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+          rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(Object.assign(processReviewRow(r,ent),{_newSinceUpload:true}));});
         }
         job.status='done';
         job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`+(attempt>1?` (attempt ${attempt})`:'');
@@ -3687,6 +3718,11 @@ async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,schedu
 function processReviewRow(r,ent){
   // Ensure all fields exist and normalize — keep raw values always (never blank on validation fail)
   const rawOcrName=(r.empName||'').trim();
+  // FC-00011 note: id is minted once here, at row creation, from time + a 6-char random
+  // base36 suffix (36^6 ≈ 2.2B combinations per millisecond bucket). Rows are mutated in
+  // place on every re-render (refreshReviewTable/renderReviewTableHtml never recreate row
+  // objects), so ids are already stable and deterministic across appends — verified: no
+  // fix needed for mid-process append.
   const row={
     id:'r_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8),
     source:r.source||'??',
@@ -3917,7 +3953,7 @@ function renderReviewTableHtml(ent,idx){
   html+='<th>Flags</th>';
   html+='<th>Action</th></tr></thead><tbody>';
   activeRows.forEach(r=>{
-    const cls=r.approved?'approved':(r.needsReview?'needs-review':'');
+    const cls=(r.approved?'approved':(r.needsReview?'needs-review':''))+(r._newSinceUpload?' new-since-upload':'');
     const srcCls=r.source==='TC'?'tc':(r.source==='EC'?'ec':(r.source==='MN'?'mn':(r.source==='XL'?'xl':'')));
     html+=`<tr class="${cls}" data-row-id="${r.id}">`;
     // 1. Delete X (leftmost)
@@ -3973,7 +4009,7 @@ function renderReviewTableHtml(ent,idx){
       html+=`<td><input class="time-text" type="text" inputmode="text" pattern="[0-9:aApPmM ]*" maxlength="8" placeholder="--:-- --" value="${escHtml(to12h(r[k]))}" oninput="handleTimeInput(this,'${r.id}','${k}')" onblur="commitTimeInput(this,'${r.id}','${k}')" style="width:76px;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px"></td>`;
     });
     // Flags
-    html+=`<td class="flag-cell">${renderFlagPills(r.flags)}</td>`;
+    html+=`<td class="flag-cell">${renderFlagPills(r.flags)}${r._newSinceUpload?'<span class="new-badge" title="Added in a later upload for this employee — not part of the original batch">🆕 new</span>':''}</td>`;
     // Per-row approve/unapprove button
     html+=`<td class="actions-cell" style="width:110px">`;
     if(r.approved){
@@ -5007,6 +5043,10 @@ function _ingestActualsIntakeRows(rows,colMap){
   // Index entities by lowercase name
   const entByName=new Map();
   entities.forEach(e=>{const k=(e.name||'').toLowerCase().trim();if(k)entByName.set(k,e);});
+  // FC-00011: like runOcrForEntity, the new-since-upload badge only ever describes rows
+  // from the batch just ingested — clear it off each touched entity's older rows exactly
+  // once per ingest call, before any row from this import gets tagged with it.
+  const clearedEntities=new Set();
   rows.forEach(row=>{
     if(!row||row.length===0)return;
     const entityName=get(row,'entity');
@@ -5016,6 +5056,10 @@ function _ingestActualsIntakeRows(rows,colMap){
     const ent=entByName.get(entityName.toLowerCase().trim());
     if(!ent){if(entityName)unmatchedEntities.add(entityName);skipped++;return;}
     ensureIntakeState(ent);
+    if(!clearedEntities.has(ent)){
+      clearedEntities.add(ent);
+      ent.intake.reviewRows.forEach(r=>{if(r._newSinceUpload)delete r._newSinceUpload;});
+    }
     const parsedDate=parseAnyDate(dateRaw);
     const iso=parsedDate?parsedDate.isoStr:'';
     const approvedTxt=get(row,'approved').toLowerCase();
@@ -5067,10 +5111,12 @@ function _ingestActualsIntakeRows(rows,colMap){
       newRow.approved=false;
       restoredUnapproved++;
     }
-    // De-dupe: if a row with this id already exists, replace it; else append.
+    // De-dupe: if a row with this id already exists, replace it (round-tripping the same
+    // export preserves position + state); else append to the end and flag as new-since-
+    // upload (FC-00011) since this id wasn't part of the entity's review queue before.
     const existingIdx=ent.intake.reviewRows.findIndex(x=>x.id===newRow.id);
     if(existingIdx>=0)ent.intake.reviewRows[existingIdx]=newRow;
-    else ent.intake.reviewRows.push(newRow);
+    else {newRow._newSinceUpload=true;ent.intake.reviewRows.push(newRow);}
     ent.intake.ocrDone=true;
   });
   // Sync to payroll right away so the user sees results immediately
