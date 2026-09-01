@@ -564,6 +564,19 @@ table.review tr.new-since-upload td{background:rgba(250,204,21,0.08)}
       <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
     </div>
 
+    <!-- FC-00009: in-tool schedule OCR — alongside the .xlsx upload above, extract a
+         schedule directly from a screenshot/photo. Feeds parseSchedule() (same dispatcher
+         path as the .xlsx upload) so downstream behavior is identical either way. -->
+    <div class="intake-drop" id="scheduleOcrDrop" style="border-color:var(--blue);background:rgba(37,99,235,0.02);margin-bottom:20px;min-height:70px" onclick="document.getElementById('scheduleOcrInput').click()">
+      <div class="label" style="color:var(--blue)">📷 Extract from screenshot (beta)</div>
+      <div class="hint">Drop, paste (Ctrl+V), or click to upload a schedule image — Gemini OCR fills the table below for you to review</div>
+      <div style="margin-top:6px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <button class="btn" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();pasteScheduleImage()" title="Paste an image from your clipboard">📋 Paste image</button>
+      </div>
+      <div class="status-line" id="scheduleOcrStatus" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+      <input type="file" id="scheduleOcrInput" accept="image/*,.pdf" style="display:none">
+    </div>
+
     <div class="week-bar" id="weekBar">
       <div class="row"><label>Loaded schedule:</label><span class="week-display" id="loadedWeek">—</span></div>
       <div class="row"><label>New schedule week starting:</label><input type="date" id="newWeekStart" onchange="updateNewWeek()"></div>
@@ -1441,6 +1454,71 @@ function renderScheduleContent(){
   dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');handleFile(e.dataTransfer.files[0])});
   fi.addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0])});
 })();
+
+// FC-00009: schedule OCR intake — drag/drop, file-picker, and paste (Ctrl+V) all funnel into
+// runScheduleOcrForEntity() for the currently active entity, same as the .xlsx zone above
+// funnels into handleFile()/parseSchedule() for the active entity.
+(function(){
+  const dz=document.getElementById('scheduleOcrDrop'),fi=document.getElementById('scheduleOcrInput');
+  if(!dz||!fi)return;
+  dz.addEventListener('click',e=>{if(e.target.tagName!=='BUTTON')fi.click()});
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+  dz.addEventListener('drop',e=>{
+    e.preventDefault();dz.classList.remove('dragover');
+    const file=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(file)runScheduleOcrForEntity(activeEntityIdx,file);
+  });
+  fi.addEventListener('change',e=>{
+    const file=e.target.files&&e.target.files[0];
+    if(file)runScheduleOcrForEntity(activeEntityIdx,file);
+    fi.value='';
+  });
+  // Ctrl+V anywhere while the drop zone (or the page, since it's the only paste target on
+  // this tab) has focus — pull the first image out of the clipboard event.
+  dz.setAttribute('tabindex','0');
+  dz.addEventListener('paste',handleSchedulePasteEvent);
+  document.addEventListener('paste',e=>{
+    // Only act on page-level paste when the Schedules tab + this entity's drop zone is visible,
+    // so paste doesn't hijack clipboard use elsewhere in the app.
+    if(dz.offsetParent===null&&dz.style.display==='none')return;
+    handleSchedulePasteEvent(e);
+  });
+})();
+
+function handleSchedulePasteEvent(e){
+  const items=(e.clipboardData&&e.clipboardData.items)||[];
+  for(let i=0;i<items.length;i++){
+    if(items[i].type&&items[i].type.indexOf('image')===0){
+      const file=items[i].getAsFile();
+      if(file){e.preventDefault();runScheduleOcrForEntity(activeEntityIdx,file);return;}
+    }
+  }
+}
+
+// "Paste image" button fallback — uses the async Clipboard API (requires a user gesture,
+// which the button click provides) for browsers/contexts where a bare paste keystroke
+// isn't reliably captured by the drop zone.
+async function pasteScheduleImage(){
+  try{
+    if(!navigator.clipboard||!navigator.clipboard.read){
+      showToast('Clipboard paste not supported here — use drag-and-drop or the file picker','err');
+      return;
+    }
+    const items=await navigator.clipboard.read();
+    for(const item of items){
+      const imgType=item.types.find(t=>t.indexOf('image')===0);
+      if(imgType){
+        const blob=await item.getType(imgType);
+        await runScheduleOcrForEntity(activeEntityIdx,blob);
+        return;
+      }
+    }
+    showToast('No image found on clipboard','err');
+  }catch(err){
+    showToast('Could not read clipboard: '+(err.message||err),'err');
+  }
+}
 
 function handleFile(file){
   const reader=new FileReader(),idx=activeEntityIdx;
@@ -3760,6 +3838,30 @@ RETURN a JSON array. Each element:
 EasyClocking screenshots give us one pair per row — keep clockIn2/Out2/In3/Out3 empty. Return ONLY the JSON array, no prose.`;
 }
 
+// FC-00009: prompt for extracting a weekly schedule grid (employee x day x shift) from a
+// screenshot/photo of a printed or digital schedule. Distinct output shape from the
+// timecard/EasyClocking prompts above (this is a schedule, not punches), but goes through
+// the exact same callGeminiVisionJson() call chain — same retry loop, same key lookup.
+function schedulePrompt(){
+  return `Extract the weekly schedule from this image. Return valid JSON only, matching this shape:
+{
+  "week_start_hint": "YYYY-MM-DD" or "MM/DD" or "unknown",
+  "days": ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],
+  "employees": [
+    {
+      "name": "Employee Name",
+      "shifts": [
+        {"day":"Sun","start":"HH:MM","end":"HH:MM"},
+        ...only include days this employee works...
+      ]
+    },
+    ...
+  ]
+}
+Times in 24-hour HH:MM format. If the schedule shows AM/PM, convert. If a cell is empty/OFF/NA, omit that day's shift. If a shift crosses midnight (e.g. 8p-2a), keep the end time as-is (e.g. "02:00") — the tool handles overnight interpretation. If any field is uncertain, still include your best guess and add a top-level "warnings":["..."] array with what you were unsure about.
+Return ONLY the JSON object, no prose.`;
+}
+
 // Build a compact per-employee/per-day anchor block. Returns a multi-line string like:
 //   BALU — Sun Apr 5: 3:00pm–10:15pm · Mon Apr 6: 3:15pm–12:15am (overnight) · Tue Apr 7: OFF …
 // Used to anchor OCR times so AM/PM and overnight calls can be disambiguated.
@@ -3806,8 +3908,42 @@ Respond with ONLY one word: "TC" for physical timecard or "EC" for EasyClocking 
   return 'TC'; // default to TC if ambiguous
 }
 
+// Shared low-level Gemini vision call: downsizes the image, posts it + a prompt (with an
+// optional JSON response schema) to the given model, and returns the parsed JSON payload
+// (array or object, whatever the schema/prompt asked for). Both the timecard/EasyClocking
+// OCR path (ocrImage) and the schedule-screenshot OCR path (ocrScheduleImage) call through
+// this one function so the fetch signature, error handling, and JSON-recovery logic live
+// in exactly one place.
+async function callGeminiVisionJson(file,prompt,apiKey,model,schema,maxEdge){
+  const {b64,mime}=await prepareImageForOcr(file,maxEdge||2048);
+  const generationConfig={temperature:0};
+  if(schema){generationConfig.responseMimeType='application/json';generationConfig.responseSchema=schema;}
+  const body={
+    contents:[{role:'user',parts:[
+      {text:prompt},
+      {inline_data:{mime_type:mime,data:b64}}
+    ]}],
+    generationConfig
+  };
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!resp.ok){
+    const txt=await resp.text();
+    throw new Error(`Gemini API ${resp.status}: ${txt.slice(0,200)}`);
+  }
+  const data=await resp.json();
+  let text='';
+  try{text=data.candidates[0].content.parts[0].text;}catch(e){throw new Error('Unexpected response shape')}
+  let parsed;
+  try{parsed=JSON.parse(text);}catch(e){
+    // Try to extract JSON (array or object) from text if wrapped in prose/fences
+    const m=text.match(/[\[{][\s\S]*[\]}]/);
+    if(m)parsed=JSON.parse(m[0]);else throw new Error('Non-JSON response: '+text.slice(0,120));
+  }
+  return parsed;
+}
+
 async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,scheduleAnchors){
-  const {b64,mime}=await prepareImageForOcr(file,2048);
   const prompt=kind==='TC'?tcPrompt(scheduleNames,scheduleWeek,scheduleAnchors):ecPrompt(scheduleNames,scheduleWeek,scheduleAnchors);
   const schema={
     type:'ARRAY',
@@ -3825,33 +3961,126 @@ async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,schedu
       required:['empName','date','clockIn1','clockOut1','confidence']
     }
   };
-  const body={
-    contents:[{role:'user',parts:[
-      {text:prompt},
-      {inline_data:{mime_type:mime,data:b64}}
-    ]}],
-    generationConfig:{
-      temperature:0,
-      responseMimeType:'application/json',
-      responseSchema:schema
-    }
-  };
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const resp=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!resp.ok){
-    const txt=await resp.text();
-    throw new Error(`Gemini API ${resp.status}: ${txt.slice(0,200)}`);
-  }
-  const data=await resp.json();
-  let text='';
-  try{text=data.candidates[0].content.parts[0].text;}catch(e){throw new Error('Unexpected response shape')}
-  let rows;
-  try{rows=JSON.parse(text);}catch(e){
-    // Try to extract JSON array from text if wrapped
-    const m=text.match(/\[[\s\S]*\]/);
-    if(m)rows=JSON.parse(m[0]);else throw new Error('Non-JSON response: '+text.slice(0,120));
-  }
+  const rows=await callGeminiVisionJson(file,prompt,apiKey,model,schema,2048);
   return rows||[];
+}
+
+// FC-00009: Gemini vision call for schedule-screenshot OCR. Reuses callGeminiVisionJson —
+// the exact same fetch/retry/JSON-recovery machinery ocrImage() uses — with a JSON-object
+// response schema (not an array) since a schedule payload is one object with a nested
+// employees[] list, not a flat list of punch rows.
+async function ocrScheduleImage(file,apiKey,model){
+  const prompt=schedulePrompt();
+  const schema={
+    type:'OBJECT',
+    properties:{
+      week_start_hint:{type:'STRING'},
+      days:{type:'ARRAY',items:{type:'STRING'}},
+      employees:{
+        type:'ARRAY',
+        items:{
+          type:'OBJECT',
+          properties:{
+            name:{type:'STRING'},
+            shifts:{
+              type:'ARRAY',
+              items:{
+                type:'OBJECT',
+                properties:{day:{type:'STRING'},start:{type:'STRING'},end:{type:'STRING'}},
+                required:['day']
+              }
+            }
+          },
+          required:['name']
+        }
+      },
+      warnings:{type:'ARRAY',items:{type:'STRING'}}
+    },
+    required:['employees']
+  };
+  const parsed=await callGeminiVisionJson(file,prompt,apiKey,model,schema,2048);
+  return parsed||{employees:[]};
+}
+
+// Map the Gemini schedule-OCR JSON payload into the same 2D "rows" shape parseSchedule()
+// expects from an uploaded .xlsx (header row of ["Name","Sun",...,"Sat"], then one row per
+// employee with a shift string or "OFF" per day). Building this shape — instead of writing
+// a parallel ingestion path — is what lets the extracted schedule flow through the exact
+// same dispatcher actions (rosterAdd/rosterRename inside parseSchedule) that the Excel
+// upload path uses, so downstream behavior (roster registry, active-employee filtering,
+// duplicate detection, etc.) is identical no matter which path produced the data.
+function scheduleOcrJsonToRows(payload){
+  const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const rows=[['Name',...days]];
+  (payload.employees||[]).forEach(emp=>{
+    const name=(emp.name||'').toString().trim();
+    if(!name)return;
+    const byDay={};
+    (emp.shifts||[]).forEach(sh=>{
+      if(!sh||!sh.day)return;
+      const di=days.indexOf(sh.day.toString().trim().slice(0,3).replace(/^(\w)(\w\w)$/,(m,a,b)=>a.toUpperCase()+b.toLowerCase()));
+      const dIdx=di>=0?di:days.findIndex(d=>d.toLowerCase()===sh.day.toString().trim().slice(0,3).toLowerCase());
+      if(dIdx<0)return;
+      const start=(sh.start||'').toString().trim(),end=(sh.end||'').toString().trim();
+      if(!start||!end)return;
+      byDay[dIdx]=`${start}-${end}`;
+    });
+    const rowArr=[name];
+    for(let d=0;d<7;d++)rowArr.push(byDay[d]||'OFF');
+    rows.push(rowArr);
+  });
+  return rows;
+}
+
+// FC-00009: async entry point wired to the Schedules tab's "Extract from screenshot" area.
+// Mirrors runOcrForEntity's shape (same apiKey lookup + no-key toast, same model getter,
+// same OCR_MAX_AUTO_ATTEMPTS / OCR_RETRY_DELAY_MS retry loop) but for a single schedule
+// image rather than a batch of timecard files, and feeds its result through parseSchedule()
+// — the same dispatcher-backed ingestion path the .xlsx upload uses — instead of populating
+// entities[idx].employees directly.
+async function runScheduleOcrForEntity(entIdx,imageBlob,maxAttempts){
+  maxAttempts=Math.max(1,parseInt(maxAttempts,10)||OCR_MAX_AUTO_ATTEMPTS);
+  const ent=entities[entIdx];
+  if(!ent)return;
+  const apiKey=_prefGet('pv26_api_key');
+  if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return;}
+  if(!imageBlob){showToast('No image provided for schedule OCR','err');return;}
+
+  if(ent.employees&&ent.employees.length>0){
+    if(!confirm('Replace existing schedule with extracted one?'))return;
+  }
+
+  const model=getTcModel(); // same model selection as timecards (Pro/Flash/Flash-Lite)
+  const statusEl=document.getElementById('scheduleOcrStatus');
+  if(statusEl)statusEl.textContent='Extracting schedule…';
+
+  let lastErr=null;
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    if(statusEl)statusEl.textContent=maxAttempts>1?`Attempt ${attempt}/${maxAttempts}…`:'Extracting schedule…';
+    try{
+      const payload=await ocrScheduleImage(imageBlob,apiKey,model);
+      const rows=scheduleOcrJsonToRows(payload);
+      if(rows.length<=1){throw new Error('No employees found in extracted schedule');}
+      parseSchedule(rows,entIdx); // same dispatcher-backed path as Excel schedule upload
+      if(statusEl)statusEl.textContent=`Extracted ${rows.length-1} employee${rows.length-1===1?'':'s'}`;
+      showToast(`Schedule extracted · ${rows.length-1} employee${rows.length-1===1?'':'s'}`,'ok');
+      if(Array.isArray(payload.warnings)&&payload.warnings.length){
+        showToast('OCR warnings: '+payload.warnings.join('; ').slice(0,180),'err');
+      }
+      lastErr=null;
+      break;
+    }catch(err){
+      lastErr=err;
+      if(attempt<maxAttempts){
+        if(statusEl)statusEl.textContent=`Attempt ${attempt}/${maxAttempts} failed — retrying in ${Math.round(OCR_RETRY_DELAY_MS/1000)}s…`;
+        await new Promise(r=>setTimeout(r,OCR_RETRY_DELAY_MS));
+      }else{
+        const errMsg=(err.message||String(err)).slice(0,120);
+        if(statusEl)statusEl.textContent=`Failed all ${maxAttempts} attempts: ${errMsg}`;
+        showToast('Schedule OCR failed: '+errMsg,'err');
+      }
+    }
+  }
 }
 
 function processReviewRow(r,ent){
