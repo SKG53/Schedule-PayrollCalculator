@@ -4584,6 +4584,31 @@ function _columnsFor(kind){
   return null;
 }
 
+// ---- FC-00012: baked-in entity color palettes for Excel payroll exports ----
+// Hardcoded per-entity, deterministic, no configuration required (FC-00014 will make
+// these user-configurable). Looked up by ent.code (set by FC-00007); unknown codes fall
+// back to DEFAULT. ARGB format (4 hex pairs: alpha + RGB) as ExcelJS fills expect.
+const FC12_PALETTES={
+  N11:{body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'},
+  ZIO:{body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'},
+  HEF:{body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'},
+  DEFAULT:{body:'FFFFFFFF',cash:'FFE8E8E4',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'}
+};
+function _fc12PaletteFor(entCode){return FC12_PALETTES[entCode]||FC12_PALETTES.DEFAULT}
+function _fc12Fill(argb){return {type:'pattern',pattern:'solid',fgColor:{argb}}}
+// Applies a per-entity palette fill to a data/subtotal row. `role` is 'body'|'subtotal'|'grand'.
+// `cashColIdx` (1-based column number) gets the palette's `cash` tint instead of `body` when
+// role==='body' and the column carries the Cash amount (combined mode col H / cashOnly Cash
+// Portion col); pass null when the section has no cash-tinted column (e.g. depositOnly).
+function _applyEntityPalette(row,entCode,role,cashColIdx){
+  const pal=_fc12PaletteFor(entCode);
+  const fill=role==='grand'?_fc12Fill(pal.grand):role==='subtotal'?_fc12Fill(pal.subtotal):_fc12Fill(pal.body);
+  const cashFill=_fc12Fill(pal.cash);
+  row.eachCell((cell,ci)=>{
+    cell.fill=(role==='body'&&cashColIdx&&ci===cashColIdx)?cashFill:fill;
+  });
+}
+
 // ---- Excel writer ----
 async function _exportExcel(kind){
   if(_blockExportIfDuplicates())return;
@@ -4598,6 +4623,10 @@ async function _exportExcel(kind){
   const entityBand={type:'pattern',pattern:'solid',fgColor:{argb:'FFF4F3EE'}};
   const subtotalFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0EFE9'}};
   const grandFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE0DED5'}};
+  // FC-00012: the payroll reports (combined/cashOnly/depositOnly) get the baked-in
+  // per-entity color palette that Claude used to apply by hand; timecard/payrollCalc
+  // (working data, not the payroll report) and other export kinds stay uncolored.
+  const _fc12Colorize=(kind==='combined'||kind==='cashOnly'||kind==='depositOnly');
 
   // Title
   const titleText=(
@@ -4636,12 +4665,21 @@ async function _exportExcel(kind){
       cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
     });
 
-    let grandTotal=0,grandHours=0;
-    data.forEach(({entityName,rows})=>{
+    // combined mode's Cash column (H, 1-based index 8) gets the palette's cash tint;
+    // cashOnly's last column (Cash Portion) gets it too. depositOnly has no cash column —
+    // its Deposit column is body-colored, not specially tinted (per FC-00012 DoD).
+    const cashColIdx=
+      sectionKind==='combined'?8:
+      sectionKind==='cashOnly'?spec.headers.length:
+      null;
+
+    let grandTotal=0,grandHours=0,grandDeposit=0,grandCash=0;
+    data.forEach(({entityName,entityId,rows})=>{
       let filtered=_filterRowsForKind(rows,sectionKind);
       if(filtered.length===0)return;
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
-      let entTotal=0,entHours=0;
+      const entCode=_fc12Colorize?_entityCodeFor(entityId):null;
+      let entTotal=0,entHours=0,entDeposit=0,entCash=0;
       filtered.forEach(r=>{
         const vals=spec.rowFn(r);
         const row=ws.addRow(vals.map(_cellValue));
@@ -4650,9 +4688,12 @@ async function _exportExcel(kind){
           cell.border={bottom:thinB,left:thinB,right:thinB};cell.font={name:'Arial',size:10};
           _applyNumFmt(cell,vals[ci-1]);
         });
+        if(_fc12Colorize)_applyEntityPalette(row,entCode,'body',cashColIdx);
         if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
         else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
+        else if(sectionKind==='combined')entTotal+=r._breakdown.actualFinal||0;
         else entTotal+=r._breakdown.final;
+        entDeposit+=r._breakdown.deposit||0;entCash+=r._breakdown.cash||0;
         if(!r.isFlat)entHours+=(r.actualHours||r.expectedH||0);
       });
       // Entity subtotal
@@ -4661,6 +4702,12 @@ async function _exportExcel(kind){
       if(sectionKind==='timecard'){
         // For timecard, subtotal hours in actual hrs col (index 5)
         subCells[5]=xlHours(entHours);
+      }else if(sectionKind==='combined'){
+        // Reference layout: only Actual Total (F/idx5), Deposit (G/idx6) and Cash (H/idx7)
+        // carry subtotal amounts — Rounded Final and Diff stay blank on the subtotal row.
+        subCells[5]=xlMoney(entTotal);
+        subCells[6]=entDeposit>0?xlMoney(entDeposit):'';
+        subCells[7]=entCash>0?xlMoney(entCash):'';
       }else{
         subCells[spec.headers.length-1]=xlMoney(entTotal);
       }
@@ -4671,7 +4718,10 @@ async function _exportExcel(kind){
         cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
         _applyNumFmt(cell,subCells[ci-1]);
       });
-      grandTotal+=entTotal;grandHours+=entHours;
+      if(_fc12Colorize)_applyEntityPalette(sub,entCode,'subtotal',null);
+      // Blank separator row between entities, matching the reference report's layout.
+      if(_fc12Colorize)ws.addRow([]);
+      grandTotal+=entTotal;grandHours+=entHours;grandDeposit+=entDeposit;grandCash+=entCash;
     });
 
     // Grand total row
@@ -4679,6 +4729,10 @@ async function _exportExcel(kind){
     grandCells[0]='GRAND TOTAL';
     if(sectionKind==='timecard'){
       grandCells[5]=xlHours(grandHours);
+    }else if(sectionKind==='combined'){
+      grandCells[5]=xlMoney(grandTotal);
+      grandCells[6]=grandDeposit>0?xlMoney(grandDeposit):'';
+      grandCells[7]=grandCash>0?xlMoney(grandCash):'';
     }else{
       grandCells[spec.headers.length-1]=xlMoney(grandTotal);
     }
@@ -4689,9 +4743,16 @@ async function _exportExcel(kind){
       cell.border={top:medB,bottom:medB,left:medB,right:medB};
       _applyNumFmt(cell,grandCells[ci-1]);
     });
+    if(_fc12Colorize)_applyEntityPalette(g,'__GRAND__','grand',null);
 
-    // Column widths
-    spec.widths.forEach((w,i)=>{ws.getColumn(i+1).width=Math.round(w/6)});
+    // Column widths — combined mode uses the reference report's exact Excel width units;
+    // other kinds keep the legacy px/6 conversion.
+    if(sectionKind==='combined'){
+      const combinedWidths=[17,22,15,10,9,13,13.41796875,13.05078125,15,10];
+      combinedWidths.forEach((w,i)=>{ws.getColumn(i+1).width=w});
+    }else{
+      spec.widths.forEach((w,i)=>{ws.getColumn(i+1).width=Math.round(w/6)});
+    }
   }
 
   if(kind==='full'){
