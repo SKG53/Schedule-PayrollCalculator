@@ -506,7 +506,7 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div class="instructions">
       <strong>How to use:</strong>
       <ol>
-        <li>Load each entity's schedule first in the <em>Schedules</em> tab.</li>
+        <li>A schedule is optional — you can drop in timecards directly below. Loading a schedule first in the <em>Schedules</em> tab lets rows auto-match to known employees; without one, everyone lands under Unrecognized until you name them.</li>
         <li>For each entity, drop in physical timecard photos <strong>and/or</strong> EasyClocking screenshots, then click <strong>Run OCR</strong>.</li>
         <li>Rows are split into one sub-tab per employee. Review each employee: correct names, dates, or times in place, then approve the row.</li>
         <li>Need to tweak a row you already approved? Click <em>Unapprove</em> to unlock it, edit, then reapprove.</li>
@@ -522,7 +522,7 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     <div class="instructions">
       <strong>How to use:</strong>
       <ol>
-        <li>Give this entity a name (required before you can move to the next tab), then upload last week's schedule .xlsx, or click <em>start blank</em> to enter shifts by hand.</li>
+        <li>Give this entity a name (required before you can move to the next tab). A schedule is optional — upload last week's .xlsx, click <em>start blank</em> to enter shifts by hand, or skip straight to Actuals Intake / Payroll.</li>
         <li>Edit shifts using formats like <code>6:45AM - 2:15PM</code> or <code>OFF</code>. Overnight shifts are supported (<code>11PM - 7AM</code>).</li>
         <li>Set the new week's start date — the date headers update automatically. The calendar below shows staffing counts per hour.</li>
         <li>Export the employee-facing schedule or the manager view with hours totals. Use the entity tabs above to manage multiple entities.</li>
@@ -588,7 +588,7 @@ table.review tr.approved .name-field,table.review tr.approved .date-field{color:
     </div>
 
     <div class="payroll-warning" id="payrollNoSchedule" style="display:none">
-      No schedule loaded yet. Go to the <strong>Employee Schedule</strong> tab, load at least one entity's schedule, then return here.
+      No schedule loaded for any entity yet. That's fine — payroll can run on Actuals Intake alone. Load a schedule in the <strong>Employee Schedule</strong> tab if you want expected-vs-actual comparisons.
     </div>
 
     <!-- Entity tab bar for payroll (one tab per entity with a schedule) -->
@@ -723,6 +723,7 @@ let activeEntityIdx=0;
 let activePayrollEntityIdx=0;
 let actualsMode='separate'; // always 'separate' now (uploads moved to Intake tab per entity)
 let currentView='employee',currentTab='schedule',flagView='employee',activeEmp=null;
+function getCurrentTab(){return currentTab}
 let actualDays=session.actualDays; // combined mode global   // [{empName,entityName,date,dayIdx,pairs:[{in,out,outAdj,minutes}]}]
 let wageRates=session.wageRates;    // key: stable employee id from wKey(entityId, empName)
 let roundingFactors=session.roundingFactors; // legacy — no-op retained for back-compat
@@ -1648,6 +1649,12 @@ function renderInfoBar(idx){
 function renderFlags(idx){
   const ent=entities[idx];
   const bar=document.getElementById('flagsBar');bar.innerHTML='';
+  document.getElementById('flagsHeading').style.display='flex';
+  if(ent.employees.length===0){
+    bar.innerHTML='<span class="flag flag-amber">Coverage warnings require an uploaded schedule.</span>';
+    bar.style.display='block';
+    return;
+  }
   const allFlags=[];
   ent.employees.forEach(emp=>{
     const hours=emp.shifts.map(s=>calcHours(parseShift(s)));
@@ -1679,7 +1686,6 @@ function renderFlags(idx){
       allFlags.push({empName:null,catLabel:'Overstaffing (5+ employees)',type:'amber',text:`${DAYS[d]} ${ts}: ${cs}`});i=j;
     }
   }
-  document.getElementById('flagsHeading').style.display='flex';
   if(allFlags.length===0){bar.innerHTML='<span class="flag flag-green">No scheduling issues found</span>';bar.style.display='block';return}
   let html='';
   if(flagView==='employee'){
@@ -1865,9 +1871,10 @@ async function exportManager(){
 // TAB SWITCHING
 // ================================================================
 function setTab(tab){
-  // Guard: require a name on every entity that has any employees before leaving Schedules
+  // Guard: require a name on every entity before leaving Schedules. Naming stays
+  // mandatory even when an entity has no schedule loaded (FC-00008: schedule itself is optional).
   if(currentTab==='schedule' && tab!=='schedule'){
-    const unnamed=entities.filter(e=>e.employees.length>0 && !(e.name||'').trim());
+    const unnamed=entities.filter(e=>!(e.name||'').trim());
     if(unnamed.length>0){
       alert('Please name every entity before moving on.\n\n'+unnamed.length+' entit'+(unnamed.length===1?'y is':'ies are')+' missing a name. Go to the Schedules tab, select the entity, and type a name in the top bar.');
       // Switch focus back to the first offending entity
@@ -2258,12 +2265,6 @@ function renderPayrollEntityContent(idx){
   const ent=entities[idx];
   if(!ent){container.innerHTML='';return}
 
-  // No schedule loaded for this entity yet
-  if(ent.employees.length===0){
-    const name=ent.name||'Entity '+(idx+1);
-    container.innerHTML=`<div class="payroll-warning" style="display:block">No schedule loaded for <strong>${escHtml(name)}</strong>. Go to the Employee Schedule tab, select this entity, and upload or build a schedule.</div>`;
-    return;
-  }
   // Mode-aware: separate mode uses entity's own actuals; combined uses global filtered by entity name
   const hasActuals=actualsMode==='separate'
     ?(ent.actualDays&&ent.actualDays.length>0)
@@ -2287,6 +2288,7 @@ function renderPayrollEntityContent(idx){
     <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px;flex-wrap:wrap">
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
+      ${empCount===0?'<span style="color:var(--amber);font-size:12px">No schedule loaded — employees below come from Actuals Intake</span>':''}
       <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px"><span style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Sort:</span>
         <button class="btn btn-small${(payrollSortMode[ent.id]||'name')==='name'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'name')" title="Schedule order (default)">Schedule order</button>
         <button class="btn btn-small${payrollSortMode[ent.id]==='paytype'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'paytype')" title="Group by Cash → Cash + Deposit → Deposit">Group by Pay Type</button>
@@ -2578,7 +2580,7 @@ function renderTimeCardData(rows,hasActuals,ent){
   html+='<th>Expected Break Hrs</th><th>Expected Hours</th>';
   if(hasActuals){
     html+='<th>Actual Break Hrs</th><th>Actual Hours</th><th>Difference</th>';
-    html+='<th>Avg In Diff</th><th>Avg Out Diff</th>';
+    html+='<th title="Requires schedule for comparison.">Avg In Diff</th><th title="Requires schedule for comparison.">Avg Out Diff</th>';
     html+='<th>OT Flag <span style="font-weight:400;font-size:10px;color:var(--text3)">(over 40/wk)</span></th>';
   }
   html+='</tr></thead><tbody>';
@@ -3055,8 +3057,8 @@ function ensureIntakeState(ent){
 // ================================================================
 function renderIntake(){
   const container=document.getElementById('intakeContent');
-  if(entities.length===0||entities.every(e=>e.employees.length===0)){
-    container.innerHTML='<div class="payroll-warning">Load at least one schedule in the <strong>Schedules</strong> tab before using Actuals Intake.</div>';
+  if(entities.length===0){
+    container.innerHTML='<div class="payroll-warning">Add an entity in the <strong>Schedules</strong> tab (just a name is enough) before using Actuals Intake.</div>';
     return;
   }
   // Top-level toolbar: import a previously-exported Actuals Intake .xlsx to skip OCR
@@ -3066,17 +3068,13 @@ function renderIntake(){
     ensureIntakeState(ent);
     const name=ent.name||('Entity '+(idx+1));
     const empCount=ent.employees.length;
-    if(empCount===0){
-      html+=`<div class="intake-entity-block"><h3>${escHtml(name)}</h3><div class="roster-note" style="color:var(--amber)">No schedule loaded yet — go to the Schedules tab first.</div></div>`;
-      return;
-    }
     const tcCount=ent.intake.timecardFiles.length;
     const ecCount=ent.intake.easyclockFiles.length;
     const breakSet=ent.breakMinutes!=null&&ent.breakMinutes!=='';
     const xlsxLoaded=(ent.actualDays||[]).length>0;
     html+=`<div class="intake-entity-block" id="intakeBlock_${idx}">
-      <h3>${escHtml(name)} <span style="font-weight:400;color:var(--text3);font-size:13px">— ${empCount} scheduled employees</span></h3>
-      <div class="roster-note">Roster comes from this entity's schedule. Anyone clocked in but not on the schedule will be flagged.</div>
+      <h3>${escHtml(name)} <span style="font-weight:400;color:var(--text3);font-size:13px">— ${empCount>0?empCount+' scheduled employees':'no schedule loaded'}</span></h3>
+      <div class="roster-note">${empCount>0?'Roster comes from this entity\'s schedule. Anyone clocked in but not on the schedule will be flagged.':'No schedule loaded for this entity — every timecard name lands under Unrecognized until matched by roster, alias, or name. You can add a schedule later; it will merge in without losing approved rows.'}</div>
 
       <div class="intake-drop-row" style="display:flex;flex-wrap:wrap;gap:8px">
         <div class="intake-drop ${tcCount>0?'has-files':''}" id="tcDrop_${idx}" onclick="document.getElementById('tcInput_${idx}').click()">
@@ -3120,7 +3118,6 @@ function renderIntake(){
 
   // Wire drop zones + file inputs
   entities.forEach((ent,idx)=>{
-    if(ent.employees.length===0)return;
     wireIntakeDrop('tcDrop_'+idx,'tcInput_'+idx,files=>addIntakeFiles(idx,'tc',files));
     wireIntakeDrop('ecDrop_'+idx,'ecInput_'+idx,files=>addIntakeFiles(idx,'ec',files));
     wireIntakeDrop('mixDrop_'+idx,'mixInput_'+idx,files=>addIntakeFiles(idx,'mixed',files));

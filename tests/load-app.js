@@ -36,8 +36,15 @@ function loadApp() {
   if (initIdx > 0) js = js.slice(0, initIdx);
 
   const noop = () => {};
+  // Elements are cached per-id so tests can render (e.g. renderFlags/renderIntake) and then
+  // inspect the resulting innerHTML on the same fake node, instead of getting a fresh throwaway
+  // element on every call. Existing tests never relied on fresh-each-time semantics.
+  const elementCache = new Map();
   const fakeDoc = {
-    getElementById: () => makeElement(),
+    getElementById: (id) => {
+      if (!elementCache.has(id)) elementCache.set(id, makeElement());
+      return elementCache.get(id);
+    },
     querySelectorAll: () => [],
     querySelector: () => null,
     createElement: () => makeElement(),
@@ -103,6 +110,15 @@ function loadApp() {
       DAYS, DAY_SHORT,
       session,
       entities,
+      setTab,
+      getCurrentTab,
+      renderIntake,
+      renderPayroll,
+      renderFlags,
+      renderTable,
+      switchEntity,
+      addEntity,
+      renderPayrollEntityContent,
       actualDays,
       wageRates,
       wageBlank,
