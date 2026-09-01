@@ -9,7 +9,7 @@ Never delete an entry — move it between sections and note the date.
 
 | # | Decision | Date |
 |---|---|---|
-| 1 | `main` is production. All work happens on feature branches. | [DATE] |
+| 1 | ~~`main` is production. All work happens on feature branches.~~ **Retired 2026-09-01.** The no-touch-main rule is no longer in effect. `main` is edited directly. Short-lived branches still used for non-trivial changes for review/revert hygiene, but not required. Rule was in place while `main` was serving active weekly payroll; that is no longer the case. | 2026-09-01 |
 | 2 | Hours are span-based: `span − max(mandatoryBreak, actualGap)`. Confirmed correct against the code. Not to be replaced with pair-sum. | [DATE] |
 | 2a | The mandatory break is a per-entity user setting with per-day overrides, not a framework rule. Confirmed intended policy, not a defect. The three reference weeks stand unchanged. | [DATE] |
 | 3 | Rest-interval and overtime validation are out of scope. Do not implement. | [DATE] |

@@ -22,3 +22,4 @@ desktop.ini
 
 # Claude Code local settings
 .claude/settings.local.json
+node_modules/\npackage-lock.json

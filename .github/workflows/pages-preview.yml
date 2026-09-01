@@ -1,20 +1,20 @@
-name: Deploy Pages preview
+name: Deploy Pages
 
 on:
   push:
     branches:
-      - tool-v2
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: pages-preview
+  group: pages-deploy
   cancel-in-progress: true
 
 jobs:
-  deploy-preview:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,18 +24,11 @@ jobs:
           ref: main
           path: main
 
-      - name: Checkout tool-v2
-        uses: actions/checkout@v4
-        with:
-          ref: tool-v2
-          path: tool-v2
-
       - name: Assemble Pages site
         run: |
           set -euo pipefail
-          mkdir -p site/tool-v2
+          mkdir -p site
           cp main/index.html site/index.html
-          cp tool-v2/index.html site/tool-v2/index.html
           touch site/.nojekyll
 
       - name: Publish gh-pages branch
@@ -49,6 +42,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Deploy GitHub Pages preview"
+          git commit -m "Deploy GitHub Pages"
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin gh-pages

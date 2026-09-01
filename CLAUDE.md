@@ -15,9 +15,11 @@ across three entities and produces payroll reports. Used every week to pay real 
 GitHub Pages serves the `main` branch. Anything committed to `main` is live immediately
 and is what gets used to run payroll.
 
-- **Never commit to `main`.** Work on a feature branch.
-- Merge to `main` only when Sastry explicitly says to.
-- If you are on `main` and about to write a file, stop and create a branch first.
+- **The no-touch-main rule was retired 2026-09-01.** Direct edits to `main` are allowed.
+- Short-lived feature branches are still encouraged for non-trivial changes (review /
+  revert hygiene) but not mandatory.
+- Before any push to `main`, tests must pass (`npm test`) and the change must be reviewed
+  by Sastry (or its Feature Card approved).
 
 ### 2. Never remove existing functionality
 
@@ -161,7 +163,8 @@ arithmetic against stated hours, and roster completeness.
 
 At the beginning of a session, do this before anything else:
 
-1. Confirm which branch you are on. If `main`, create a feature branch.
+1. Confirm which branch you are on. Direct commits to `main` are allowed as of 2026-09-01;
+   use a short-lived branch for non-trivial changes.
 2. Read `docs/DECISIONS.md` for anything settled or still open.
 3. If `docs/BASELINE.md` is incomplete, complete it before writing code.
 
