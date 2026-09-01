@@ -204,7 +204,9 @@ test('settings import with breaks restores defaults, overrides, zero overrides, 
 
   api._ingestPayrollSettings([row], colMap, true);
 
-  assert.equal(api.wKey(0, 'Alice'), 'e11111111');
+  // FC-00007: importing an old-format id ('e11111111') is still accepted for backward-compat,
+  // but any touch of the record (this import counts) migrates it to the new visible format.
+  assert.match(api.wKey(0, 'Alice'), /^EMP_[A-Z0-9]{3}_\d{5}$/);
   assert.equal(api.isRosterActive(0, 'Alice'), false);
   assert.deepEqual(api.getAliases(0, 'Alice'), ['Alicia']);
   assert.equal(api.getFinalPassMethod(0, 'Alice'), 'Contract Check');
