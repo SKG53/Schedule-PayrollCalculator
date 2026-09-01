@@ -411,6 +411,20 @@ table.review tr.new-since-upload td{background:rgba(250,204,21,0.08)}
 .all-entity-preview tr.orphan td{background:#FEF2F2}
 .all-entity-preview tr.orphan .name-col{color:var(--red);font-style:italic}
 
+/* === FC-00013: Live WYSIWYG preview panel (mirrors Combined Excel export exactly) === */
+.fc13-preview-panel{margin-top:24px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.fc13-preview-panel h3{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text1);display:flex;align-items:center;gap:8px}
+.fc13-readonly-badge{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:var(--text3);background:var(--bg2,#EFEEE8);border:1px solid var(--border);border-radius:10px;padding:2px 8px}
+.fc13-preview-scroll{overflow-x:auto}
+.fc13-preview-table{border-collapse:collapse;font-size:11px;font-family:'IBM Plex Mono',monospace;table-layout:fixed}
+.fc13-preview-table td{padding:4px 6px;border:1px solid #B0B0B0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
+.fc13-preview-table td.num{text-align:right}
+.fc13-title-row td{font-family:'Outfit',sans-serif;font-weight:700;font-size:14px;text-align:center;background:#FFFFFF;border:none;padding:8px 6px}
+.fc13-hdr-row td{background:#E8E8E4;font-family:'Outfit',sans-serif;font-weight:700}
+.fc13-subtotal-row td{font-weight:700}
+.fc13-blank-row td{border:none;background:transparent;padding:2px}
+.fc13-grand-row td{font-weight:700}
+
 /* === Template download button on intake === */
 .template-download{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;color:var(--text2);text-decoration:none}
 .template-download:hover{border-color:var(--blue);color:var(--blue)}
@@ -2326,6 +2340,122 @@ function renderPayrollEntityContent(idx){
   renderTimeCardData(allRows,hasActuals,ent);
   renderPayrollCalc(allRows,hasActuals,ent);
   renderAllEntityPreview();
+  renderFc00013PreviewPanel();
+}
+
+// ---- FC-00013: Live WYSIWYG preview panel (mirrors the Combined Excel export exactly) ----
+// Read-only HTML rendering of exactly what exportCombinedExcel() will produce: same
+// FC12_PALETTES colors, same row order (per-entity data rows -> subtotal -> blank
+// separator, repeated, then grand total), same flat-employee treatment (" (flat)" suffix,
+// blank Hours, Rate="flat"). Built from the same _collectExportData/_columnsFor('combined')
+// pipeline the Excel writer uses, so any change to the export's data model is automatically
+// reflected here. Lives at the bottom of the Payroll tab, spans all entities.
+function renderPayrollExportPreviewHtml(){
+  const data=_collectExportData();
+  if(data.length===0)return '';
+  const spec=_columnsFor('combined');
+  const cashColIdx=8; // 1-based; combined mode's Cash column (matches _exportExcel)
+
+  const titleText='COMBINED PAYROLL REPORT';
+  const per=_exportPeriodStr();
+  // _exportPeriodStr() returns "PERIOD MM/DD/YY – MM/DD/YY"; the preview title wants just
+  // the "MM/DD/YY – MM/DD/YY" range per the brief, so strip the leading "PERIOD " label.
+  const rangeOnly=per?per.replace(/^PERIOD\s+/,''):'';
+  const titleFull=titleText+(rangeOnly?' — '+rangeOnly:'');
+
+  const argbToCss=(argb)=>'#'+(argb||'FFFFFFFF').slice(2); // ARGB -> #RRGGBB (drop alpha)
+  const tdEdit='Edit above in Payroll Calculation table';
+  const tdName='Edit above in Payroll Calculation table (rename button or click name)';
+  const tdEntity='Edit entity name in Schedules tab';
+  const tdAuto='Auto-calculated';
+  const tdTitle='Edit date range in the schedule for that entity';
+
+  let html='<table class="fc13-preview-table"><colgroup>';
+  const colW=[17,22,15,10,9,13,13.42,13.05,15,10];
+  colW.forEach(w=>{html+=`<col style="width:${w*7}px">`});
+  html+='</colgroup><tbody>';
+
+  html+=`<tr class="fc13-title-row"><td colspan="${spec.headers.length}" title="${escHtml(tdTitle)}">${escHtml(titleFull)}</td></tr>`;
+  html+=`<tr class="fc13-hdr-row">${spec.headers.map(h=>`<td style="background:#E8E8E4" title="${escHtml(tdAuto)}">${escHtml(h)}</td>`).join('')}</tr>`;
+
+  let grandTotal=0,grandDeposit=0,grandCash=0;
+  let renderedEntityCount=0;
+  data.forEach(({entityName,entityId,rows})=>{
+    let filtered=_filterRowsForKind(rows,'combined');
+    if(filtered.length===0)return;
+    filtered=filtered.slice().sort(spec.sortFn);
+    // Blank separator row BEFORE every entity after the first, matching the reference
+    // report's layout (separators sit between entities, not trailing after the last one).
+    if(renderedEntityCount>0){
+      html+=`<tr class="fc13-blank-row"><td colspan="${spec.headers.length}" title="${escHtml(tdAuto)}">&nbsp;</td></tr>`;
+    }
+    renderedEntityCount++;
+    const entCode=_entityCodeFor(entityId);
+    const pal=_fc12PaletteFor(entCode);
+    let entTotal=0,entDeposit=0,entCash=0;
+    filtered.forEach(r=>{
+      const vals=spec.rowFn(r);
+      html+='<tr class="fc13-data-row">';
+      vals.forEach((c,ci)=>{
+        const text=_cellText(c);
+        const isCash=(ci+1)===cashColIdx;
+        const bg=argbToCss(isCash?pal.cash:pal.body);
+        const isNum=spec.numCols.indexOf(ci)>=0;
+        const tip=ci===1?tdName:(ci===0?tdEntity:tdEdit);
+        html+=`<td class="fc13-cell${isNum?' num':''}" style="background:${bg}" title="${escHtml(tip)}">${escHtml(text)}</td>`;
+      });
+      html+='</tr>';
+      if(r._breakdown.method==='cash'||r._breakdown.method==='deposit'||r._breakdown.method==='both'){
+        entTotal+=r._breakdown.actualFinal||0;
+      }
+      entDeposit+=r._breakdown.deposit||0;entCash+=r._breakdown.cash||0;
+    });
+    // Entity subtotal row — palette's subtotal fill (BFBFBF for all current palettes),
+    // bold; only Actual Total/Deposit/Cash cols carry values.
+    const subBg=argbToCss(pal.subtotal);
+    const subVals=new Array(spec.headers.length).fill('');
+    subVals[0]=entityName+' subtotal';
+    subVals[5]=xlMoney(entTotal).text;
+    subVals[6]=entDeposit>0?xlMoney(entDeposit).text:'';
+    subVals[7]=entCash>0?xlMoney(entCash).text:'';
+    html+='<tr class="fc13-subtotal-row">'+subVals.map((v,ci)=>{
+      const isNum=spec.numCols.indexOf(ci)>=0;
+      return `<td class="fc13-cell${isNum?' num':''}" style="background:${subBg}" title="${escHtml(tdAuto)}">${escHtml(v)}</td>`;
+    }).join('')+'</tr>';
+    grandTotal+=entTotal;grandDeposit+=entDeposit;grandCash+=entCash;
+  });
+
+  // Grand total row — uses the __GRAND__ palette lookup (A6A6A6), bold, matching
+  // _applyEntityPalette(g,'__GRAND__','grand',null) in _exportExcel.
+  const grandBg=argbToCss(_fc12PaletteFor('__GRAND__').grand);
+  const grandVals=new Array(spec.headers.length).fill('');
+  grandVals[0]='GRAND TOTAL';
+  grandVals[5]=xlMoney(grandTotal).text;
+  grandVals[6]=grandDeposit>0?xlMoney(grandDeposit).text:'';
+  grandVals[7]=grandCash>0?xlMoney(grandCash).text:'';
+  html+='<tr class="fc13-grand-row">'+grandVals.map((v,ci)=>{
+    const isNum=spec.numCols.indexOf(ci)>=0;
+    return `<td class="fc13-cell${isNum?' num':''}" style="background:${grandBg}" title="${escHtml(tdAuto)}">${escHtml(v)}</td>`;
+  }).join('')+'</tr>';
+
+  html+='</tbody></table>';
+  return html;
+}
+
+// Mounts renderPayrollExportPreviewHtml() into the DOM, just above the export toolbar,
+// below the all-entity preview. Read-only — no inputs, selects, or contenteditable.
+function renderFc00013PreviewPanel(){
+  let host=document.getElementById('fc13PreviewHost');
+  if(!host){
+    host=document.createElement('div');
+    host.id='fc13PreviewHost';
+    const toolbar=document.getElementById('payrollToolbar');
+    if(toolbar&&toolbar.parentNode){
+      toolbar.parentNode.insertBefore(host,toolbar);
+    }
+  }
+  const tableHtml=renderPayrollExportPreviewHtml();
+  host.innerHTML=tableHtml?`<div class="fc13-preview-panel"><h3>Combined export preview <span class="fc13-readonly-badge">read-only</span></h3><div class="fc13-preview-scroll">${tableHtml}</div></div>`:'';
 }
 
 // Render the all-entity preview table + grand total just above the Export button.
