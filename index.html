@@ -4589,10 +4589,10 @@ function _columnsFor(kind){
 // these user-configurable). Looked up by ent.code (set by FC-00007); unknown codes fall
 // back to DEFAULT. ARGB format (4 hex pairs: alpha + RGB) as ExcelJS fills expect.
 const FC12_PALETTES={
-  N11:{body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'},
-  ZIO:{body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'},
-  HEF:{body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'},
-  DEFAULT:{body:'FFFFFFFF',cash:'FFE8E8E4',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFBFBFBF'}
+  N11:{body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  ZIO:{body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  HEF:{body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  DEFAULT:{body:'FFFFFFFF',cash:'FFE8E8E4',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'}
 };
 function _fc12PaletteFor(entCode){return FC12_PALETTES[entCode]||FC12_PALETTES.DEFAULT}
 function _fc12Fill(argb){return {type:'pattern',pattern:'solid',fgColor:{argb}}}
