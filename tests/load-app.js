@@ -3,6 +3,15 @@ const path = require('node:path');
 
 function makeElement() {
   const noop = () => {};
+  // FC-00009: a couple of real code paths (showScheduleUI, parseSchedule's "records
+  // loaded" banner) reach into their container via dz.querySelector('h2'/'p') to update
+  // a status line, and never null-check the result because that markup is always present
+  // in the real static HTML. Everywhere else in index.html, querySelector() results ARE
+  // null-checked (`if(existing)...`) and rely on null-when-absent, so only special-case
+  // exactly these two always-present structural tags — every other selector keeps
+  // returning null exactly as before.
+  const STRUCTURAL_CHILD_TAGS = new Set(['h2', 'p']);
+  const childCache = new Map();
   return {
     style: {},
     innerHTML: '',
@@ -18,7 +27,11 @@ function makeElement() {
     addEventListener: noop,
     removeEventListener: noop,
     querySelectorAll: () => [],
-    querySelector: () => null,
+    querySelector: (sel) => {
+      if (!STRUCTURAL_CHILD_TAGS.has(sel)) return null;
+      if (!childCache.has(sel)) childCache.set(sel, makeElement());
+      return childCache.get(sel);
+    },
     focus: noop,
     click: noop,
     getContext: () => null,
@@ -112,9 +125,20 @@ function loadApp() {
     return sheet;
   }
 
+  // FC-00009: a real (in-memory) localStorage-shaped store shared by the bare `localStorage`
+  // binding and `window.localStorage` — index.html's _prefGet/_prefSet/_prefRemove read/write
+  // through `window.localStorage`, so tests need that path wired to something real (not the
+  // no-op stub) to simulate an API key being present/absent.
+  const prefStore = new Map();
+  const localStorageMock = {
+    getItem: (k) => (prefStore.has(k) ? prefStore.get(k) : null),
+    setItem: (k, v) => { prefStore.set(k, String(v)); },
+    removeItem: (k) => { prefStore.delete(k); },
+  };
+
   const sandbox = {
     document: fakeDoc,
-    window: { scrollX: 0, scrollY: 0, scrollTo: () => {}, jspdf: null }, // .jspdf wired to sandbox.jspdf below
+    window: { scrollX: 0, scrollY: 0, scrollTo: () => {}, jspdf: null, localStorage: localStorageMock }, // .jspdf wired to sandbox.jspdf below
     console,
     setTimeout,
     clearTimeout,
@@ -124,8 +148,17 @@ function loadApp() {
     URL: { createObjectURL: () => 'blob:', revokeObjectURL: noop },
     Blob: class { constructor() {} },
     FileReader: class {
-      constructor() { this.onload = null; }
+      constructor() { this.onload = null; this.onerror = null; this.result = null; }
       readAsArrayBuffer() {}
+      // FC-00009: prepareImageForOcr() falls back to fileToBase64() (which uses
+      // readAsDataURL) whenever createImageBitmap isn't available — true in this Node
+      // sandbox — so schedule/timecard OCR tests need a real (if minimal) data URL here
+      // rather than a no-op, or every OCR test would hang waiting on onload.
+      readAsDataURL(file) {
+        const b64 = (file && typeof file.__testBase64 === 'string') ? file.__testBase64 : 'ZmFrZQ==';
+        this.result = 'data:' + ((file && file.type) || 'image/jpeg') + ';base64,' + b64;
+        if (this.onload) this.onload({ target: this });
+      }
     },
     fetch: async () => ({ ok: true, json: async () => ({}) }),
     crypto: { subtle: { digest: async () => new ArrayBuffer(32) } },
@@ -153,7 +186,7 @@ function loadApp() {
     XLSX: { read: () => ({ SheetNames: [], Sheets: {} }), utils: { sheet_to_json: () => [] } },
     jspdf: null, // replaced below with a real (recording) mock
     sessionStorage: { getItem: () => null, setItem: noop, removeItem: noop },
-    localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+    localStorage: localStorageMock,
     navigator: {},
     location: { reload: noop },
   };
@@ -349,6 +382,24 @@ function loadApp() {
       refreshReviewTable,
       _ingestActualsIntakeRows,
       importActualsIntakeFile,
+      _prefGet,
+      _prefSet,
+      _prefRemove,
+      parseSchedule,
+      handleFile,
+      startBlank,
+      renderScheduleContent,
+      showScheduleUI,
+      callGeminiVisionJson,
+      ocrImage,
+      schedulePrompt,
+      ocrScheduleImage,
+      scheduleOcrJsonToRows,
+      runScheduleOcrForEntity,
+      handleSchedulePasteEvent,
+      pasteScheduleImage,
+      OCR_RETRY_DELAY_MS,
+      OCR_MAX_AUTO_ATTEMPTS,
     };
   `;
 
