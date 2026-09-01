@@ -4784,6 +4784,13 @@ function _fc12PaletteFor(entCode){
   return FC12_PALETTES[entCode]||FC12_PALETTES.DEFAULT;
 }
 function _fc12Fill(argb){return {type:'pattern',pattern:'solid',fgColor:{argb}}}
+// FC-00015: autoTable (jsPDF) wants plain [R,G,B] (0-255) fill arrays, not ExcelJS's ARGB
+// hex strings. Takes an 8-char ARGB string ('FFAABBCC') and drops the alpha byte, returning
+// [0xAA,0xBB,0xCC]. Same palette constants (FC14_PRESETS) feed both writers this way.
+function _argbToRgbTriplet(argb){
+  const hex=(argb||'FFFFFFFF').slice(-6);
+  return [parseInt(hex.slice(0,2),16),parseInt(hex.slice(2,4),16),parseInt(hex.slice(4,6),16)];
+}
 // Applies a per-entity palette fill to a data/subtotal row. `role` is 'body'|'subtotal'|'grand'.
 // `cashColIdx` (1-based column number) gets the palette's `cash` tint instead of `body` when
 // role==='body' and the column carries the Cash amount (combined mode col H / cashOnly Cash
@@ -4966,6 +4973,13 @@ async function _exportPdf(kind){
   const data=_collectExportData();
   if(data.length===0){alert('No data to export.');return;}
 
+  // FC-00015: the payroll reports (combined/cashOnly/depositOnly) get the same per-entity
+  // color palette baked into the Excel exports (FC-00012/FC-00014), resolved the same way
+  // (_paletteForEntity — so user-selected FC-00014 presets flow through here too);
+  // timecard/payrollCalc/full (working data, not the payroll report) stay uncolored,
+  // mirroring FC-00012's Excel scope exactly.
+  const _fc15Colorize=(kind==='combined'||kind==='cashOnly'||kind==='depositOnly');
+
   // Landscape for wide tables (combined/timecard/payrollCalc/full)
   const landscape=(kind==='combined'||kind==='timecard'||kind==='payrollCalc'||kind==='full');
   const doc=new jsPDF({unit:'pt',format:'letter',orientation:landscape?'landscape':'portrait'});
@@ -4995,16 +5009,30 @@ async function _exportPdf(kind){
       startY+=12;
     }
 
+    // combined mode's Cash column (index 7, 0-based) gets the palette's cash tint;
+    // cashOnly's last column (Cash Portion) gets it too. depositOnly has no cash column —
+    // matches the cashColIdx logic in _exportExcel (which is 1-based; this is 0-based).
+    const cashColIdx=
+      sectionKind==='combined'?7:
+      sectionKind==='cashOnly'?spec.headers.length-1:
+      null;
+
+    // rowRoles[i] describes body[i]: {role:'body'|'subtotal'|'grand', pal:<resolved palette>}
+    // so the didParseCell hook below can look up the right fill without re-deriving it from
+    // row content. Built in lockstep with `body` as rows are pushed.
+    const rowRoles=[];
     const body=[];
     let grandTotal=0,grandHours=0;
-    data.forEach(({entityName,rows})=>{
+    data.forEach(({entityName,entityId,rows})=>{
       let filtered=_filterRowsForKind(rows,sectionKind);
       if(filtered.length===0)return;
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
+      const entPal=_fc15Colorize?_paletteForEntity(entities.find(e=>e.id===entityId)):null;
       let entTotal=0,entHours=0;
       filtered.forEach(r=>{
         // PDF is a rendered document — unwrap the numeric cells back to display text.
         body.push(spec.rowFn(r).map(_cellText));
+        rowRoles.push({role:'body',pal:entPal});
         if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
         else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
         else entTotal+=r._breakdown.final;
@@ -5018,6 +5046,10 @@ async function _exportPdf(kind){
         subRow[spec.headers.length-1]={content:_cellText(xlMoney(entTotal)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
       }
       body.push(subRow);
+      // FC-00015: keep an entity's subtotal row on the same page as its data rows whenever
+      // possible — autoTable's own per-row 'avoid' setting (vs. the table-wide 'avoid',
+      // which would force the whole table onto one page) does exactly this.
+      rowRoles.push({role:'subtotal',pal:entPal,pageBreak:'avoid'});
       grandTotal+=entTotal;grandHours+=entHours;
     });
 
@@ -5029,10 +5061,15 @@ async function _exportPdf(kind){
       grandRow[spec.headers.length-1]={content:_cellText(xlMoney(grandTotal)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
     }
     body.push(grandRow);
+    rowRoles.push({role:'grand',pal:_fc15Colorize?FC14_PRESETS.Plain:null,pageBreak:'avoid'});
 
     const columnStyles={};
     spec.numCols.forEach(ci=>{columnStyles[ci]={halign:'right'}});
-    spec.widths.forEach((w,i)=>{columnStyles[i]=Object.assign({},columnStyles[i]||{},{cellWidth:w*0.9})});
+    // Approximate the Excel column widths in PDF points (rough Excel-unit-to-point
+    // conversion, ~7pt per narrow Excel width unit: spec.widths are already the same
+    // px-ish units _exportExcel divides by 6 to get Excel units, so w/6*7 lines the two
+    // writers' column proportions up without hardcoding a second widths table here).
+    spec.widths.forEach((w,i)=>{columnStyles[i]=Object.assign({},columnStyles[i]||{},{cellWidth:(w/6)*7})});
 
     doc.autoTable({
       head:[spec.headers],
@@ -5042,7 +5079,28 @@ async function _exportPdf(kind){
       styles:{font:'helvetica',fontSize:8,cellPadding:3,lineColor:[176,176,176],lineWidth:0.4},
       headStyles:{fillColor:[232,232,228],textColor:[26,26,24],fontStyle:'bold',halign:'left'},
       columnStyles,
-      margin:{left:30,right:30}
+      margin:{left:30,right:30},
+      // FC-00015: applies the resolved per-entity palette fill to every body/subtotal/grand
+      // cell, mirroring _applyEntityPalette's Excel logic. Header row keeps its static
+      // headStyles fill (set above) and is left alone here. Runs for every section, but
+      // rowRoles[i].pal is null when _fc15Colorize is false (timecard/payrollCalc/full),
+      // so this is a guaranteed no-op fill-wise for those uncolored modes.
+      didParseCell(hookData){
+        if(hookData.section!=='body')return;
+        const meta=rowRoles[hookData.row.index];
+        if(!meta||!meta.pal)return;
+        const pal=meta.pal;
+        const ci=hookData.column.index;
+        let argb;
+        if(meta.role==='grand')argb=pal.grand;
+        else if(meta.role==='subtotal')argb=pal.subtotal;
+        else argb=(cashColIdx!=null&&ci===cashColIdx)?pal.cash:pal.body;
+        hookData.cell.styles.fillColor=_argbToRgbTriplet(argb);
+        if(meta.role==='subtotal'||meta.role==='grand'){
+          hookData.cell.styles.fontStyle='bold';
+          hookData.row.pageBreak=meta.pageBreak;
+        }
+      }
     });
     startY=doc.lastAutoTable.finalY+20;
   }
