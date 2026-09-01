@@ -10,6 +10,12 @@ across three entities and produces payroll reports. Used every week to pay real 
 
 ## CRITICAL — read before any code change
 
+### 0. Feature Card workflow is MANDATORY
+
+Every non-trivial change ships as a Feature Card first. Read [`docs/WORKFLOW.md`](docs/WORKFLOW.md) before writing code. The card is the source of truth from before implementation until after merge. Cards live at `docs/features/FC-NNNNN-YYYY-MM-DD-slug.md` and are indexed in [`docs/FEATURE_LOG.md`](docs/FEATURE_LOG.md).
+
+Deferred / postponed ideas live in [`docs/DEFERRED.md`](docs/DEFERRED.md) — not in code, not in cards, but not forgotten.
+
 ### 1. `main` is production
 
 GitHub Pages serves the `main` branch. Anything committed to `main` is live immediately
