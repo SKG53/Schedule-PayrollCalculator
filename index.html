@@ -693,7 +693,7 @@ function _resolveEntityCode(name){
 function _syncEntityCode(ent){ent.code=_resolveEntityCode(ent.name);return ent.code}
 let _testMode=false;
 function setTestMode(v){_testMode=!!v}
-function _isUserIntentStore(name){return['wageRates','wageBlank','payMethod','splitAmounts','flatWages','breakOverrides','rosterActive','rosterAliases','payrollSortMode'].includes(name)}
+function _isUserIntentStore(name){return['wageRates','wageBlank','payMethod','splitAmounts','flatWages','breakOverrides','rosterActive','rosterAliases','payrollSortMode','entityPalettes'].includes(name)}
 function _guardedStore(name){
   const obj={};
   return new Proxy(obj,{
@@ -723,6 +723,7 @@ function createSession(){
     wageBlank:_guardedStore('wageBlank'),
     breakOverrides:_guardedStore('breakOverrides'),
     payrollSortMode:_guardedStore('payrollSortMode'),
+    entityPalettes:_guardedStore('entityPalettes'),
     rosterActive:_guardedStore('rosterActive'),
     rosterAliases:_guardedStore('rosterAliases'),
     flatWages:_guardedStore('flatWages'),
@@ -759,6 +760,9 @@ let wageBlank=session.wageBlank;
 let breakOverrides=session.breakOverrides;
 // Per-entity: 'name' (default insertion order) or 'paytype' (Cash → Both → Deposit grouping).
 let payrollSortMode=session.payrollSortMode;
+// FC-00014: per-entity color palette selection. Key: entity id -> preset name (FC14_PRESETS key).
+// Absence of a key means "use the per-entity-code default" (see _fc14DefaultPresetFor).
+let entityPalettes=session.entityPalettes;
 
 // Roster active flag. Key: wKey(entId, empName) -> false once the employee has left.
 // Absence means active, so employees never touched and settings files written before this
@@ -1169,6 +1173,8 @@ function _applyChange(entry,invert){
       if(ent){ent.breakMinutes=Math.max(0,Math.round(parseFloat(value)||0));ent.breakMinutesSet=!!(entry.meta&&entry.meta.confirmed);}
     }else if(entry.type==='sortMode'){
       payrollSortMode[entId]=value==='paytype'?'paytype':'name';
+    }else if(entry.type==='entityPaletteSet'){
+      if(value&&FC14_PRESETS[value])entityPalettes[entId]=value;else delete entityPalettes[entId];
     }else if(entry.type==='rosterAdd'){
       ensureRosterRecord(entId,empName,(value&&value.id)||target.id);
     }else if(entry.type==='rosterRename'){
@@ -1211,7 +1217,7 @@ function _applyChange(entry,invert){
 }
 const _reducers={
   wage:_applyChange,wageBlank:_applyChange,payMethod:_applyChange,splitDeposit:_applyChange,flatWage:_applyChange,
-  breakOverride:_applyChange,entityBreak:_applyChange,sortMode:_applyChange,rosterAdd:_applyChange,rosterRename:_applyChange,
+  breakOverride:_applyChange,entityBreak:_applyChange,sortMode:_applyChange,entityPaletteSet:_applyChange,rosterAdd:_applyChange,rosterRename:_applyChange,
   rosterAliasAdd:_applyChange,rosterAliasRemove:_applyChange,rosterActiveSet:_applyChange,rosterFieldSet:_applyChange
 };
 function dispatch(change){
@@ -2310,6 +2316,9 @@ function renderPayrollEntityContent(idx){
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
       ${empCount===0?'<span style="color:var(--amber);font-size:12px">No schedule loaded — employees below come from Actuals Intake</span>':''}
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px"><label for="fc14PaletteSel${idx}" style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Color palette:</label>
+        <select id="fc14PaletteSel${idx}" onchange="setEntityPalette(${ent.id},this.value)" title="Palette applied to this entity's Excel export and preview">${FC14_PRESET_NAMES.map(n=>`<option value="${escHtml(n)}"${getEntityPalette(ent)===n?' selected':''}>${escHtml(n)}</option>`).join('')}</select>
+      </span>
       <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px"><span style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Sort:</span>
         <button class="btn btn-small${(payrollSortMode[ent.id]||'name')==='name'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'name')" title="Schedule order (default)">Schedule order</button>
         <button class="btn btn-small${payrollSortMode[ent.id]==='paytype'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'paytype')" title="Group by Cash → Cash + Deposit → Deposit">Group by Pay Type</button>
@@ -2390,8 +2399,8 @@ function renderPayrollExportPreviewHtml(){
       html+=`<tr class="fc13-blank-row"><td colspan="${spec.headers.length}" title="${escHtml(tdAuto)}">&nbsp;</td></tr>`;
     }
     renderedEntityCount++;
-    const entCode=_entityCodeFor(entityId);
-    const pal=_fc12PaletteFor(entCode);
+    const previewEnt=entities.find(e=>e.id===entityId);
+    const pal=_paletteForEntity(previewEnt);
     let entTotal=0,entDeposit=0,entCash=0;
     filtered.forEach(r=>{
       const vals=spec.rowFn(r);
@@ -2425,9 +2434,9 @@ function renderPayrollExportPreviewHtml(){
     grandTotal+=entTotal;grandDeposit+=entDeposit;grandCash+=entCash;
   });
 
-  // Grand total row — uses the __GRAND__ palette lookup (A6A6A6), bold, matching
-  // _applyEntityPalette(g,'__GRAND__','grand',null) in _exportExcel.
-  const grandBg=argbToCss(_fc12PaletteFor('__GRAND__').grand);
+  // Grand total row — uses the shared grand-total fill (A6A6A6, same across all presets),
+  // bold, matching _applyEntityPalette(g,FC14_PRESETS.Plain,'grand',null) in _exportExcel.
+  const grandBg=argbToCss(FC14_PRESETS.Plain.grand);
   const grandVals=new Array(spec.headers.length).fill('');
   grandVals[0]='GRAND TOTAL';
   grandVals[5]=xlMoney(grandTotal).text;
@@ -4714,24 +4723,74 @@ function _columnsFor(kind){
   return null;
 }
 
-// ---- FC-00012: baked-in entity color palettes for Excel payroll exports ----
-// Hardcoded per-entity, deterministic, no configuration required (FC-00014 will make
-// these user-configurable). Looked up by ent.code (set by FC-00007); unknown codes fall
-// back to DEFAULT. ARGB format (4 hex pairs: alpha + RGB) as ExcelJS fills expect.
-const FC12_PALETTES={
-  N11:{body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
-  ZIO:{body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
-  HEF:{body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
-  DEFAULT:{body:'FFFFFFFF',cash:'FFE8E8E4',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'}
+// ---- FC-00012/FC-00014: entity color palettes for Excel payroll exports + preview ----
+// FC-00014 promotes the FC-00012 hardcoded per-entity palette into 10 named, user-selectable
+// presets. FC12_PALETTES is kept as a back-compat alias map (still keyed by entity code) so
+// legacy code-based lookups and the original per-entity defaults stay intact; FC14_PRESETS is
+// the full set of 10 named presets a user can pick from in the Payroll UI. ARGB format (4 hex
+// pairs: alpha + RGB) as ExcelJS fills expect.
+const FC14_PRESETS={
+  'Nirvana Green':{body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Zion Blue':    {body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Hefner Peach': {body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Lavender':     {body:'FFE4D6FC',cash:'FFC4A6EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Slate':        {body:'FFE0E0E0',cash:'FFB0B0B0',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Sunset':       {body:'FFFCD6D6',cash:'FFEE9D9D',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Sage':         {body:'FFD6E6D6',cash:'FF9DC69D',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Sky':          {body:'FFD6E8F0',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Mint':         {body:'FFD6F0E4',cash:'FF9DE6C4',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Plain':        {body:'FFFFFFFF',cash:'FFE8E8E4',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'}
 };
-function _fc12PaletteFor(entCode){return FC12_PALETTES[entCode]||FC12_PALETTES.DEFAULT}
+const FC14_PRESET_NAMES=Object.keys(FC14_PRESETS);
+// Per-entity-code default preset name - the original FC-00012 hardcoded assignments, now
+// expressed as defaults a user can override per entity via the palette dropdown.
+const FC14_DEFAULT_PRESET_BY_CODE={N11:'Nirvana Green',ZIO:'Zion Blue',HEF:'Hefner Peach'};
+function _fc14DefaultPresetFor(entCode){return FC14_DEFAULT_PRESET_BY_CODE[entCode]||'Plain'}
+// Back-compat alias map keyed by entity code (unknown entity codes fall back to DEFAULT).
+const FC12_PALETTES={
+  N11:FC14_PRESETS['Nirvana Green'],
+  ZIO:FC14_PRESETS['Zion Blue'],
+  HEF:FC14_PRESETS['Hefner Peach'],
+  DEFAULT:FC14_PRESETS['Plain']
+};
+// FC-00014: session-level per-entity palette selection. Key: entity id -> preset name.
+// Absence of a key means "use the per-entity-code default" (_fc14DefaultPresetFor).
+function getEntityPalette(ent){
+  if(!ent)return 'Plain';
+  const chosen=entityPalettes[ent.id];
+  if(chosen&&FC14_PRESETS[chosen])return chosen;
+  return _fc14DefaultPresetFor(ent.code);
+}
+function setEntityPalette(entId,presetName){
+  const ent=entities.find(e=>e.id===entId);
+  if(!ent||!FC14_PRESETS[presetName])return;
+  dispatch({type:'entityPaletteSet',screen:'payroll',target:{kind:'entity',entity:entId,field:'palette'},from:getEntityPalette(ent),to:presetName});
+  const idx=entities.indexOf(ent);
+  if(idx>=0)renderPayrollEntityContent(idx);
+}
+// Single source of truth for "which palette object applies to this entity": looks up the
+// user's session-level selection first, falling back to the entity-code default.
+function _paletteForEntity(ent){
+  return FC14_PRESETS[getEntityPalette(ent)]||FC14_PRESETS.Plain;
+}
+// Thin backward-compat shim for callers that still have only an entity CODE (not the full
+// entity object) - e.g. the '__GRAND__' sentinel used for the grand-total row, which isn't a
+// real entity. Resolves a real entity by code when possible so it picks up the user's
+// selection; otherwise falls back to the code's hardcoded default/DEFAULT.
+function _fc12PaletteFor(entCode){
+  if(entCode==='__GRAND__')return FC12_PALETTES.DEFAULT;
+  const ent=entities.find(e=>e.code===entCode);
+  if(ent)return _paletteForEntity(ent);
+  return FC12_PALETTES[entCode]||FC12_PALETTES.DEFAULT;
+}
 function _fc12Fill(argb){return {type:'pattern',pattern:'solid',fgColor:{argb}}}
 // Applies a per-entity palette fill to a data/subtotal row. `role` is 'body'|'subtotal'|'grand'.
 // `cashColIdx` (1-based column number) gets the palette's `cash` tint instead of `body` when
 // role==='body' and the column carries the Cash amount (combined mode col H / cashOnly Cash
 // Portion col); pass null when the section has no cash-tinted column (e.g. depositOnly).
-function _applyEntityPalette(row,entCode,role,cashColIdx){
-  const pal=_fc12PaletteFor(entCode);
+// `pal` is the already-resolved palette object for this row's entity (via _paletteForEntity),
+// so callers that already know the entity never fall back to code-based lookup.
+function _applyEntityPalette(row,pal,role,cashColIdx){
   const fill=role==='grand'?_fc12Fill(pal.grand):role==='subtotal'?_fc12Fill(pal.subtotal):_fc12Fill(pal.body);
   const cashFill=_fc12Fill(pal.cash);
   row.eachCell((cell,ci)=>{
@@ -4808,7 +4867,7 @@ async function _exportExcel(kind){
       let filtered=_filterRowsForKind(rows,sectionKind);
       if(filtered.length===0)return;
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
-      const entCode=_fc12Colorize?_entityCodeFor(entityId):null;
+      const entPal=_fc12Colorize?_paletteForEntity(entities.find(e=>e.id===entityId)):null;
       let entTotal=0,entHours=0,entDeposit=0,entCash=0;
       filtered.forEach(r=>{
         const vals=spec.rowFn(r);
@@ -4818,7 +4877,7 @@ async function _exportExcel(kind){
           cell.border={bottom:thinB,left:thinB,right:thinB};cell.font={name:'Arial',size:10};
           _applyNumFmt(cell,vals[ci-1]);
         });
-        if(_fc12Colorize)_applyEntityPalette(row,entCode,'body',cashColIdx);
+        if(_fc12Colorize)_applyEntityPalette(row,entPal,'body',cashColIdx);
         if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
         else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
         else if(sectionKind==='combined')entTotal+=r._breakdown.actualFinal||0;
@@ -4848,7 +4907,7 @@ async function _exportExcel(kind){
         cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
         _applyNumFmt(cell,subCells[ci-1]);
       });
-      if(_fc12Colorize)_applyEntityPalette(sub,entCode,'subtotal',null);
+      if(_fc12Colorize)_applyEntityPalette(sub,entPal,'subtotal',null);
       // Blank separator row between entities, matching the reference report's layout.
       if(_fc12Colorize)ws.addRow([]);
       grandTotal+=entTotal;grandHours+=entHours;grandDeposit+=entDeposit;grandCash+=entCash;
@@ -4873,7 +4932,7 @@ async function _exportExcel(kind){
       cell.border={top:medB,bottom:medB,left:medB,right:medB};
       _applyNumFmt(cell,grandCells[ci-1]);
     });
-    if(_fc12Colorize)_applyEntityPalette(g,'__GRAND__','grand',null);
+    if(_fc12Colorize)_applyEntityPalette(g,FC14_PRESETS.Plain,'grand',null);
 
     // Column widths — combined mode uses the reference report's exact Excel width units;
     // other kinds keep the legacy px/6 conversion.
@@ -5347,7 +5406,10 @@ async function exportPayrollPdf(){return exportCombinedPdf()}
 // ================================================================
 // V3 identity/schema columns. The importer matches on column name, not index, so old V1/V2
 // settings files without Employee ID, aliases, active, final-pass method, or notes still load.
-const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Employee ID','Aliases','Active','Final Pass Method','Notes'];
+// FC-00014: 'Palette' is an entity-level setting, not per-employee, but the settings file is
+// per-employee-row — so every row for a given entity carries the same preset name. Appended
+// at the end so it never shifts any existing column index for older readers.
+const PAYROLL_SETTINGS_HEADERS=['Entity','Employee','Wage/hour','Type','Flat Amount','Pay Method','Deposit Amount','Deposit Typed As','Employee ID','Aliases','Active','Final Pass Method','Notes','Palette'];
 const PAYROLL_SETTINGS_SCHEMA_TAG='SPCalcPayrollSettingsV1';
 // Break-extension headers — appended only when the user opts in to "include breaks".
 // Per-day numeric (minutes) + status ('Override' or 'Actual'); plus an entity-default-break column.
@@ -5401,7 +5463,8 @@ function _gatherPayrollSettingsRows(includeBreaks){
         aliases:(()=>{const a=getAliases(ent.id,empName);return a.length?JSON.stringify(a):''})(),
         active:isRosterActive(ent.id,empName)?'Yes':'No',
         finalPassMethod:getFinalPassMethod(ent.id,empName),
-        notes:getRosterNotes(ent.id,empName)
+        notes:getRosterNotes(ent.id,empName),
+        palette:getEntityPalette(ent)
       };
       if(includeBreaks){
         rec.defaultBreak=ent.breakMinutes||0;
@@ -5451,7 +5514,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
   const hdr=ws.addRow(headers);
   hdr.eachCell(c=>{c.font={bold:true,size:10};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};c.alignment={vertical:'middle'};});
   rows.forEach(r=>{
-    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.employeeId,r.aliases,r.active,r.finalPassMethod,r.notes];
+    const base=[r.entity,r.employee,r.wage,r.type,r.flat,r.method,r.deposit,r.depositTypedAs,r.employeeId,r.aliases,r.active,r.finalPassMethod,r.notes,r.palette];
     if(includeBreaks){
       base.push(r.defaultBreak);
       for(let d=0;d<7;d++){
@@ -5467,7 +5530,7 @@ async function exportPayrollSettingsExcel(includeBreaks){
     // and separators so the round-trip still parses.
     [3,5,7].forEach(ci=>{settingsRow.getCell(ci).numFmt=XL_FMT_MONEY});
   });
-  const baseW=[20,22,12,10,14,18,16,16,14,38,10,20,28];
+  const baseW=[20,22,12,10,14,18,16,16,14,38,10,20,28,16];
   const breakW=includeBreaks?[14,10,16,10,16,10,16,10,16,10,16,10,16,10,16]:[];
   const widths=baseW.concat(breakW);
   ws.columns.forEach((col,i)=>{col.width=widths[i]||14;});
@@ -5530,6 +5593,9 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
   // Track which entities had their default break adjusted so we apply once per entity
   // (multiple rows share the same Default Break column for the same entity).
   const defaultBreaksApplied=new Set();
+  // Track which entities already had their Palette column applied — same reasoning:
+  // every employee row for an entity carries the same preset name, apply once.
+  const palettesApplied=new Set();
   const dayKeys=['sun','mon','tue','wed','thu','fri','sat'];
   rows.forEach(row=>{
     if(!row||row.length===0)return;
@@ -5575,6 +5641,17 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     }
     if(colMap['notes']!=null){
       setRosterNotes(ent.id,empName,get(row,'notes').trim());
+    }
+    // Palette (FC-00014): one preset name per entity, repeated on every employee row.
+    // Valid preset name -> set session.entityPalettes[entId]; missing/invalid/absent column
+    // -> leave as-is, so the entity keeps its per-code default (backward compat with files
+    // exported before this column existed, and with hand-edited garbage values).
+    if(colMap['palette']!=null&&!palettesApplied.has(ent.id)){
+      const paletteRaw=get(row,'palette').trim();
+      if(paletteRaw&&FC14_PRESETS[paletteRaw]){
+        setEntityPalette(ent.id,paletteRaw);
+        palettesApplied.add(ent.id);
+      }
     }
     // Wage
     if(wageRaw===''){

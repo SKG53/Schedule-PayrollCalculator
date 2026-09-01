@@ -186,6 +186,7 @@ function loadApp() {
       breakOverrides,
       rosterActive,
       rosterAliases,
+      entityPalettes,
       PAYROLL_SETTINGS_HEADERS,
       PAYROLL_SETTINGS_BREAK_HEADERS,
       setTestMode,
@@ -261,6 +262,12 @@ function loadApp() {
       FC12_PALETTES,
       _fc12PaletteFor,
       _applyEntityPalette,
+      FC14_PRESETS,
+      FC14_PRESET_NAMES,
+      FC14_DEFAULT_PRESET_BY_CODE,
+      _paletteForEntity,
+      getEntityPalette,
+      setEntityPalette,
       _collectExportData,
       _columnsFor,
       xlMoney,
@@ -326,6 +333,7 @@ function resetToSingleEntity(api, entity = {}) {
     api.breakOverrides,
     api.rosterActive,
     api.rosterAliases,
+    api.entityPalettes,
   ].forEach(clearObject);
   return api.entities[0];
 }
