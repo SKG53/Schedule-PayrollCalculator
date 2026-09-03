@@ -7,7 +7,6 @@ Ideas that are not part of any active Feature Card. Not committed, not scheduled
 - **Group D features** (Handoff Group D — details in the v3 handoff): batch of quality-of-life improvements not chosen for the first waves.
 - **alert()/confirm() cleanup** — replace remaining browser dialogs with in-tool toast/modal patterns for a more polished feel. FC-00007 introduced some new `confirm()` calls that would be candidates for this cleanup.
 - **MN overlap-supersede** — when a schedule contains overlapping shifts around midnight, the tool currently produces two separate shift rows. Deferred: unify into one shift where clearly a continuation.
-- **Contract Check pay method** — an additional pay-method category beyond Cash / Deposit / Both. Was scoped but never approved.
 - **Shift merge thresholds** — configurable threshold for auto-merging back-to-back shifts (currently hardcoded).
 - **UI modernization** — full visual refresh (spacing, typography, dark mode).
 - **Structural refactor** — split the monolithic `index.html` into modules. Would be a very large card; ripple risk high; deferred until the current feature set stabilizes.

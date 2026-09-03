@@ -19,3 +19,8 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00013 | 2026-09-01 | M | Medium | done | [features/FC-00013-2026-09-01-payroll-preview-panel.md](features/FC-00013-2026-09-01-payroll-preview-panel.md) | Live WYSIWYG preview panel on Payroll tab |
 | FC-00014 | 2026-09-01 | M | Medium | done | [features/FC-00014-2026-09-01-configurable-palette.md](features/FC-00014-2026-09-01-configurable-palette.md) | Configurable palette (10 presets per entity) |
 | FC-00015 | 2026-09-01 | M | Medium | done | [features/FC-00015-2026-09-01-colored-pdf.md](features/FC-00015-2026-09-01-colored-pdf.md) | Colored PDF export mirroring Excel |
+| FC-00016 | 2026-09-01 | M | Low | done | [features/FC-00016-2026-09-01-actuals-thumbnails.md](features/FC-00016-2026-09-01-actuals-thumbnails.md) | Timecard thumbnail per Actuals row |
+| FC-00017 | 2026-09-01 | S | Low | done | [features/FC-00017-2026-09-01-no-schedule-polish.md](features/FC-00017-2026-09-01-no-schedule-polish.md) | No-schedule employee polish (actuals-only labels) |
+| FC-00018 | 2026-09-01 | S | Low | done | [features/FC-00018-2026-09-01-date-input-fix.md](features/FC-00018-2026-09-01-date-input-fix.md) | Fix date-cell input jitter/cursor kicking |
+| FC-00019 | 2026-09-01 | M | Medium | done | [features/FC-00019-2026-09-01-palette-swatches.md](features/FC-00019-2026-09-01-palette-swatches.md) | Palette dropdown color swatches + strip entity names |
+| FC-00020 | 2026-09-01 | M | Medium | done | [features/FC-00020-2026-09-01-contract-check.md](features/FC-00020-2026-09-01-contract-check.md) | Contract Check as 4th pay type |
