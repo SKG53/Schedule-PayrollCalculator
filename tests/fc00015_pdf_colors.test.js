@@ -116,8 +116,8 @@ test('test_pdf_export_uses_user_selected_fc00014_preset', async () => {
   const api = loadApp();
   const { nirvana } = makeTwoEntityFixture(api);
 
-  // Sanity: Nirvana 11th's hardcoded default is 'Nirvana Green', not 'Sunset'.
-  assert.equal(api.getEntityPalette(nirvana), 'Nirvana Green');
+  // Sanity: Nirvana 11th's hardcoded default is 'Green', not 'Sunset'.
+  assert.equal(api.getEntityPalette(nirvana), 'Green');
   api.setEntityPalette(nirvana.id, 'Sunset');
   assert.equal(api.getEntityPalette(nirvana), 'Sunset');
 
@@ -125,7 +125,7 @@ test('test_pdf_export_uses_user_selected_fc00014_preset', async () => {
   const bodyCells = lastCallParsedCells(api).filter(c => c.section === 'body');
 
   const sunsetBodyFill = api._argbToRgbTriplet(api.FC14_PRESETS.Sunset.body);
-  const defaultGreenBodyFill = api._argbToRgbTriplet(api.FC14_PRESETS['Nirvana Green'].body);
+  const defaultGreenBodyFill = api._argbToRgbTriplet(api.FC14_PRESETS['Green'].body);
 
   const nirvanaRow0Col0 = bodyCells.find(c => c.rowIndex === 0 && c.colIndex === 0);
   assert.ok(nirvanaRow0Col0);

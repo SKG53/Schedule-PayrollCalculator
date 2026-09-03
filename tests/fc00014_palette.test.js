@@ -81,18 +81,18 @@ test('test_ten_presets_defined_and_distinct', () => {
 test('test_per_entity_code_defaults_match_fc12_originals', () => {
   const api = loadApp();
   const n11 = makeSingleEntityFixture(api, { name: 'Nirvana 11th' });
-  assert.equal(api.getEntityPalette(n11), 'Nirvana Green');
-  assert.equal(api._paletteForEntity(n11), api.FC14_PRESETS['Nirvana Green']);
+  assert.equal(api.getEntityPalette(n11), 'Green');
+  assert.equal(api._paletteForEntity(n11), api.FC14_PRESETS['Green']);
 
   const zion = { id: 1, name: 'Zion', code: '' };
   api._syncEntityCode(zion);
   api.entities.push(zion);
-  assert.equal(api.getEntityPalette(zion), 'Zion Blue');
+  assert.equal(api.getEntityPalette(zion), 'Blue');
 
   const hefner = { id: 2, name: 'Hefner', code: '' };
   api._syncEntityCode(hefner);
   api.entities.push(hefner);
-  assert.equal(api.getEntityPalette(hefner), 'Hefner Peach');
+  assert.equal(api.getEntityPalette(hefner), 'Peach');
 
   const other = { id: 3, name: 'Some New Client LLC', code: '' };
   api._syncEntityCode(other);
@@ -116,7 +116,7 @@ test('test_palette_selection_stored_per_entity', () => {
   assert.equal(api.session.entityPalettes[0], 'Sunset', 'selection stored in session.entityPalettes keyed by entity id');
   assert.equal(api.getEntityPalette(n11), 'Sunset');
   // Other entity's default is untouched by this entity's selection.
-  assert.equal(api.getEntityPalette(zion), 'Zion Blue');
+  assert.equal(api.getEntityPalette(zion), 'Blue');
 
   // Switching again overwrites the stored choice (not additive).
   api.setEntityPalette(0, 'Mint');
@@ -139,7 +139,7 @@ test('test_export_uses_selected_palette', async () => {
   let fills = fillMapFor(sheet);
   let dataRow = findRowIndex(sheet, row => row[1] && row[1].value === 'Nirvana 11th');
   assert.ok(dataRow > 0);
-  assert.equal(fills[`${dataRow},1`], api.FC14_PRESETS['Nirvana Green'].body, 'default export uses the code default palette');
+  assert.equal(fills[`${dataRow},1`], api.FC14_PRESETS['Green'].body, 'default export uses the code default palette');
 
   // Select a non-default preset, then export again — the export must reflect the new choice.
   api.setEntityPalette(0, 'Lavender');
@@ -190,7 +190,7 @@ test('test_settings_round_trip_palette', () => {
     employees: [{ name: 'Balu', shifts: ['', '', '', '', '', '', ''] }],
   });
   fresh._syncEntityCode(fresh.entities[0]);
-  assert.equal(fresh.getEntityPalette(fresh.entities[0]), 'Nirvana Green', 'fresh session starts at the code default');
+  assert.equal(fresh.getEntityPalette(fresh.entities[0]), 'Green', 'fresh session starts at the code default');
 
   fresh._ingestPayrollSettings([row], colMap, false);
   assert.equal(fresh.session.entityPalettes[0], 'Sage', 'import must restore the palette selection into session.entityPalettes');
@@ -222,22 +222,26 @@ test('test_settings_import_without_palette_column_keeps_default', () => {
 test('test_fc12PaletteFor_shim_resolves_selected_palette_by_code', () => {
   const api = loadApp();
   const n11 = makeSingleEntityFixture(api, { name: 'Nirvana 11th' });
-  assert.equal(api._fc12PaletteFor('N11'), api.FC14_PRESETS['Nirvana Green']);
+  assert.equal(api._fc12PaletteFor('N11'), api.FC14_PRESETS['Green']);
   api.setEntityPalette(0, 'Sky');
   assert.equal(api._fc12PaletteFor('N11'), api.FC14_PRESETS['Sky'], 'shim must reflect a live selection, not just the hardcoded default');
   assert.equal(api._fc12PaletteFor('__GRAND__'), api.FC12_PALETTES.DEFAULT);
   assert.equal(api._fc12PaletteFor('UNKNOWNCODE'), api.FC12_PALETTES.DEFAULT);
 });
 
-// ---- UI: dropdown renders in renderPayrollEntityContent with the current selection ----
+// ---- UI: palette picker renders in renderPayrollEntityContent with the current selection ----
+// FC-00019 replaced the native <select> with a custom picker widget (trigger + popover); this
+// test now asserts on that markup instead of <select>/<option> tags.
 test('test_palette_dropdown_renders_in_payroll_entity_content', () => {
   const api = loadApp();
   makeSingleEntityFixture(api, { name: 'Nirvana 11th' });
   api.renderPayrollEntityContent(0);
   const host = api.__sandbox.document.getElementById('payrollEntityContent');
-  assert.ok(host.innerHTML.includes('Color palette'), 'expected a labeled palette dropdown');
-  assert.ok(host.innerHTML.includes('setEntityPalette(0'), 'dropdown must dispatch through setEntityPalette for this entity id');
+  assert.ok(host.innerHTML.includes('Color palette'), 'expected a labeled palette picker');
+  assert.ok(host.innerHTML.includes('_fc19TogglePalettePicker(event,0'), 'picker trigger must wire to this entity id');
+  assert.ok(host.innerHTML.includes('class="palette-picker-trigger"'), 'expected the custom picker trigger markup');
+  assert.ok(host.innerHTML.includes('class="palette-picker-popover"'), 'expected the custom picker popover markup');
   api.FC14_PRESET_NAMES.forEach(name => {
-    assert.ok(host.innerHTML.includes(`>${name}<`), `dropdown must list preset "${name}"`);
+    assert.ok(host.innerHTML.includes(`>${name}<`), `picker must list preset "${name}"`);
   });
 });
