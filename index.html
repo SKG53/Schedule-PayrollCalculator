@@ -206,6 +206,11 @@ table.sched td.metric-in-late,table.sched td.metric-out-late{color:var(--dark-or
 table.sched td.metric-in-early,table.sched td.metric-out-early{color:var(--green)}
 table.sched tr.orphan-row td{background:rgba(220,38,38,0.03);font-style:italic}
 table.sched tr.orphan-row td.name-cell::before{content:"⚠ ";color:var(--red);font-weight:700}
+/* FC-00017: quiet variant used when the whole entity has no schedule — every row is an
+   actuals-only row by definition, so the red ⚠ "not in schedule" warning treatment is
+   noise. Keep a faint neutral background, drop the red icon and italics. */
+table.sched tr.orphan-row-quiet td{background:rgba(158,155,144,0.04)}
+table.sched tr.orphan-row-quiet td.name-cell::before{content:none}
 
 /* === APP HEADER === */
 .app-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px}
@@ -2438,10 +2443,11 @@ function renderPayrollEntityContent(idx){
       <div id="payrollCalcWrap" style="display:${activeSub==='payroll'?'block':'none'}"><div class="sched-table-wrap" style="display:block"><table class="sched" id="payrollCalcTable"></table></div></div>
     </div>`;
 
-  renderPayrollInfoChips(allRows,hasActuals);
-  renderPayrollGrid(allRows,ent,hasActuals);
-  renderTimeCardData(allRows,hasActuals,ent);
-  renderPayrollCalc(allRows,hasActuals,ent);
+  const noSchedule=ent.employees.length===0; // FC-00017: signal for "no schedule loaded for this entity"
+  renderPayrollInfoChips(allRows,hasActuals,noSchedule);
+  renderPayrollGrid(allRows,ent,hasActuals,noSchedule);
+  renderTimeCardData(allRows,hasActuals,ent,noSchedule);
+  renderPayrollCalc(allRows,hasActuals,ent,noSchedule);
   renderAllEntityPreview();
   renderFc00013PreviewPanel();
 }
@@ -2708,7 +2714,7 @@ function resolveBreakChange(idx,newBreak,action){
   showToast(action==='overwrite'?`Default set to ${newBreak}m; overrides cleared`:`Default set to ${newBreak}m; overrides preserved`,'ok');
 }
 
-function renderPayrollInfoChips(rows,hasActuals){
+function renderPayrollInfoChips(rows,hasActuals,noSchedule){
   const bar=document.getElementById('payrollInfoBar');if(!bar)return;
   bar.innerHTML='';bar.style.display='flex';
   rows.forEach((r,ei)=>{
@@ -2716,18 +2722,25 @@ function renderPayrollInfoChips(rows,hasActuals){
     const diff=r.actualHours-r.expectedH,absDiff=Math.abs(diff);
     // Blanket pay-centric rule: more=red, less=green
     const diffColor=absDiff<0.1?'var(--text3)':(diff>0?'var(--red)':'var(--green)');
+    // FC-00017: when the whole entity has no schedule (ent.employees.length===0), every
+    // row is an orphan by definition — the red "not in schedule"/⚠ treatment is noise in
+    // that context (you already know there's no schedule). Suppress it and show a
+    // subtle gray "actuals-only" pill instead. With a real schedule loaded, an orphan
+    // row is genuinely unexpected, so the red warning styling still applies.
+    const orphanIsNoise=r.isOrphan&&noSchedule;
     const chip=document.createElement('div');
-    chip.className='info-chip'+(r.isOrphan?' overtime':'');
+    chip.className='info-chip'+(r.isOrphan&&!orphanIsNoise?' overtime':'');
     chip.style.minWidth='110px';
-    const namePrefix=r.isOrphan?'⚠ ':'';
+    const namePrefix=(r.isOrphan&&!orphanIsNoise)?'⚠ ':'';
     let inner=`<div class="top-row"><span class="dot" style="background:${col.hex}"></span><span class="name" style="color:${col.hex}">${namePrefix}${escHtml(r.name||'(unnamed)')}</span></div>`;
     if(hasActuals){
       // Color the big hours display too: orphan=red, meaningful diff → diff color, else employee color
       let hrsColor=col.hex;
-      if(r.isOrphan)hrsColor='var(--red)';
+      if(r.isOrphan&&!orphanIsNoise)hrsColor='var(--red)';
       else if(absDiff>=0.1)hrsColor=diff>0?'var(--red)':'var(--green)';
       inner+=`<div class="hrs" style="color:${hrsColor}">${r.actualHours.toFixed(1)}h</div>`;
-      if(r.isOrphan)inner+=`<div class="days" style="color:var(--red);font-weight:500">not in schedule</div>`;
+      if(orphanIsNoise)inner+=`<span class="actuals-only-pill" style="display:inline-block;margin-top:2px;padding:1px 7px;border-radius:10px;background:var(--surface2,#f0efe9);color:var(--text3);font-size:10px;font-weight:600;letter-spacing:0.3px">actuals-only</span>`;
+      else if(r.isOrphan)inner+=`<div class="days" style="color:var(--red);font-weight:500">not in schedule</div>`;
       else if(absDiff<0.1)inner+=`<div class="days" style="color:var(--text3);font-weight:500">as expected</div>`;
       else inner+=`<div class="days" style="color:${diffColor};font-weight:500">${absDiff.toFixed(1)}h ${diff>0?'More':'Less'}</div>`;
     }else{
@@ -2771,7 +2784,7 @@ function renderPayDayCell(day,isOrphan,hasActuals){
   return h;
 }
 
-function renderPayrollGrid(rows,ent,hasActuals){
+function renderPayrollGrid(rows,ent,hasActuals,noSchedule){
   const table=document.getElementById('payrollGrid');if(!table)return;
   // Use the original schedule week dates; actuals are filtered against dateLabels too.
   const dLabels=ent.dateLabels;
@@ -2784,7 +2797,8 @@ function renderPayrollGrid(rows,ent,hasActuals){
   rows.forEach(r=>{
     const keyName=r.schedName||r.name;
     const empId=keyName?_employeeIdFor(ent.id,keyName):'';
-    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${_dupFlagHtml(ent.id,keyName)}</td>`;
+    const rowCls=r.isOrphan?(noSchedule?' class="orphan-row-quiet"':' class="orphan-row"'):'';
+    html+=`<tr${rowCls}><td class="name-cell">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${_dupFlagHtml(ent.id,keyName)}</td>`;
     html+=`<td class="name-cell emp-id-cell" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${empId}</td>`;
     for(let d=0;d<7;d++)html+=renderPayDayCell(r.days[d],r.isOrphan,hasActuals);
     const diff=r.actualHours-r.expectedH,absDiff=Math.abs(diff);
@@ -2814,7 +2828,7 @@ function renderPayrollGrid(rows,ent,hasActuals){
 }
 
 // ---- TIME CARD DATA sub-tab: name, expected break, expected hours, actual break, actual hours, diff, avg in/out, OT ----
-function renderTimeCardData(rows,hasActuals,ent){
+function renderTimeCardData(rows,hasActuals,ent,noSchedule){
   const table=document.getElementById('timecardDataTable');if(!table)return;
   let html='<thead><tr><th style="border-right:2px solid #999">Employee Name</th><th style="border-right:2px solid #999">Employee ID</th>';
   html+='<th>Expected Break Hrs</th><th>Expected Hours</th>';
@@ -2837,7 +2851,8 @@ function renderTimeCardData(rows,hasActuals,ent){
     }
     const keyName=r.schedName||r.name;
     const empId=keyName?_employeeIdFor(ent.id,keyName):'';
-    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${_dupFlagHtml(ent.id,keyName)}</td>`;
+    const rowCls=r.isOrphan?(noSchedule?' class="orphan-row-quiet"':' class="orphan-row"'):'';
+    html+=`<tr${rowCls}><td class="name-cell" style="padding:8px 6px">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${_dupFlagHtml(ent.id,keyName)}</td>`;
     html+=`<td class="name-cell emp-id-cell" style="padding:8px 6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${empId}</td>`;
     html+=`<td class="num-cell" style="color:var(--text3)">${r.expectedBreakH.toFixed(2)}</td>`;
     html+=`<td class="num-cell" style="color:var(--text2)">${r.expectedH.toFixed(2)}</td>`;
@@ -2869,7 +2884,7 @@ function renderTimeCardData(rows,hasActuals,ent){
 }
 
 // ---- PAYROLL CALCULATION sub-tab: name, actual break, actual hours, wage, hourly/flat toggle, pay method, split amounts, final pay ----
-function renderPayrollCalc(rows,hasActuals,ent){
+function renderPayrollCalc(rows,hasActuals,ent,noSchedule){
   const table=document.getElementById('payrollCalcTable');if(!table)return;
   // `rows` arrives already sorted in renderPayrollEntityContent so the row index
   // here matches the _flatRows index used by setWage/setRowBreakOverride/etc.
@@ -2897,7 +2912,11 @@ function renderPayrollCalc(rows,hasActuals,ent){
     const empId=keyName?_employeeIdFor(ent.id,keyName):'';
     // FC-00007: the payroll-calc table doubles as the Roster panel — name is click-to-edit
     // inline, and a dedicated "Rename" button gives the same flow via an explicit action.
-    html+=`<tr${r.isOrphan?' class="orphan-row"':''}><td class="name-cell" style="padding:8px 6px">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}
+    // FC-00017: when there's no schedule at all, use the quiet row style (no red ⚠) and
+    // show a subtle gray "actuals-only" pill instead of treating every row as a surprise.
+    const rowCls=r.isOrphan?(noSchedule?' class="orphan-row-quiet"':' class="orphan-row"'):'';
+    const actualsOnlyPill=(r.isOrphan&&noSchedule)?' <span class="actuals-only-pill" style="display:inline-block;padding:1px 7px;border-radius:10px;background:var(--surface2,#f0efe9);color:var(--text3);font-size:10px;font-weight:600;letter-spacing:0.3px">actuals-only</span>':'';
+    html+=`<tr${rowCls}><td class="name-cell" style="padding:8px 6px">${inlineEditableNameHtml(ent.id,keyName,'payroll',()=>renderPayroll())}${actualsOnlyPill}
       <button class="btn btn-small" onclick="openRenameEmployeeModal(${ent.id},'${escJs(keyName)}')" title="Rename Employee" style="margin-left:6px;font-size:10px;padding:2px 6px">Rename Employee</button>${_dupFlagHtml(ent.id,keyName)}</td>`;
     html+=`<td class="name-cell emp-id-cell" style="padding:8px 6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text3)">${empId}</td>`;
     html+=`<td style="text-align:center;padding:6px"><input type="checkbox" ${rowActive?'checked':''} onchange="setRowActive(${i},this.checked)" title="${rowActive?'Active — will load with the next schedule':'Inactive — will not load with the next schedule'}" style="width:15px;height:15px;cursor:pointer"></td>`;
@@ -4447,7 +4466,14 @@ function renderReviewTableHtml(ent,idx){
     if(cur&&!effectiveMatchesSched){
       html+=`<option value="${escHtml(cur)}" selected>${escHtml(cur)} (not on schedule)</option>`;
     }
-    html+='</select></td>';
+    html+='</select>';
+    // FC-00017: with zero scheduled employees there's nothing meaningful to pick from —
+    // add a small gray italic hint so it's clear the typed/OCR'd name will become the
+    // new employee, rather than looking like a broken/empty picker.
+    if(schedNames.length===0){
+      html+='<div class="no-sched-emp-hint" style="font-size:10px;color:var(--text3);font-style:italic;margin-top:2px">No schedule loaded — this name will be created as a new employee</div>';
+    }
+    html+='</td>';
     // 3b. Employee ID + duplicate-name flag (only meaningful once the row is matched to a
     // scheduled roster name; unmatched/OCR-only rows show a blank ID since they aren't a
     // roster record yet).
