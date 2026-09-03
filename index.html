@@ -468,6 +468,17 @@ table.review tr.new-since-upload td{background:rgba(250,204,21,0.08)}
 #imgModal img{max-width:90vw;max-height:90vh;object-fit:contain;box-shadow:0 10px 40px rgba(0,0,0,0.5);border-radius:4px}
 #imgModal .img-modal-close{position:absolute;top:18px;right:24px;background:rgba(255,255,255,0.92);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;line-height:36px;text-align:center;cursor:pointer;color:#1A1A18;font-weight:700}
 #imgModal .img-modal-close:hover{background:#fff}
+
+/* === FC-00019: custom palette picker (replaces the native <select>) === */
+.palette-picker-trigger{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:12px;font-family:'Outfit',sans-serif;color:var(--text1)}
+.palette-picker-trigger:hover{background:#F0EEE6}
+.palette-picker-trigger:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,0.15)}
+.palette-picker-caret{font-size:10px;color:var(--text3);margin-left:2px}
+.palette-picker-popover{position:absolute;top:calc(100% + 4px);left:0;min-width:150px;background:#fff;border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,0.12);z-index:1000;padding:4px;max-height:280px;overflow-y:auto}
+.palette-picker-option{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;font-size:12px;color:var(--text1)}
+.palette-picker-option:hover{background:#F0EEE6}
+.palette-picker-option.selected{background:#E8E8E4;font-weight:600}
+.palette-picker .swatch{display:inline-block;width:20px;height:20px;border-radius:3px;border:1px solid rgba(0,0,0,0.15);flex-shrink:0}
 </style>
 </head>
 <body>
@@ -2415,8 +2426,8 @@ function renderPayrollEntityContent(idx){
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
       ${empCount===0?'<span style="color:var(--amber);font-size:12px">No schedule loaded — employees below come from Actuals Intake</span>':''}
-      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px"><label for="fc14PaletteSel${idx}" style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Color palette:</label>
-        <select id="fc14PaletteSel${idx}" onchange="setEntityPalette(${ent.id},this.value)" title="Palette applied to this entity's Excel export and preview">${FC14_PRESET_NAMES.map(n=>`<option value="${escHtml(n)}"${getEntityPalette(ent)===n?' selected':''}>${escHtml(n)}</option>`).join('')}</select>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px"><span style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Color palette:</span>
+        ${_fc19PalettePickerHtml(ent,idx)}
       </span>
       <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px"><span style="color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:600">Sort:</span>
         <button class="btn btn-small${(payrollSortMode[ent.id]||'name')==='name'?' btn-primary':''}" onclick="setPayrollSortMode(${idx},'name')" title="Schedule order (default)">Schedule order</button>
@@ -5089,9 +5100,9 @@ function _columnsFor(kind){
 // the full set of 10 named presets a user can pick from in the Payroll UI. ARGB format (4 hex
 // pairs: alpha + RGB) as ExcelJS fills expect.
 const FC14_PRESETS={
-  'Nirvana Green':{body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
-  'Zion Blue':    {body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
-  'Hefner Peach': {body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Green':        {body:'FFE8F0DC',cash:'FFBDD7EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Blue':         {body:'FFDCE6F1',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
+  'Peach':        {body:'FFFCE4D6',cash:'FF9DC3E6',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
   'Lavender':     {body:'FFE4D6FC',cash:'FFC4A6EE',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
   'Slate':        {body:'FFE0E0E0',cash:'FFB0B0B0',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
   'Sunset':       {body:'FFFCD6D6',cash:'FFEE9D9D',header:'FFE8E8E4',subtotal:'FFBFBFBF',grand:'FFA6A6A6'},
@@ -5103,15 +5114,19 @@ const FC14_PRESETS={
 const FC14_PRESET_NAMES=Object.keys(FC14_PRESETS);
 // Per-entity-code default preset name - the original FC-00012 hardcoded assignments, now
 // expressed as defaults a user can override per entity via the palette dropdown.
-const FC14_DEFAULT_PRESET_BY_CODE={N11:'Nirvana Green',ZIO:'Zion Blue',HEF:'Hefner Peach'};
+const FC14_DEFAULT_PRESET_BY_CODE={N11:'Green',ZIO:'Blue',HEF:'Peach'};
 function _fc14DefaultPresetFor(entCode){return FC14_DEFAULT_PRESET_BY_CODE[entCode]||'Plain'}
 // Back-compat alias map keyed by entity code (unknown entity codes fall back to DEFAULT).
 const FC12_PALETTES={
-  N11:FC14_PRESETS['Nirvana Green'],
-  ZIO:FC14_PRESETS['Zion Blue'],
-  HEF:FC14_PRESETS['Hefner Peach'],
+  N11:FC14_PRESETS['Green'],
+  ZIO:FC14_PRESETS['Blue'],
+  HEF:FC14_PRESETS['Peach'],
   DEFAULT:FC14_PRESETS['Plain']
 };
+// FC-00019: legacy preset names from settings files exported before the FC-00019 rename.
+// Import path maps these to their current FC14_PRESETS key; export always writes the new name.
+const FC19_LEGACY_PRESET_NAMES={'Nirvana Green':'Green','Zion Blue':'Blue','Hefner Peach':'Peach'};
+function _fc19ResolveLegacyPresetName(name){return FC19_LEGACY_PRESET_NAMES[name]||name}
 // FC-00014: session-level per-entity palette selection. Key: entity id -> preset name.
 // Absence of a key means "use the per-entity-code default" (_fc14DefaultPresetFor).
 function getEntityPalette(ent){
@@ -5127,6 +5142,105 @@ function setEntityPalette(entId,presetName){
   const idx=entities.indexOf(ent);
   if(idx>=0)renderPayrollEntityContent(idx);
 }
+// ---- FC-00019: custom palette picker (replaces the native <select>) ----
+// ARGB ('FFRRGGBB') -> CSS '#RRGGBB', dropping the alpha byte. Small top-level helper so
+// both the picker widget and any other call site can share one conversion.
+function _fc19ArgbToCss(argb){return '#'+(argb||'FFFFFFFF').slice(2)}
+// Renders one popover option row: swatch (body color) + preset name. Shared between the
+// picker's popover markup and tests that assert on individual option HTML.
+function _fc19PaletteOptionHtml(name,selected){
+  const bg=_fc19ArgbToCss(FC14_PRESETS[name].body);
+  // Preset name travels via the data-preset attribute (read back in _fc19PickPalette) rather
+  // than as a quoted JS literal inside onclick="..." - names could otherwise collide with the
+  // attribute's own double quotes and break the markup.
+  return `<div class="palette-picker-option${selected?' selected':''}" role="option" aria-selected="${selected?'true':'false'}" data-preset="${escHtml(name)}" onclick="_fc19PickPalette(event,this)">`+
+    `<span class="swatch" style="background:${bg}"></span><span class="palette-picker-option-name">${escHtml(name)}</span>`+
+  `</div>`;
+}
+// Renders the full picker: a trigger div (current swatch + name + caret) plus a popover
+// containing one row per preset, initially hidden. `idx` is the entity's row index in
+// `entities` (used to build a stable DOM id per entity section); `ent` is the entity object.
+function _fc19PalettePickerHtml(ent,idx){
+  const current=getEntityPalette(ent);
+  const bg=_fc19ArgbToCss(FC14_PRESETS[current].body);
+  const options=FC14_PRESET_NAMES.map(n=>_fc19PaletteOptionHtml(n,n===current)).join('');
+  // Track this picker's ids so _fc19CloseAllPalettePickers can find every open popover via
+  // getElementById, without depending on querySelectorAll('.palette-picker-popover') support
+  // (kept as a belt-and-suspenders real-DOM fallback below, but plain browsers/jsdom and this
+  // repo's test sandbox both work through the registry instead).
+  _fc19RegisteredPickerIdxs.add(idx);
+  return `<div class="palette-picker" id="fc19PalettePicker${idx}" style="position:relative;display:inline-block">`+
+    `<div class="palette-picker-trigger" id="fc19PaletteTrigger${idx}" tabindex="0" role="button" aria-haspopup="listbox" aria-expanded="false" `+
+      `title="Palette applied to this entity's Excel export and preview" `+
+      `onclick="_fc19TogglePalettePicker(event,${ent.id},${idx})" onkeydown="_fc19PalettePickerTriggerKeydown(event,${ent.id},${idx})">`+
+      `<span class="swatch" style="background:${bg}"></span>`+
+      `<span class="palette-picker-name">${escHtml(current)}</span>`+
+      `<span class="palette-picker-caret" aria-hidden="true">▾</span>`+
+    `</div>`+
+    `<div class="palette-picker-popover" id="fc19PalettePopover${idx}" role="listbox" data-entity-id="${ent.id}" data-idx="${idx}" style="display:none">${options}</div>`+
+  `</div>`;
+}
+// Every entity-row index that has ever rendered a picker this page load — lets
+// _fc19CloseAllPalettePickers reach each popover/trigger pair via getElementById rather than
+// relying on class-based querySelectorAll (more portable across DOM/test-sandbox implementations).
+const _fc19RegisteredPickerIdxs=new Set();
+// Closes any open palette picker popover. Safe to call when none is open.
+function _fc19CloseAllPalettePickers(){
+  _fc19RegisteredPickerIdxs.forEach(idx=>{
+    const pop=document.getElementById('fc19PalettePopover'+idx);
+    const trigger=document.getElementById('fc19PaletteTrigger'+idx);
+    if(pop)pop.style.display='none';
+    if(trigger)trigger.setAttribute('aria-expanded','false');
+  });
+  // Real-DOM fallback for any popover not reached above (defensive; normally a no-op since
+  // every rendered popover's idx is registered above).
+  document.querySelectorAll('.palette-picker-popover').forEach(pop=>{
+    pop.style.display='none';
+    const trigger=pop.previousElementSibling;
+    if(trigger)trigger.setAttribute('aria-expanded','false');
+  });
+}
+// Trigger click: toggles this entity's popover open/closed, closing any other open popover
+// first (only one picker open at a time).
+function _fc19TogglePalettePicker(evt,entId,idx){
+  if(evt&&evt.stopPropagation)evt.stopPropagation();
+  const pop=document.getElementById('fc19PalettePopover'+idx);
+  const trigger=document.getElementById('fc19PaletteTrigger'+idx);
+  if(!pop)return;
+  const isOpen=pop.style.display!=='none';
+  _fc19CloseAllPalettePickers();
+  if(!isOpen){
+    pop.style.display='block';
+    if(trigger)trigger.setAttribute('aria-expanded','true');
+  }
+}
+// Option click: applies the selection via the existing dispatcher path (setEntityPalette),
+// which also triggers the re-render that rebuilds (and closes) the picker markup.
+function _fc19PickPalette(evt,optionEl){
+  if(evt&&evt.stopPropagation)evt.stopPropagation();
+  const presetName=optionEl&&optionEl.getAttribute?optionEl.getAttribute('data-preset'):null;
+  const popover=optionEl&&optionEl.closest?optionEl.closest('.palette-picker-popover'):null;
+  const entId=popover?parseInt(popover.getAttribute('data-entity-id'),10):NaN;
+  if(presetName&&!isNaN(entId))setEntityPalette(entId,presetName);
+  _fc19CloseAllPalettePickers();
+}
+// Enter/Space on the trigger opens the popover from the keyboard (click-only nav is
+// otherwise acceptable per the FC-00019 brief; this just makes the trigger itself reachable).
+function _fc19PalettePickerTriggerKeydown(evt,entId,idx){
+  if(evt&&(evt.key==='Enter'||evt.key===' ')){
+    if(evt.preventDefault)evt.preventDefault();
+    _fc19TogglePalettePicker(evt,entId,idx);
+  }
+}
+// Global handlers: click outside any open popover, or Escape, closes it. Registered once
+// at module load (idempotent -- safe even though renderPayrollEntityContent runs repeatedly).
+document.addEventListener('click',function(evt){
+  if(evt.target&&evt.target.closest&&evt.target.closest('.palette-picker'))return;
+  _fc19CloseAllPalettePickers();
+});
+document.addEventListener('keydown',function(evt){
+  if(evt.key==='Escape')_fc19CloseAllPalettePickers();
+});
 // Single source of truth for "which palette object applies to this entity": looks up the
 // user's session-level selection first, falling back to the entity-code default.
 function _paletteForEntity(ent){
@@ -6063,8 +6177,10 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     // Valid preset name -> set session.entityPalettes[entId]; missing/invalid/absent column
     // -> leave as-is, so the entity keeps its per-code default (backward compat with files
     // exported before this column existed, and with hand-edited garbage values).
+    // FC-00019: resolve legacy pre-rename names ('Nirvana Green' etc) to their current key
+    // before validating, so settings files exported before the rename still round-trip.
     if(colMap['palette']!=null&&!palettesApplied.has(ent.id)){
-      const paletteRaw=get(row,'palette').trim();
+      const paletteRaw=_fc19ResolveLegacyPresetName(get(row,'palette').trim());
       if(paletteRaw&&FC14_PRESETS[paletteRaw]){
         setEntityPalette(ent.id,paletteRaw);
         palettesApplied.add(ent.id);
