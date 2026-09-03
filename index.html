@@ -4370,7 +4370,7 @@ function renderReviewTableHtml(ent,idx){
     const dayLbl=r.date?(['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(r.date+'T00:00:00').getDay()]||''):'';
     html+=`<td style="text-align:center;font-size:11px;color:var(--text2);font-family:'IBM Plex Mono',monospace">${dayLbl}</td>`;
     // 5. Date
-    html+=`<td><input class="date-field" type="date" value="${escHtml(r.date)}" onchange="updateReviewField('${r.id}','date',this.value)"></td>`;
+    html+=`<td><input class="date-field" type="date" value="${escHtml(r.date)}" oninput="updateReviewFieldLight('${r.id}','date',this.value)" onchange="commitDateInput(this,'${r.id}','date')" onblur="commitDateInput(this,'${r.id}','date')"></td>`;
     // 6-11 Time pairs (use TEXT inputs to prevent native time-picker focus loss between digits)
     const timeFields=show3?['clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3']:['clockIn1','clockOut1','clockIn2','clockOut2'];
     timeFields.forEach(k=>{
@@ -4461,6 +4461,19 @@ function commitTimeInput(el,id,field){
   // Store 24h internally, show 12h in the input
   el.value=to12h(formatted24);
   updateReviewField(id,field,formatted24);
+}
+
+// Date input handlers — mirrors the time-field light/heavy split so typing a date
+// (or using the native picker) doesn't get its cursor kicked by a mid-type re-render.
+// oninput -> updateReviewFieldLight (no render); onchange/onblur -> commitDateInput (full render).
+// Guarded so a change+blur pair (native picker fires both events) only triggers one full
+// commit+render per distinct value — the second event for the same already-committed value is a no-op.
+function commitDateInput(el,id,field){
+  const val=el.value||'';
+  const h=findReviewRow(id);if(!h)return;
+  if(h.row._dateCommitted===val)return; // already fully committed this value (e.g. change then blur)
+  h.row._dateCommitted=val;
+  updateReviewField(id,field,val);
 }
 
 function findReviewRow(id){
