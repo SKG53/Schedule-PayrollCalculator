@@ -453,9 +453,25 @@ table.review tr.new-since-upload td{background:rgba(250,204,21,0.08)}
 .export-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
 .export-row .export-label{font-size:12px;font-weight:500;min-width:170px;color:var(--text2)}
 .ot-flag-inline{color:var(--dark-orange);font-weight:600;font-size:11px;margin-left:4px}
+
+/* FC-00016: Timecard thumbnail per Actuals row */
+.tc-thumb{width:36px;height:36px;object-fit:cover;border:1px solid var(--border);border-radius:4px;cursor:pointer;vertical-align:middle;margin-right:6px;flex-shrink:0}
+.tc-thumb-placeholder{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:1px solid var(--border);border-radius:4px;font-size:16px;color:var(--text3);background:var(--surface);vertical-align:middle;margin-right:6px;flex-shrink:0}
+.tc-thumb-cell{display:flex;align-items:flex-start;gap:0}
+#imgModal{position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;z-index:3000;padding:20px}
+#imgModal.open{display:flex}
+#imgModal img{max-width:90vw;max-height:90vh;object-fit:contain;box-shadow:0 10px 40px rgba(0,0,0,0.5);border-radius:4px}
+#imgModal .img-modal-close{position:absolute;top:18px;right:24px;background:rgba(255,255,255,0.92);border:none;border-radius:50%;width:36px;height:36px;font-size:18px;line-height:36px;text-align:center;cursor:pointer;color:#1A1A18;font-weight:700}
+#imgModal .img-modal-close:hover{background:#fff}
 </style>
 </head>
 <body>
+
+<!-- ===== IMAGE MODAL (FC-00016) — mounted once in the page shell, opened via openImgModal(url) ===== -->
+<div id="imgModal" onclick="if(event.target.id==='imgModal')closeImgModal()">
+  <button class="img-modal-close" onclick="closeImgModal()" title="Close" aria-label="Close">✕</button>
+  <img id="imgModalImg" src="" alt="Timecard full size">
+</div>
 
 <!-- ===== SETTINGS OVERLAY ===== -->
 <div id="settingsOverlay" class="overlay" style="display:none">
@@ -3391,9 +3407,82 @@ function clearIntake(idx){
   const ent=entities[idx];if(!ent.intake)return;
   ent.intake.timecardFiles=[];ent.intake.easyclockFiles=[];ent.intake.mixedFiles=[];
   ent.intake.reviewRows=[];ent.intake.ocrDone=false;ent.intake.lastOcrError='';
+  // FC-00016: revoke any cached thumbnail object URLs before dropping the jobs that
+  // own them — this is the only place cached _thumbUrl values are released (they are
+  // never revoked on a normal re-render).
+  _revokeThumbUrlsForJobs(ent.intake._ocrJobs);
   ent.intake._ocrJobs=[];
   renderIntake();
 }
+
+// ================================================================
+// FC-00016: Timecard thumbnail per Actuals row
+// ================================================================
+// Revoke every cached _thumbUrl on a jobs array (called only from clearIntake, per DoD —
+// never on a normal re-render, since object URLs are cached/reused across renders).
+function _revokeThumbUrlsForJobs(jobs){
+  if(!Array.isArray(jobs))return;
+  jobs.forEach(job=>{
+    if(job&&job._thumbUrl){
+      try{URL.revokeObjectURL(job._thumbUrl);}catch(e){/* ignore */}
+      job._thumbUrl=null;
+    }
+  });
+}
+
+// Join a review row's source image filename to its in-memory OCR job so the row can
+// render a real thumbnail. Rows are matched via originalName === job.name (the filename
+// captured when the job was queued — see runOcrForEntity/retryOcrJob). Returns null (no
+// throw) when there's no matching job, e.g. an older row from a previous session whose
+// in-memory File/job no longer exists.
+function _findJobForRow(entIdx,imageName){
+  if(!imageName)return null;
+  const ent=entities[entIdx];if(!ent||!ent.intake)return null;
+  const jobs=ent.intake._ocrJobs;if(!Array.isArray(jobs))return null;
+  return jobs.find(j=>j&&j.name===imageName)||null;
+}
+
+// Create-once/cache a blob URL for a job's File so repeated renders of the review table
+// never call URL.createObjectURL more than once per job (per DoD #2).
+function _thumbUrlForJob(job){
+  if(!job||!job.file)return '';
+  if(!job._thumbUrl)job._thumbUrl=URL.createObjectURL(job.file);
+  return job._thumbUrl;
+}
+
+// Render the Image-column thumbnail (or placeholder) for one review row. Returns an HTML
+// fragment meant to sit immediately before the filename text in the existing Image <td>.
+function _thumbCellHtml(entIdx,imageName){
+  const job=_findJobForRow(entIdx,imageName);
+  if(!job||!job.file){
+    return '<span class="tc-thumb-placeholder" title="No source image available">\uD83D\uDDCE</span>';
+  }
+  const url=_thumbUrlForJob(job);
+  return `<img class="tc-thumb" src="${escHtml(url)}" alt="Timecard thumbnail" title="Click to view full size" onclick="openImgModal('${escJs(url)}')">`;
+}
+
+// Modal mounted once in the page shell (#imgModal). openImgModal populates + shows it;
+// closeImgModal hides it. Backdrop click and the X button both call closeImgModal (wired
+// in the static markup); Esc is handled by the document-level keydown listener below.
+function openImgModal(url){
+  if(!url)return;
+  const modal=document.getElementById('imgModal');if(!modal)return;
+  const img=document.getElementById('imgModalImg');
+  if(img)img.src=url;
+  modal.classList.add('open');
+}
+function closeImgModal(){
+  const modal=document.getElementById('imgModal');if(!modal)return;
+  modal.classList.remove('open');
+  const img=document.getElementById('imgModalImg');
+  if(img)img.src='';
+}
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    const modal=document.getElementById('imgModal');
+    if(modal&&modal.classList.contains('open'))closeImgModal();
+  }
+});
 
 // Entity-level manual row: doesn't pre-select an employee, shows in Unrecognized tab
 function addManualRowEntity(idx){
@@ -4335,7 +4424,9 @@ function renderReviewTableHtml(ent,idx){
       `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',1)" title="Re-run OCR once for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ 1x</button>`+
       `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`
       :'';
-    html+=`<td style="font-size:10px;max-width:180px;word-break:break-all;line-height:1.3" title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</td>`;
+    // FC-00016: small thumbnail of the source timecard image, left of the filename text.
+    const thumbHtml=_thumbCellHtml(idx,imgName);
+    html+=`<td style="font-size:10px;max-width:180px;word-break:break-all;line-height:1.3"><div class="tc-thumb-cell">${thumbHtml}<span title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</span></div></td>`;
     // 3. Employee dropdown (schedule names only).
     // If OCR name fuzzy-matched a schedule name via _suggestedName, treat that
     // schedule name as the "effective" current selection so the dropdown

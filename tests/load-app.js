@@ -145,7 +145,20 @@ function loadApp() {
     alert: noop,
     confirm: () => true,
     prompt: () => '',
-    URL: { createObjectURL: () => 'blob:', revokeObjectURL: noop },
+    // FC-00016: thumbnail caching (job._thumbUrl) and clearIntake's revoke-on-wipe path
+    // both need to be observable from tests, so this mock returns a fresh, unique URL per
+    // createObjectURL() call (instead of a constant 'blob:') and records every
+    // revokeObjectURL() call on __revokedObjectUrls (attached to sandbox below) for
+    // assertions.
+    URL: (() => {
+      let counter = 0;
+      const revoked = [];
+      return {
+        createObjectURL: (blob) => `blob:mock-${++counter}`,
+        revokeObjectURL: (url) => { revoked.push(url); },
+        __revoked: revoked,
+      };
+    })(),
     Blob: class { constructor() {} },
     FileReader: class {
       constructor() { this.onload = null; this.onerror = null; this.result = null; }
@@ -242,6 +255,7 @@ function loadApp() {
   sandbox.jspdf = { jsPDF: function jsPDF(opts) { return makeJsPdfDoc(opts); } };
   sandbox.window.jspdf = sandbox.jspdf; // _exportPdf reads window.jspdf.jsPDF, not the bare `jspdf` binding
 
+  sandbox.__revokedObjectUrls = sandbox.URL.__revoked;
   sandbox.global = sandbox;
   sandbox.globalThis = sandbox;
 
@@ -372,6 +386,12 @@ function loadApp() {
       _withSessionMutation,
       ensureIntakeState,
       processReviewRow,
+      _findJobForRow,
+      _thumbUrlForJob,
+      _thumbCellHtml,
+      _revokeThumbUrlsForJobs,
+      openImgModal,
+      closeImgModal,
       runOcrForEntity,
       addIntakeFiles,
       clearIntake,
@@ -412,6 +432,7 @@ function loadApp() {
   api.__sandbox = sandbox;
   Object.defineProperty(api, '__lastExcelWorkbook', { get: () => sandbox.__lastExcelWorkbook });
   Object.defineProperty(api, '__lastAutoTableCalls', { get: () => sandbox.__lastAutoTableCalls });
+  Object.defineProperty(api, '__revokedObjectUrls', { get: () => sandbox.__revokedObjectUrls });
   return api;
 }
 
