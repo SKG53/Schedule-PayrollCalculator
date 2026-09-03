@@ -1109,8 +1109,8 @@ function hasAnyBreakOverrides(entId){
 function clearAllBreakOverridesForEntity(entId){
   Object.keys(breakOverrides).forEach(k=>{const id=k.split('|')[0];const rec=_recordForId(id);if(rec&&rec.entity===entId)_withSessionMutation(()=>delete breakOverrides[k])});
 }
-// Pay-type sort order: Cash first, then Cash+Deposit (both), then Deposit.
-const PAYTYPE_SORT_ORDER={cash:0,both:1,deposit:2};
+// Pay-type sort order: Cash first, then Cash+Deposit (both), then Deposit, then Contract Check last.
+const PAYTYPE_SORT_ORDER={cash:0,both:1,deposit:2,contract:3};
 function _payTypeRankForRow(entId,row){
   const empName=row.schedName||row.name;
   const m=getPayMethod(entId,empName);
@@ -1125,7 +1125,7 @@ function sortRowsByPayType(entId,rows){
 }
 
 // User-facing label for the 'both' pay method. Internal enum stays 'both'.
-function methodLabel(method){return method==='cash'?'Cash':method==='deposit'?'Deposit':'Deposit + Cash'}
+function methodLabel(method){return method==='cash'?'Cash':method==='deposit'?'Deposit':method==='contract'?'Contract Check':'Deposit + Cash'}
 
 function getPayMethod(entId,empName){return payMethod[wKey(entId,empName)]||'deposit'}
 function setPayMethod(entId,empName,method){
@@ -1176,7 +1176,8 @@ function computePayBreakdown(row,entId){
     const cash=roundCash(total);
     return{method,total,deposit:0,cash,final:cash,roundedFinal:cash,actualFinal:total,roundingDiff:roundDeposit(cash-total)};
   }
-  if(method==='deposit'){
+  if(method==='deposit'||method==='contract'){
+    // Contract Check: same math treatment as Deposit — full amount, 2dp rounding, no split.
     const deposit=roundDeposit(total);
     return{method,total,deposit,cash:0,final:deposit,roundedFinal:deposit,actualFinal:total,roundingDiff:0};
   }
@@ -2525,7 +2526,7 @@ function renderPayrollExportPreviewHtml(){
         html+=`<td class="fc13-cell${isNum?' num':''}" style="background:${bg}" title="${escHtml(tip)}">${escHtml(text)}</td>`;
       });
       html+='</tr>';
-      if(r._breakdown.method==='cash'||r._breakdown.method==='deposit'||r._breakdown.method==='both'){
+      if(r._breakdown.method==='cash'||r._breakdown.method==='deposit'||r._breakdown.method==='both'||r._breakdown.method==='contract'){
         entTotal+=r._breakdown.actualFinal||0;
       }
       entDeposit+=r._breakdown.deposit||0;entCash+=r._breakdown.cash||0;
@@ -2619,7 +2620,7 @@ function renderAllEntityPreview(){
         const totalRounded=roundDeposit(totalN);
         actualTotal=totalRounded;
         if(method==='cash'){cash=roundCash(totalRounded);finalPay=cash;diff=roundDeposit(cash-totalRounded);}
-        else if(method==='deposit'){dep=roundDeposit(totalRounded);finalPay=dep;diff=0;}
+        else if(method==='deposit'||method==='contract'){dep=roundDeposit(totalRounded);finalPay=dep;diff=0;}
         else{
           const meta=getSplitMeta(ent.id,empName);
           const bd=_computeBothBreakdown(totalRounded,meta);
@@ -2956,12 +2957,13 @@ function renderPayrollCalc(rows,hasActuals,ent,noSchedule){
       <button class="${method==='deposit'?'selected':''}" onclick="setPayMethodForRow(${i},'deposit')" title="Deposit only — rounds to 2 decimals">Deposit</button>
       <button class="${method==='cash'?'selected':''}" onclick="setPayMethodForRow(${i},'cash')" title="Cash only — rounds to whole dollar">Cash</button>
       <button class="${method==='both'?'selected':''}" onclick="setPayMethodForRow(${i},'both')" title="Split — type deposit, cash auto-calcs. Whole-dollar deposit keeps whole; cash rounds to nearest dollar.">Deposit + Cash</button>
+      <button class="${method==='contract'?'selected':''}" onclick="setPayMethodForRow(${i},'contract')" title="Contract Check — non-cash payment, rounds to 2 decimals like Deposit">Contract Check</button>
     </div></td>`;
 
     // Deposit column
     if(wageBlankFlag){
       html+=`<td class="num-cell" style="color:var(--text3)">—</td>`;
-    }else if(method==='deposit'){
+    }else if(method==='deposit'||method==='contract'){
       html+=`<td class="num-cell">$${breakdown.deposit.toFixed(2)}</td>`;
     }else if(method==='both'){
       const meta=getSplitMeta(ent.id,keyName);
@@ -4933,7 +4935,8 @@ function _collectExportData(){
       }else if(method==='cash'){
         const c=roundCash(totalRounded);
         breakdown={method,total:totalRounded,deposit:0,cash:c,final:c,roundedFinal:c,actualFinal:totalRounded,roundingDiff:roundDeposit(c-totalRounded)};
-      }else if(method==='deposit'){
+      }else if(method==='deposit'||method==='contract'){
+        // Contract Check: same math treatment as Deposit — full amount lands in the deposit column.
         const d=roundDeposit(totalRounded);
         breakdown={method,total:totalRounded,deposit:d,cash:0,final:d,roundedFinal:d,actualFinal:totalRounded,roundingDiff:0};
       }else{
@@ -4947,15 +4950,16 @@ function _collectExportData(){
 }
 
 function _filterRowsForKind(rows,kind){
+  // Contract Check is a non-cash payment: included in Deposit-Only, skipped in Cash-Only.
   if(kind==='cashOnly')return rows.filter(r=>r._breakdown.method==='cash'||r._breakdown.method==='both');
-  if(kind==='depositOnly')return rows.filter(r=>r._breakdown.method==='deposit'||r._breakdown.method==='both');
+  if(kind==='depositOnly')return rows.filter(r=>r._breakdown.method==='deposit'||r._breakdown.method==='both'||r._breakdown.method==='contract');
   return rows;
 }
 
-// Pay-type ordering for exports: Cash → Cash + Deposit (both) → Deposit.
-// Cash goes first so cash-out totals are easy to read at the top of every section.
+// Pay-type ordering for exports: Cash → Cash + Deposit (both) → Deposit → Contract Check.
+// Cash goes first so cash-out totals are easy to read at the top of every section; Contract Check sorts last.
 function _paytypeExportSortFn(a,b){
-  const order={cash:0,both:1,deposit:2};
+  const order={cash:0,both:1,deposit:2,contract:3};
   const ra=order[a._breakdown.method]==null?99:order[a._breakdown.method];
   const rb=order[b._breakdown.method]==null?99:order[b._breakdown.method];
   return ra-rb;
@@ -5005,7 +5009,7 @@ function _columnsFor(kind){
       rowFn:(r)=>{
         const hrs=r.isFlat?'':xlHours(hasActuals?(r.actualHours||0):(r.expectedH||0));
         const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?xlMoney(r.wage):'—'));
-        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Deposit',hrs,rate,r._wageBlank?'':xlMoney(r._totalPay),r._wageBlank?'':xlMoney(r._breakdown.deposit)];
+        return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':methodLabel(r._breakdown.method),hrs,rate,r._wageBlank?'':xlMoney(r._totalPay),r._wageBlank?'':xlMoney(r._breakdown.deposit)];
       },
       numCols:[3,4,5,6],
       sortFn:_paytypeExportSortFn
@@ -6077,6 +6081,7 @@ function _normalizePayMethod(s){
   if(t==='deposit + cash'||t==='deposit+cash'||t==='both'||t==='split'||t==='deposit and cash'||t==='deposit & cash')return 'both';
   if(t==='cash')return 'cash';
   if(t==='deposit')return 'deposit';
+  if(t==='contract check'||t==='contract'||t==='contract-check'||t==='contractcheck')return 'contract';
   return null;
 }
 

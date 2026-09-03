@@ -312,6 +312,7 @@ function loadApp() {
       setSplitDeposit,
       clearSplitDeposit,
       sortRowsByPayType,
+      _payTypeRankForRow,
       _paytypeExportSortFn,
       _filterRowsForKind,
       methodLabel,
