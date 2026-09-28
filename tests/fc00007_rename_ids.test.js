@@ -100,25 +100,23 @@ test('test_duplicate_name_allowed_across_entities', () => {
   assert.equal(api.isDuplicateNameFor(0, 'Jamie Fox'), false);
 });
 
-test('test_export_blocked_on_duplicate', async () => {
+test('test_export_not_blocked_on_duplicate', async () => {
   const api = loadApp();
   api.setTestMode(true);
   const ent = resetToSingleEntity(api, { id: 0, name: 'Nirvana', employees: [{ name: 'Dana Kim', shifts: ['OFF', 'OFF', 'OFF', 'OFF', 'OFF', 'OFF', 'OFF'] }] });
   api.ensureRosterRecord(0, 'Dana Kim');
 
-  assert.equal(api._blockExportIfDuplicates(), false, 'no duplicates yet — export should not be blocked');
-
   // Create a second, distinct record, then rename it to collide with the existing one —
   // that's what a real duplicate-name situation looks like (two stable ids, one display name).
   api.ensureRosterRecord(0, 'Dana Kimberly');
   api.renameEmployeeViaDispatcher(0, 'Dana Kimberly', 'Dana Kim', 'payroll');
-  assert.equal(api.hasDuplicateNames(0), true);
-  assert.equal(api._blockExportIfDuplicates(), true, 'export helper should report duplicates present');
-
-  // The real export entry point bails out immediately when duplicates exist. We only assert
-  // it does not throw and does not proceed to build a workbook (no reliable return value, so
-  // we assert indirectly: calling it must resolve without needing ExcelJS.Workbook data).
-  await assert.doesNotReject(() => api.exportPayrollSettingsExcel(false));
+  assert.equal(api.hasDuplicateNames(0), true, 'duplicate detection still fires');
+  // FC-00023: detection is informational only — the export still builds and writes its file.
+  const before = api.__lastExcelWorkbook;
+  await api.exportPayrollSettingsExcel(false);
+  assert.notEqual(api.__lastExcelWorkbook, before, 'settings export must build a workbook despite duplicates');
+  assert.match(api._dupBannerHtml(), /double-check/);
+  assert.doesNotMatch(api._dupBannerHtml(), /blocked/);
 });
 
 test('test_id_format_per_entity_codes', () => {

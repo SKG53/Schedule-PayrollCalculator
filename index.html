@@ -981,7 +981,7 @@ function _duplicateGroupsForEntity(entId){
 }
 function hasDuplicateNames(entId){return _duplicateGroupsForEntity(entId).length>0}
 // Returns the {id,name} entities that currently have at least one duplicate-name pair,
-// for banners/export-block messages that need to name the offending entities.
+// for the informational duplicate banner that names the affected entities.
 function getDuplicateEntities(){
   return entities.filter(e=>hasDuplicateNames(e.id)).map(e=>({id:e.id,name:e.name||('Entity '+(entities.indexOf(e)+1))}));
 }
@@ -997,14 +997,14 @@ function _duplicateEntityNameList(){return getDuplicateEntities().map(e=>e.name)
 // ---- FC-00007 shared UI bits: duplicate flag, duplicate banner, id suffix, rename ----
 function _dupFlagHtml(entId,empName){
   if(!isDuplicateNameFor(entId,empName))return'';
-  return`<span class="dup-name-flag" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:#FEE;color:#B91C1C;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap">\u26A0 Duplicate name \u2014 resolve before export</span>`;
+  return`<span class="dup-name-flag" style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:#FFF7ED;color:#B45309;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap">\u26A0 Possible duplicate \u2014 double-check</span>`;
 }
 // Persistent, non-dismissing banner for the top of any page with duplicates in scope.
 function _dupBannerHtml(){
   const dupEnts=getDuplicateEntities();
   if(dupEnts.length===0)return'';
   const names=dupEnts.map(e=>escHtml(e.name)).join(', ');
-  return`<div class="dup-banner" style="background:#FEE;color:#B91C1C;border:1px solid #B91C1C;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-weight:600;font-size:13px">\u26A0 Duplicate employee names in ${names} \u2014 exports blocked until resolved.</div>`;
+  return`<div class="dup-banner" style="background:#FFF7ED;color:#B45309;border:1px solid #B45309;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-weight:600;font-size:13px">\u26A0 Possible duplicate employee names in ${names} \u2014 double-check. Exports still run.</div>`;
 }
 // "Name \u00b7 EMP_XXX_NNNNN" suffix for non-table displays (headings, flag lists, alerts).
 function _nameWithId(entId,empName){
@@ -1996,16 +1996,9 @@ function renderCalendar(idx){
 // ================================================================
 // SCHEDULE EXPORTS
 // ================================================================
-// FC-00007: shared export gate. Every export entry point calls this first; if any entity
-// has a duplicate employee name, refuse and toast instead of producing a file.
-function _blockExportIfDuplicates(){
-  if(!anyDuplicateNames())return false;
-  const list=_duplicateEntityNameList();
-  showToast(`Cannot export \u2014 duplicate employee names in ${list}. Rename to resolve.`,'err');
-  return true;
-}
+// FC-00023: exports never gate on duplicate names or flagged rows — the duplicate banner and
+// inline flags are informational only; every export always writes its file.
 async function exportEmployee(){
-  if(_blockExportIfDuplicates())return;
   readTableState();
   const ent=entities[activeEntityIdx];
   const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Employee Schedule');
@@ -2027,7 +2020,6 @@ async function exportEmployee(){
 }
 
 async function exportManager(){
-  if(_blockExportIfDuplicates())return;
   readTableState();
   const ent=entities[activeEntityIdx];
   const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Manager Report');
@@ -5365,7 +5357,6 @@ function _applyEntityPalette(row,pal,role,cashColIdx){
 
 // ---- Excel writer ----
 async function _exportExcel(kind){
-  if(_blockExportIfDuplicates())return;
   if(!_confirmBreaksOrBail())return;
   const data=_collectExportData();
   if(data.length===0){alert('No data to export.');return;}
@@ -5524,7 +5515,6 @@ async function _exportExcel(kind){
 
 // ---- PDF writer ----
 async function _exportPdf(kind){
-  if(_blockExportIfDuplicates())return;
   if(!_confirmBreaksOrBail())return;
   if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
   const {jsPDF}=window.jspdf;
@@ -5766,7 +5756,6 @@ function _writeActualsIntakeSheet(ws,rows,opts){
 }
 
 async function exportActualsIntakeExcel(){
-  if(_blockExportIfDuplicates())return;
   const all=_gatherActualsIntakeRows();
   if(all.length===0){showToast('No actuals data to export','err');return;}
   const ewb=new ExcelJS.Workbook();
@@ -5801,7 +5790,6 @@ async function exportActualsIntakeExcel(){
 }
 
 async function exportActualsIntakePdf(){
-  if(_blockExportIfDuplicates())return;
   if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
   const all=_gatherActualsIntakeRows();
   if(all.length===0){showToast('No actuals data to export','err');return;}
@@ -6113,7 +6101,6 @@ function _gatherPayrollSettingsRows(includeBreaks){
 }
 
 async function exportPayrollSettingsExcel(includeBreaks){
-  if(_blockExportIfDuplicates())return;
   const rows=_gatherPayrollSettingsRows(!!includeBreaks);
   if(rows.length===0){showToast('No employees to export settings for','err');return;}
   const ewb=new ExcelJS.Workbook();

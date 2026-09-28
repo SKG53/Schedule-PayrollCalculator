@@ -283,6 +283,11 @@ were already numeric and now carry `0.00`. PDFs remain rendered text by design.
 There is no deck export (BUILD_SPEC §7 is unbuilt), no entity fills, no numeric
 cross-check block.
 
+**Exports are never gated** (FC-00023): duplicate employee names and flagged /
+needs-review rows show an informational banner and inline "Possible duplicate —
+double-check" flag, but every export always writes its file. The only remaining
+pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
+
 ## 8. Settings
 
 - **Stored:** see §2. In-app Settings overlay = Gemini key + model choices only
