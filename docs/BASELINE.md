@@ -115,6 +115,10 @@ has a name):
    Rounded Final / Diff, plus a per-day break override row per employee). Sort toggle:
    schedule order vs pay-type grouping (Cash → Deposit+Cash → Deposit). All-entity
    preview table mirroring the export. 12 export buttons + settings export/import.
+   Below it, the read-only *Combined export preview* (FC-00013) has a "Make editable
+   copy" button (FC-00024): an independent, in-memory scratch table where every cell
+   is editable, exportable as-is to .xlsx/.pdf, refreshable from the preview, and
+   never written back to session data, the roster or the preview.
 
 ## 4. Upload and parsing
 
@@ -269,6 +273,10 @@ Others:
     toggled (tags V1/V2, see §2).
 11. *(Legacy aliases `exportPayroll`/`exportPayrollPdf`/`exportActualsExcel` map to
     the above.)*
+12. **Edited Copy** (.xlsx + .pdf, FC-00024) — written straight from the scratch
+    table's current cells, combined-report layout and palette fills; numeric-looking
+    currency/hours cells are written as numbers with the usual formats. Filename
+    `Combined_Week_of_<ISO>_Edited_Copy.xlsx/.pdf`.
 
 **Formatting: every currency and hours cell in every .xlsx export is a real number
 with a number format** — `$#,##0.00` for currency, `0.00` for hours, and

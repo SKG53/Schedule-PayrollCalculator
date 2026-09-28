@@ -27,3 +27,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00021 | 2026-09-28 | S | Low | done | [features/FC-00021-2026-09-28-intake-scroll-preserve.md](features/FC-00021-2026-09-28-intake-scroll-preserve.md) | Fix Actuals Intake snap-left on cell commit |
 | FC-00022 | 2026-09-28 | M | Medium | done | [features/FC-00022-2026-09-28-rename-persist-ids.md](features/FC-00022-2026-09-28-rename-persist-ids.md) | Rename persists on every page and keeps the employee ID |
 | FC-00023 | 2026-09-28 | S | Low | done | [features/FC-00023-2026-09-28-never-block-export.md](features/FC-00023-2026-09-28-never-block-export.md) | Never block export |
+| FC-00024 | 2026-09-28 | M | Low | done | [features/FC-00024-2026-09-28-editable-preview-copy.md](features/FC-00024-2026-09-28-editable-preview-copy.md) | Editable scratch copy of the combined preview |

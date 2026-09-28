@@ -429,6 +429,13 @@ table.review tr.new-since-upload td{background:rgba(250,204,21,0.08)}
 .fc13-subtotal-row td{font-weight:700}
 .fc13-blank-row td{border:none;background:transparent;padding:2px}
 .fc13-grand-row td{font-weight:700}
+.fc24-scratch-panel{border-color:#B45309;border-style:dashed}
+.fc24-scratch-badge{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:#B45309;background:#FFF7ED;border:1px solid #B45309;border-radius:10px;padding:2px 8px}
+.fc24-note{font-size:12px;color:var(--text2);margin-bottom:8px}
+.fc24-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.fc24-toolbar .btn{font-size:12px;padding:5px 12px}
+.fc24-scratch-table td[contenteditable]{cursor:text}
+.fc24-scratch-table td[contenteditable]:focus{outline:2px solid var(--blue);outline-offset:-2px;background:#FFFFFF!important;overflow:visible}
 
 /* === Template download button on intake === */
 .template-download{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:11px;font-weight:600;color:var(--text2);text-decoration:none}
@@ -2520,9 +2527,13 @@ function renderPayrollEntityContent(idx){
 // blank Hours, Rate="flat"). Built from the same _collectExportData/_columnsFor('combined')
 // pipeline the Excel writer uses, so any change to the export's data model is automatically
 // reflected here. Lives at the bottom of the Payroll tab, spans all entities.
-function renderPayrollExportPreviewHtml(){
+// Row model behind the read-only preview. Each row: {kind:'title'|'hdr'|'data'|'subtotal'|
+// 'blank'|'grand', entityId, cells:[display text], bgs:[css color per cell], tips:[title per cell]}.
+// The FC-00024 scratch copy snapshots this same model, so the copy starts out identical to
+// what the preview shows.
+function _fc13PreviewModel(){
   const data=_collectExportData();
-  if(data.length===0)return '';
+  if(data.length===0)return null;
   const spec=_columnsFor('combined');
   const cashColIdx=8; // 1-based; combined mode's Cash column (matches _exportExcel)
 
@@ -2539,25 +2550,23 @@ function renderPayrollExportPreviewHtml(){
   const tdEntity='Edit entity name in Schedules tab';
   const tdAuto='Auto-calculated';
   const tdTitle='Edit date range in the schedule for that entity';
+  const n=spec.headers.length;
+  const fill=(v)=>new Array(n).fill(v);
 
-  let html='<table class="fc13-preview-table"><colgroup>';
-  const colW=[17,22,15,10,9,13,13.42,13.05,15,10];
-  colW.forEach(w=>{html+=`<col style="width:${w*7}px">`});
-  html+='</colgroup><tbody>';
-
-  html+=`<tr class="fc13-title-row"><td colspan="${spec.headers.length}" title="${escHtml(tdTitle)}">${escHtml(titleFull)}</td></tr>`;
-  html+=`<tr class="fc13-hdr-row">${spec.headers.map(h=>`<td style="background:#E8E8E4" title="${escHtml(tdAuto)}">${escHtml(h)}</td>`).join('')}</tr>`;
+  const rows=[];
+  rows.push({kind:'title',entityId:null,cells:[titleFull],bgs:[''],tips:[tdTitle]});
+  rows.push({kind:'hdr',entityId:null,cells:spec.headers.slice(),bgs:fill('#E8E8E4'),tips:fill(tdAuto)});
 
   let grandTotal=0,grandDeposit=0,grandCash=0;
   let renderedEntityCount=0;
-  data.forEach(({entityName,entityId,rows})=>{
-    let filtered=_filterRowsForKind(rows,'combined');
+  data.forEach(({entityName,entityId,rows:entRows})=>{
+    let filtered=_filterRowsForKind(entRows,'combined');
     if(filtered.length===0)return;
     filtered=filtered.slice().sort(spec.sortFn);
     // Blank separator row BEFORE every entity after the first, matching the reference
     // report's layout (separators sit between entities, not trailing after the last one).
     if(renderedEntityCount>0){
-      html+=`<tr class="fc13-blank-row"><td colspan="${spec.headers.length}" title="${escHtml(tdAuto)}">&nbsp;</td></tr>`;
+      rows.push({kind:'blank',entityId:null,cells:[''],bgs:[''],tips:[tdAuto]});
     }
     renderedEntityCount++;
     const previewEnt=entities.find(e=>e.id===entityId);
@@ -2565,16 +2574,12 @@ function renderPayrollExportPreviewHtml(){
     let entTotal=0,entDeposit=0,entCash=0;
     filtered.forEach(r=>{
       const vals=spec.rowFn(r);
-      html+='<tr class="fc13-data-row">';
-      vals.forEach((c,ci)=>{
-        const text=_cellText(c);
-        const isCash=(ci+1)===cashColIdx;
-        const bg=argbToCss(isCash?pal.cash:pal.body);
-        const isNum=spec.numCols.indexOf(ci)>=0;
-        const tip=ci===1?tdName:(ci===0?tdEntity:tdEdit);
-        html+=`<td class="fc13-cell${isNum?' num':''}" style="background:${bg}" title="${escHtml(tip)}">${escHtml(text)}</td>`;
+      rows.push({
+        kind:'data',entityId,
+        cells:vals.map(_cellText),
+        bgs:vals.map((c,ci)=>argbToCss((ci+1)===cashColIdx?pal.cash:pal.body)),
+        tips:vals.map((c,ci)=>ci===1?tdName:(ci===0?tdEntity:tdEdit))
       });
-      html+='</tr>';
       if(r._breakdown.method==='cash'||r._breakdown.method==='deposit'||r._breakdown.method==='both'||r._breakdown.method==='contract'){
         entTotal+=r._breakdown.actualFinal||0;
       }
@@ -2582,38 +2587,58 @@ function renderPayrollExportPreviewHtml(){
     });
     // Entity subtotal row — palette's subtotal fill (BFBFBF for all current palettes),
     // bold; only Actual Total/Deposit/Cash cols carry values.
-    const subBg=argbToCss(pal.subtotal);
-    const subVals=new Array(spec.headers.length).fill('');
+    const subVals=fill('');
     subVals[0]=entityName+' subtotal';
     subVals[5]=xlMoney(entTotal).text;
     subVals[6]=entDeposit>0?xlMoney(entDeposit).text:'';
     subVals[7]=entCash>0?xlMoney(entCash).text:'';
-    html+='<tr class="fc13-subtotal-row">'+subVals.map((v,ci)=>{
-      const isNum=spec.numCols.indexOf(ci)>=0;
-      return `<td class="fc13-cell${isNum?' num':''}" style="background:${subBg}" title="${escHtml(tdAuto)}">${escHtml(v)}</td>`;
-    }).join('')+'</tr>';
+    rows.push({kind:'subtotal',entityId,cells:subVals,bgs:fill(argbToCss(pal.subtotal)),tips:fill(tdAuto)});
     grandTotal+=entTotal;grandDeposit+=entDeposit;grandCash+=entCash;
   });
 
   // Grand total row — uses the shared grand-total fill (A6A6A6, same across all presets),
   // bold, matching _applyEntityPalette(g,FC14_PRESETS.Plain,'grand',null) in _exportExcel.
-  const grandBg=argbToCss(FC14_PRESETS.Plain.grand);
-  const grandVals=new Array(spec.headers.length).fill('');
+  const grandVals=fill('');
   grandVals[0]='GRAND TOTAL';
   grandVals[5]=xlMoney(grandTotal).text;
   grandVals[6]=grandDeposit>0?xlMoney(grandDeposit).text:'';
   grandVals[7]=grandCash>0?xlMoney(grandCash).text:'';
-  html+='<tr class="fc13-grand-row">'+grandVals.map((v,ci)=>{
-    const isNum=spec.numCols.indexOf(ci)>=0;
-    return `<td class="fc13-cell${isNum?' num':''}" style="background:${grandBg}" title="${escHtml(tdAuto)}">${escHtml(v)}</td>`;
-  }).join('')+'</tr>';
+  rows.push({kind:'grand',entityId:null,cells:grandVals,bgs:fill(argbToCss(FC14_PRESETS.Plain.grand)),tips:fill(tdAuto)});
 
+  return{headers:spec.headers.slice(),numCols:spec.numCols.slice(),colW:[17,22,15,10,9,13,13.42,13.05,15,10],rows};
+}
+
+// Renders a preview model as the fc13 table. `editable` (FC-00024 scratch copy) makes every
+// cell contenteditable and routes typing to _fc24EditCell instead of any session state.
+function _fc13ModelTableHtml(model,editable){
+  const n=model.headers.length;
+  let html=`<table class="fc13-preview-table${editable?' fc24-scratch-table':''}"><colgroup>`;
+  model.colW.forEach(w=>{html+=`<col style="width:${w*7}px">`});
+  html+='</colgroup><tbody>';
+  const ed=(ri,ci)=>editable?` contenteditable="true" spellcheck="false" oninput="_fc24EditCell(${ri},${ci},this.textContent)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"`:'';
+  model.rows.forEach((row,ri)=>{
+    if(row.kind==='title'){
+      html+=`<tr class="fc13-title-row"><td colspan="${n}" title="${escHtml(row.tips[0])}"${ed(ri,0)}>${escHtml(row.cells[0])}</td></tr>`;
+    }else if(row.kind==='hdr'){
+      html+=`<tr class="fc13-hdr-row">${row.cells.map((h,ci)=>`<td style="background:${row.bgs[ci]}" title="${escHtml(row.tips[ci])}"${ed(ri,ci)}>${escHtml(h)}</td>`).join('')}</tr>`;
+    }else if(row.kind==='blank'){
+      html+=`<tr class="fc13-blank-row"><td colspan="${n}" title="${escHtml(row.tips[0])}">&nbsp;</td></tr>`;
+    }else{
+      html+=`<tr class="fc13-${row.kind==='data'?'data':row.kind}-row">`+row.cells.map((v,ci)=>{
+        const isNum=model.numCols.indexOf(ci)>=0;
+        return `<td class="fc13-cell${isNum?' num':''}" style="background:${row.bgs[ci]}" title="${escHtml(row.tips[ci])}"${ed(ri,ci)}>${escHtml(v)}</td>`;
+      }).join('')+'</tr>';
+    }
+  });
   html+='</tbody></table>';
   return html;
 }
 
-// Mounts renderPayrollExportPreviewHtml() into the DOM, just above the export toolbar,
-// below the all-entity preview. Read-only — no inputs, selects, or contenteditable.
+function renderPayrollExportPreviewHtml(){
+  const model=_fc13PreviewModel();
+  return model?_fc13ModelTableHtml(model,false):'';
+}
+
 function renderFc00013PreviewPanel(){
   let host=document.getElementById('fc13PreviewHost');
   if(!host){
@@ -2625,7 +2650,151 @@ function renderFc00013PreviewPanel(){
     }
   }
   const tableHtml=renderPayrollExportPreviewHtml();
-  host.innerHTML=tableHtml?`<div class="fc13-preview-panel"><h3>Combined export preview <span class="fc13-readonly-badge">read-only</span></h3><div class="fc13-preview-scroll">${tableHtml}</div></div>`:'';
+  const copyBtn=_fc24Scratch?'':'<span style="flex:1"></span><button class="btn" onclick="_fc24MakeCopy()" title="Snapshot this preview into a separate table you can hand-edit and export — real data is never changed" style="font-size:12px;padding:5px 12px">✎ Make editable copy</button>';
+  host.innerHTML=(tableHtml?`<div class="fc13-preview-panel"><h3>Combined export preview <span class="fc13-readonly-badge">read-only</span>${copyBtn}</h3><div class="fc13-preview-scroll">${tableHtml}</div></div>`:'')+_fc24ScratchPanelHtml();
+}
+
+// ---- FC-00024: editable scratch copy of the combined preview ("god mode") ----
+// Escape hatch for when an upstream feature misbehaves: snapshot the read-only preview into
+// a throwaway table, hand-edit any cell, and export exactly those cells. The copy is plain
+// in-memory data owned by nothing else — editing it never touches session data, the roster,
+// computePayroll or the read-only preview, and it is never persisted (gone on refresh).
+let _fc24Scratch=null;
+const FC24_SCRATCH_TIP='Scratch copy — edit freely; changes stay in this copy only';
+function _fc24MakeCopy(){
+  const model=_fc13PreviewModel();
+  if(!model){showToast('Nothing to copy — the combined preview is empty','err');return false;}
+  const copy=JSON.parse(JSON.stringify(model));
+  copy.rows.forEach(r=>{r.tips=r.tips.map(()=>FC24_SCRATCH_TIP);});
+  _fc24Scratch=copy;
+  renderFc00013PreviewPanel();
+  return true;
+}
+function _fc24RefreshCopy(){
+  if(_fc24Scratch&&!confirm('Replace the editable copy with a fresh snapshot of the preview? Edits made in the copy will be lost.'))return false;
+  return _fc24MakeCopy();
+}
+function _fc24DiscardCopy(){
+  if(!_fc24Scratch)return false;
+  if(!confirm('Discard the editable copy? Real payroll data is not affected.'))return false;
+  _fc24Scratch=null;
+  renderFc00013PreviewPanel();
+  return true;
+}
+function _fc24GetScratch(){return _fc24Scratch}
+// Light update only (no re-render) so typing never loses the caret.
+function _fc24EditCell(ri,ci,text){
+  if(!_fc24Scratch)return;
+  const row=_fc24Scratch.rows[ri];
+  if(!row||row.kind==='blank'||ci<0||ci>=row.cells.length)return;
+  row.cells[ci]=(text==null?'':String(text)).replace(/ /g,' ').replace(/[\r\n]+/g,' ').trim();
+}
+function _fc24ScratchPanelHtml(){
+  if(!_fc24Scratch)return '';
+  return `<div class="fc13-preview-panel fc24-scratch-panel"><h3>Editable copy <span class="fc24-scratch-badge">scratch — not saved to payroll</span></h3>`+
+    `<div class="fc24-note">Every cell is editable. Changes stay in this copy: real payroll data, the roster and the read-only preview above are untouched. Export writes exactly the cells shown here.</div>`+
+    `<div class="fc24-toolbar"><button class="btn btn-green" onclick="_fc24ExportScratchExcel()">📥 Export this copy (.xlsx)</button><button class="btn" onclick="_fc24ExportScratchPdf()">📄 Export this copy (.pdf)</button><button class="btn" onclick="_fc24RefreshCopy()">↻ Refresh copy from preview</button><button class="btn" onclick="_fc24DiscardCopy()">✕ Discard copy</button></div>`+
+    `<div class="fc13-preview-scroll">${_fc13ModelTableHtml(_fc24Scratch,true)}</div></div>`;
+}
+// Turns an edited cell's text back into the same wrapper the real writers use, so currency
+// and hours cells in the scratch .xlsx stay numeric with the usual number formats (CLAUDE.md
+// rule 6). Anything that isn't a plain number ('—', 'flat', free text) is written as text.
+function _fc24CellFromText(text,ci,numCols){
+  const t=(text||'').trim();
+  if(numCols.indexOf(ci)<0)return t;
+  const raw=t.replace(/[$,\s]/g,'');
+  if(!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(raw))return t;
+  const v=parseFloat(raw);
+  if(ci===3)return xlHours(v);        // Hours
+  if(ci===9)return xlMoneySigned(v);  // Diff
+  return xlMoney(v);
+}
+function _fc24CssToArgb(css){return /^#[0-9a-f]{6}$/i.test(css||'')?'FF'+css.slice(1).toUpperCase():null}
+async function _fc24ExportScratchExcel(){
+  const m=_fc24Scratch;
+  if(!m){showToast('Make an editable copy first','err');return;}
+  const hdr=m.rows.find(r=>r.kind==='hdr');
+  const n=hdr?hdr.cells.length:m.headers.length;
+  const ewb=new ExcelJS.Workbook();
+  const ws=ewb.addWorksheet('Report');
+  // Same fonts/borders/widths as _exportExcel's combined report; fills come from the copy's
+  // own per-cell colors, which were snapshotted from the same entity palettes.
+  const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
+  const align=(ci)=>({horizontal:m.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'});
+  const paint=(cell,row,ci)=>{const a=_fc24CssToArgb(row.bgs[ci-1]);if(a)cell.fill=_fc12Fill(a);};
+  m.rows.forEach(row=>{
+    if(row.kind==='title'){
+      const t=ws.addRow([row.cells[0]]);
+      t.getCell(1).font={name:'Arial',bold:true,size:14};
+      t.getCell(1).alignment={horizontal:'center'};
+      t.height=26;
+      ws.mergeCells(t.number,1,t.number,n);
+      ws.addRow([]);
+    }else if(row.kind==='hdr'){
+      const h=ws.addRow(row.cells);
+      h.eachCell((cell,ci)=>{
+        cell.font={name:'Arial',bold:true,size:11};paint(cell,row,ci);
+        cell.alignment=align(ci);cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
+      });
+    }else if(row.kind==='blank'){
+      ws.addRow([]);
+    }else{
+      const vals=row.cells.map((t,ci)=>_fc24CellFromText(t,ci,m.numCols));
+      const r=ws.addRow(vals.map(_cellValue));
+      const bold=row.kind!=='data',grand=row.kind==='grand';
+      r.eachCell((cell,ci)=>{
+        cell.font={name:'Arial',bold,size:grand?11:10};
+        cell.alignment=align(ci);
+        cell.border=row.kind==='data'?{bottom:thinB,left:thinB,right:thinB}:grand?{top:medB,bottom:medB,left:medB,right:medB}:{top:medB,bottom:medB,left:thinB,right:thinB};
+        _applyNumFmt(cell,vals[ci-1]);
+        paint(cell,row,ci);
+      });
+    }
+  });
+  [17,22,15,10,9,13,13.41796875,13.05078125,15,10].forEach((w,i)=>{ws.getColumn(i+1).width=w});
+  const fname=_exportFilenameBase('combined')+'_Edited_Copy.xlsx';
+  downloadBlob(await ewb.xlsx.writeBuffer(),fname);
+  showToast(`Exported ${fname}`,'ok');
+}
+async function _fc24ExportScratchPdf(){
+  const m=_fc24Scratch;
+  if(!m){showToast('Make an editable copy first','err');return;}
+  if(!window.jspdf||!window.jspdf.jsPDF){alert('PDF library failed to load. Please reload the page and try again.');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'pt',format:'letter',orientation:'landscape'});
+  const pageW=doc.internal.pageSize.getWidth();
+  const titleRow=m.rows.find(r=>r.kind==='title');
+  const hdr=m.rows.find(r=>r.kind==='hdr');
+  const n=hdr?hdr.cells.length:m.headers.length;
+  doc.setFont('helvetica','bold');doc.setFontSize(14);
+  doc.text(titleRow?titleRow.cells[0]:'',pageW/2,36,{align:'center'});
+  const bodyRows=m.rows.filter(r=>r.kind==='data'||r.kind==='subtotal'||r.kind==='blank'||r.kind==='grand');
+  const body=bodyRows.map(r=>r.kind==='blank'?new Array(n).fill(''):r.cells.slice());
+  const columnStyles={};
+  m.numCols.forEach(ci=>{columnStyles[ci]={halign:'right'}});
+  _columnsFor('combined').widths.forEach((w,i)=>{columnStyles[i]=Object.assign({},columnStyles[i]||{},{cellWidth:(w/6)*7})});
+  doc.autoTable({
+    head:[hdr?hdr.cells.slice():m.headers.slice()],
+    body,
+    startY:56,
+    theme:'grid',
+    styles:{font:'helvetica',fontSize:8,cellPadding:3,lineColor:[176,176,176],lineWidth:0.4},
+    headStyles:{fillColor:[232,232,228],textColor:[26,26,24],fontStyle:'bold',halign:'left'},
+    columnStyles,
+    margin:{left:30,right:30},
+    didParseCell(hookData){
+      if(hookData.section!=='body')return;
+      const row=bodyRows[hookData.row.index];
+      if(!row)return;
+      if(row.kind==='blank'){hookData.cell.styles.fillColor=[255,255,255];return;}
+      const a=_fc24CssToArgb(row.bgs[hookData.column.index]);
+      if(a)hookData.cell.styles.fillColor=_argbToRgbTriplet(a);
+      if(row.kind!=='data')hookData.cell.styles.fontStyle='bold';
+    }
+  });
+  const fname=_exportFilenameBase('combined')+'_Edited_Copy.pdf';
+  doc.save(fname);
+  showToast(`Exported ${fname}`,'ok');
 }
 
 // Render the all-entity preview table + grand total just above the Export button.
