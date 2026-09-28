@@ -101,7 +101,8 @@ has a name):
    auto-retry 3 attempts with 12 s delay, per-file retry buttons, optional
    auto-escalate to Pro below 75% confidence). Review table split into per-employee
    sub-tabs plus "Unrecognized"; inline edit of name (dropdown of schedule names),
-   date, up to 3 punch pairs (text inputs, `845` → `8:45 AM` on blur); flag pills;
+   date, up to 3 punch pairs (text inputs, `845` → `8:45 AM` on blur; the table's
+   horizontal/vertical scroll position survives every commit re-render); flag pills;
    per-row / per-employee / per-entity approve & unapprove; "Ignore Time Cards" per
    employee; manual row add (entity-level and employee-level). Import/export of the
    Actuals Intake .xlsx (round-trip) and PDF (record only).

@@ -3387,7 +3387,9 @@ function renderIntake(){
       </div>
     </div>`;
   });
+  const wrapScrolls=entities.map((ent,idx)=>_captureReviewScroll(idx));
   container.innerHTML=html;
+  wrapScrolls.forEach((pos,idx)=>_restoreReviewScroll(idx,pos));
 
   // Wire drop zones + file inputs
   entities.forEach((ent,idx)=>{
@@ -3419,7 +3421,7 @@ function wireIntakeDrop(dropId,inputId,cb){
 function scrollToIntakeUpload(idx){
   const el=document.getElementById('mixDrop_'+idx)||document.getElementById('tcDrop_'+idx);
   if(!el)return;
-  if(el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});
+  if(el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'});
   if(el.classList){el.classList.add('add-more-highlight');setTimeout(()=>el.classList.remove('add-more-highlight'),1500);}
 }
 
@@ -3536,7 +3538,7 @@ function addManualRowEntity(idx){
   setTimeout(()=>{
     const rowEl=document.querySelector(`tr[data-row-id="${newId}"]`);
     if(rowEl){
-      rowEl.scrollIntoView({behavior:'smooth',block:'center'});
+      rowEl.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'});
       const firstTimeInput=rowEl.querySelector('input.time-text');
       if(firstTimeInput)firstTimeInput.focus();
     }
@@ -3572,7 +3574,7 @@ function addManualRow(idx){
   setTimeout(()=>{
     const rowEl=document.querySelector(`tr[data-row-id="${newId}"]`);
     if(rowEl){
-      rowEl.scrollIntoView({behavior:'smooth',block:'center'});
+      rowEl.scrollIntoView({behavior:'smooth',block:'center',inline:'nearest'});
       const firstTimeInput=rowEl.querySelector('input.time-text');
       if(firstTimeInput)firstTimeInput.focus();
     }
@@ -4801,12 +4803,31 @@ function unapproveReviewRow(id){
   scheduleDynamicRecompute();
 }
 
+// Rebuilding a review table's innerHTML replaces its .review-wrap scroll container, which
+// resets scrollLeft/scrollTop to 0 and snaps the table left on every cell commit. Capture
+// the container's scroll offsets before a rebuild and restore them on the new node right after.
+function _captureReviewScroll(idx){
+  const t=document.getElementById('reviewTable_'+idx);
+  const w=t&&t.querySelector?t.querySelector('.review-wrap'):null;
+  return w?{left:w.scrollLeft||0,top:w.scrollTop||0}:null;
+}
+function _restoreReviewScroll(idx,pos){
+  if(!pos)return;
+  const t=document.getElementById('reviewTable_'+idx);
+  const w=t&&t.querySelector?t.querySelector('.review-wrap'):null;
+  if(!w)return;
+  w.scrollLeft=pos.left;
+  w.scrollTop=pos.top;
+}
+
 function refreshReviewTable(idx){
   const ent=entities[idx];if(!ent)return;
   // Preserve scroll position to prevent page jump on blur/commit
   const scrollX=window.scrollX,scrollY=window.scrollY;
+  const wrapScroll=_captureReviewScroll(idx);
   const t=document.getElementById('reviewTable_'+idx);
   if(t)t.innerHTML=renderReviewTableHtml(ent,idx);
+  _restoreReviewScroll(idx,wrapScroll);
   // Also update the summary
   const results=document.getElementById('ocrResults_'+idx);
   if(results){

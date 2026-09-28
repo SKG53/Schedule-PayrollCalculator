@@ -410,6 +410,7 @@ function loadApp() {
       updateReviewField,
       updateReviewFieldLight,
       commitDateInput,
+      commitTimeInput,
       findReviewRow,
       renderReviewTableHtml,
       refreshReviewTable,
