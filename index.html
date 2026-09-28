@@ -5739,26 +5739,35 @@ async function _exportPdf(kind){
     // row content. Built in lockstep with `body` as rows are pushed.
     const rowRoles=[];
     const body=[];
-    let grandTotal=0,grandHours=0;
+    let grandTotal=0,grandHours=0,grandDeposit=0,grandCash=0;
     data.forEach(({entityName,entityId,rows})=>{
       let filtered=_filterRowsForKind(rows,sectionKind);
       if(filtered.length===0)return;
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
       const entPal=_fc15Colorize?_paletteForEntity(entities.find(e=>e.id===entityId)):null;
-      let entTotal=0,entHours=0;
+      let entTotal=0,entHours=0,entDeposit=0,entCash=0;
       filtered.forEach(r=>{
         // PDF is a rendered document — unwrap the numeric cells back to display text.
         body.push(spec.rowFn(r).map(_cellText));
         rowRoles.push({role:'body',pal:entPal});
         if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
         else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
+        else if(sectionKind==='combined')entTotal+=r._breakdown.actualFinal||0;
         else entTotal+=r._breakdown.final;
+        entDeposit+=r._breakdown.deposit||0;entCash+=r._breakdown.cash||0;
         if(!r.isFlat)entHours+=(r.actualHours||r.expectedH||0);
       });
       const subRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[240,239,233],fontStyle:'bold'}});
       subRow[0]={content:entityName+' subtotal',styles:{fillColor:[240,239,233],fontStyle:'bold'}};
       if(sectionKind==='timecard'){
         subRow[5]={content:_cellText(xlHours(entHours)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
+      }else if(sectionKind==='combined'){
+        // Same layout as the Combined Excel/preview: Actual Total, Deposit and Cash carry
+        // subtotals; Rounded Final and Diff stay blank.
+        const subCell=(v)=>({content:v,styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}});
+        subRow[5]=subCell(_cellText(xlMoney(entTotal)));
+        subRow[6]=subCell(entDeposit>0?_cellText(xlMoney(entDeposit)):'');
+        subRow[7]=subCell(entCash>0?_cellText(xlMoney(entCash)):'');
       }else{
         subRow[spec.headers.length-1]={content:_cellText(xlMoney(entTotal)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
       }
@@ -5767,13 +5776,18 @@ async function _exportPdf(kind){
       // possible — autoTable's own per-row 'avoid' setting (vs. the table-wide 'avoid',
       // which would force the whole table onto one page) does exactly this.
       rowRoles.push({role:'subtotal',pal:entPal,pageBreak:'avoid'});
-      grandTotal+=entTotal;grandHours+=entHours;
+      grandTotal+=entTotal;grandHours+=entHours;grandDeposit+=entDeposit;grandCash+=entCash;
     });
 
     const grandRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[224,222,213],fontStyle:'bold'}});
     grandRow[0]={content:'GRAND TOTAL',styles:{fillColor:[224,222,213],fontStyle:'bold'}};
     if(sectionKind==='timecard'){
       grandRow[5]={content:_cellText(xlHours(grandHours)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
+    }else if(sectionKind==='combined'){
+      const grandCell=(v)=>({content:v,styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}});
+      grandRow[5]=grandCell(_cellText(xlMoney(grandTotal)));
+      grandRow[6]=grandCell(grandDeposit>0?_cellText(xlMoney(grandDeposit)):'');
+      grandRow[7]=grandCell(grandCash>0?_cellText(xlMoney(grandCash)):'');
     }else{
       grandRow[spec.headers.length-1]={content:_cellText(xlMoney(grandTotal)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
     }
