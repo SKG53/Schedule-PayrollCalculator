@@ -851,6 +851,10 @@ function ensureRosterRecord(entId,empName,existingId){
   const canonical=(empName||'').toString().trim();
   const key=_rosterKey(entId,canonical);
   let id=existingId&&(OLD_EMP_ID_RE.test(existingId)||NEW_EMP_ID_RE.test(existingId))?existingId:session.roster.keyToId[key];
+  // A name this entity's employee was renamed away from still resolves to that same record
+  // (never a freshly minted one), so any reference that still carries the old name keeps
+  // its id and pay data. Resolution only — the record's current name is left alone.
+  if(!id&&canonical){const prev=_recordForFormerName(entId,canonical);if(prev)return prev;}
   if(!id)id=_mintEmployeeId(entId);
   let rec=session.roster.byId[id];
   if(!rec){
@@ -860,13 +864,63 @@ function ensureRosterRecord(entId,empName,existingId){
   rec.entity=entId;
   if(canonical&&(!rec.canonical_name||_aliasNorm(rec.canonical_name)===_aliasNorm(canonical)))rec.canonical_name=canonical;
   else if(canonical&&_aliasNorm(rec.canonical_name)!==_aliasNorm(canonical)){
-    if(rec.canonical_name)delete session.roster.keyToId[_rosterKey(entId,rec.canonical_name)];
+    // Known id arriving under a different name (e.g. a settings file carrying a rename):
+    // same identity, new label — carry every name-keyed reference over with it.
+    const prevName=rec.canonical_name;
+    if(prevName)delete session.roster.keyToId[_rosterKey(entId,prevName)];
     rec.canonical_name=canonical;
+    _noteFormerName(rec,prevName,canonical);
+    _propagateEmployeeRename(entId,prevName,canonical);
   }
   session.roster.keyToId[key]=id;
   // Any touch of an old-format record migrates it to the new visible-ID format in place.
   if(OLD_EMP_ID_RE.test(rec.id))_migrateRecordId(rec);
   return rec;
+}
+// Former display names of a record, kept so a stale reference to an old name resolves to the
+// same id instead of minting a new, empty record.
+function _noteFormerName(rec,fromName,toName){
+  const list=(rec.former_names||[]).filter(n=>_aliasNorm(n)!==_aliasNorm(toName));
+  if(fromName&&_aliasNorm(fromName)!==_aliasNorm(toName)&&!list.some(n=>_aliasNorm(n)===_aliasNorm(fromName)))list.push(fromName);
+  rec.former_names=list;
+}
+function _recordForFormerName(entId,name){
+  const n=_aliasNorm(name);
+  if(!n)return null;
+  for(const id in session.roster.byId){
+    const rec=session.roster.byId[id];
+    if(rec&&rec.entity===entId&&(rec.former_names||[]).some(x=>_aliasNorm(x)===n))return rec;
+  }
+  return null;
+}
+// Employee names are also stored by value outside the roster (schedule rows, intake review
+// rows, loaded actuals, per-entity intake UI state). A rename must rewrite those too, or the
+// next wKey() lookup on the old name finds nothing and mints a new id for an empty record.
+function _propagateEmployeeRename(entId,fromName,toName){
+  const from=_aliasNorm(fromName);
+  if(!from||!toName||from===_aliasNorm(toName))return;
+  const ent=entities.find(e=>e.id===entId);
+  if(!ent)return;
+  const hit=n=>_aliasNorm(n)===from;
+  (ent.employees||[]).forEach(e=>{if(e&&hit(e.name))e.name=toName;});
+  (ent.actualDays||[]).forEach(d=>{if(d&&hit(d.empName))d.empName=toName;});
+  const entNorm=_aliasNorm(ent.name);
+  if(entNorm)(actualDays||[]).forEach(d=>{if(d&&_aliasNorm(d.entityName)===entNorm&&hit(d.empName))d.empName=toName;});
+  const intake=ent.intake;
+  if(intake){
+    (intake.reviewRows||[]).forEach(r=>{if(r&&hit(r.empName))r.empName=toName;});
+    if(intake.activeEmpTab&&hit(intake.activeEmpTab))intake.activeEmpTab=toName;
+    if(intake.ignoredEmployees){
+      Object.keys(intake.ignoredEmployees).forEach(k=>{
+        if(!hit(k))return;
+        const v=intake.ignoredEmployees[k];delete intake.ignoredEmployees[k];intake.ignoredEmployees[toName]=v;
+      });
+    }
+  }
+  if(Object.prototype.hasOwnProperty.call(flatWagesDisplayNames,from)){
+    delete flatWagesDisplayNames[from];
+    flatWagesDisplayNames[_aliasNorm(toName)]=toName;
+  }
 }
 // Reassigns a single legacy-ID roster record to a freshly minted EMP_<CODE>_NNNNN id and
 // re-keys every store that uses the old id, so nothing silently loses its wage/pay-method/etc.
@@ -1225,15 +1279,18 @@ function _applyChange(entry,invert){
       ensureRosterRecord(entId,empName,(value&&value.id)||target.id);
     }else if(entry.type==='rosterRename'){
       const rec=_recordForId(key)||ensureRosterRecord(entId,empName,key);
-      const fromName=entry.from||rec.canonical_name;
+      // On revert the record currently carries entry.to and goes back to entry.from.
+      const fromName=(invert?entry.to:entry.from)||rec.canonical_name;
       const toName=value||fromName;
       delete session.roster.keyToId[_rosterKey(entId,fromName)];
       rec.canonical_name=toName;
       session.roster.keyToId[_rosterKey(entId,toName)]=rec.id;
-      const aliases=(rosterAliases[rec.id]||[]).slice();
+      const aliases=(rosterAliases[rec.id]||[]).filter(a=>_aliasNorm(a)!==_aliasNorm(toName));
       if(fromName&&_aliasNorm(fromName)!==_aliasNorm(toName)&&!aliases.some(a=>_aliasNorm(a)===_aliasNorm(fromName)))aliases.push(fromName);
       rosterAliases[rec.id]=aliases;
       rec.aliases=aliases.slice();
+      _noteFormerName(rec,fromName,toName);
+      _propagateEmployeeRename(entId,fromName,toName);
     }else if(entry.type==='rosterAliasAdd'){
       const aliases=(rosterAliases[key]||[]).slice();
       if(value&&!aliases.some(a=>_aliasNorm(a)===_aliasNorm(value)))aliases.push(value);
@@ -4410,7 +4467,10 @@ function renderReviewTableHtml(ent,idx){
   const empLabel=activeKey==='__unrecognized__'?'Unrecognized':escHtml(activeKey);
   const isIgnored=ent.intake.ignoredEmployees&&ent.intake.ignoredEmployees[activeKey];
   html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:6px 8px;background:'+(isIgnored?'#FFF7ED':'var(--surface2,#f5f4f0)')+';border-radius:6px;font-size:12px">';
-  html+=`<span style="color:var(--text2)">${empLabel}: <strong>${empApproved}</strong> / ${empTotal} approved${isIgnored?' <span style="color:var(--amber);font-weight:600">— Time Cards Ignored</span>':''}</span>`;
+  // FC-00007 rename entry point for Actuals Intake: the employee's name here is click-to-edit
+  // and commits through the same renameEmployeeViaDispatcher flow as Payroll.
+  const empNameHtml=activeKey==='__unrecognized__'?empLabel:inlineEditableNameHtml(ent.id,activeKey,'intake',()=>renderIntake());
+  html+=`<span style="color:var(--text2)">${empNameHtml}: <strong>${empApproved}</strong> / ${empTotal} approved${isIgnored?' <span style="color:var(--amber);font-weight:600">— Time Cards Ignored</span>':''}</span>`;
   html+='<span style="display:flex;gap:6px">';
   if(empApproved<empTotal){
     html+=`<button class="mini-btn approve" onclick="approveAllForEmployee(${idx},'${escJs(activeKey)}')" title="Approve all rows for ${empLabel}" style="font-size:11px;padding:3px 10px">✓ Approve all for ${empLabel}</button>`;

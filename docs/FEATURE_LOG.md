@@ -25,3 +25,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00019 | 2026-09-01 | M | Medium | done | [features/FC-00019-2026-09-01-palette-swatches.md](features/FC-00019-2026-09-01-palette-swatches.md) | Palette dropdown color swatches + strip entity names |
 | FC-00020 | 2026-09-01 | M | Medium | done | [features/FC-00020-2026-09-01-contract-check.md](features/FC-00020-2026-09-01-contract-check.md) | Contract Check as 4th pay type |
 | FC-00021 | 2026-09-28 | S | Low | done | [features/FC-00021-2026-09-28-intake-scroll-preserve.md](features/FC-00021-2026-09-28-intake-scroll-preserve.md) | Fix Actuals Intake snap-left on cell commit |
+| FC-00022 | 2026-09-28 | M | Medium | done | [features/FC-00022-2026-09-28-rename-persist-ids.md](features/FC-00022-2026-09-28-rename-persist-ids.md) | Rename persists on every page and keeps the employee ID |

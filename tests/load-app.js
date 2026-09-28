@@ -345,6 +345,7 @@ function loadApp() {
       _duplicateGroupsForEntity,
       _duplicateEntityNameList,
       renameEmployeeViaDispatcher,
+      readTableState,
       openRenameEmployeeModal,
       _blockExportIfDuplicates,
       _dupFlagHtml,

@@ -362,6 +362,13 @@ cross-check block.
 19. **Legacy combined-actuals import** (10-column FORMATS.md file) still works via
     the intake import's fallback path — rows go straight to payroll with **no
     review/approval step**, filtered by exact entity-name match.
+20. **Employee rename keeps the id** (FC-00007, FC-00022): entry points are the Payroll
+    click-to-edit name, the Payroll-Calc "Rename Employee" button, the Actuals Intake
+    per-employee name, and the Schedules name input. A rename relabels the roster record,
+    rewrites the name everywhere it is stored by value (schedule rows, intake review rows
+    and sub-tab state, loaded actuals, flat-wage display names), keeps the old name as an
+    alias, and records it as a former name so a stale reference still resolves to the
+    same id instead of minting a new, empty record.
 
 ## 10. Known defects found while reading
 
