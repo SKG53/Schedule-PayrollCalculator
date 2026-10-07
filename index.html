@@ -2249,8 +2249,16 @@ function computePayrollForEntity(idx){
     ?(ent.actualDays||[])
     :actualDays.filter(d=>d.entityName.toLowerCase().trim()===entNameLower);
 
-  // Filter to schedule week dates
+  // Filter to schedule week dates. FC-00032: the filter is intended (only the loaded schedule's
+  // week is paid) but never silent — what it drops is returned as `excludedActuals` and shown on
+  // the Payroll tab and in the export toast.
   let entityActuals=sourceActuals.filter(d=>validIsoDates.size===0||validIsoDates.has(d.date));
+  const excludedActuals=validIsoDates.size===0?[]:sourceActuals.filter(d=>!validIsoDates.has(d.date)).map(d=>({
+    empName:d.empName,date:d.date,hours:Math.round((d.pairs||[]).reduce((a,p)=>a+(p.minutes||0),0)/60*100)/100
+  }));
+  const weekIsos=[...validIsoDates].sort();
+  const weekInfo={filtered:validIsoDates.size>0,start:weekIsos[0]||'',end:weekIsos[weekIsos.length-1]||'',
+    noDateRow:(ent.employees||[]).length>0&&validIsoDates.size===0&&sourceActuals.length>0};
 
   // "Ignore Time Cards" exclusion: if an employee is flagged ignored for this entity,
   // their punches must not flow into billable/pay calculations. Data is preserved in
@@ -2408,7 +2416,41 @@ function computePayrollForEntity(idx){
     return row;
   });
 
-  return{results,orphanRows};
+  return{results,orphanRows,excludedActuals,weekInfo};
+}
+
+// ---- FC-00032: week-filter visibility ----
+function _fmtIsoShort(iso){const m=(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?`${m[2]}/${m[3]}/${m[1].slice(2)}`:iso}
+function _weekFilterBannerHtml(ent,calc){
+  if(!calc)return '';
+  const ex=calc.excludedActuals||[],wi=calc.weekInfo||{};
+  let html='';
+  if(ex.length){
+    const hrs=Math.round(ex.reduce((a,x)=>a+x.hours,0)*100)/100;
+    const list=ex.slice().sort((a,b)=>(a.date+a.empName).localeCompare(b.date+b.empName))
+      .map(x=>`<li>${escHtml(x.empName)} — ${_fmtIsoShort(x.date)} (${x.hours.toFixed(2)} h worked)</li>`).join('');
+    html+=`<div class="week-filter-banner" style="background:#FFF7ED;color:#9A3412;border:1px solid #FB923C;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:13px">`+
+      `<strong>⚠ ${ex.length} approved punch day${ex.length===1?' is':'s are'} outside this schedule's week (${_fmtIsoShort(wi.start)} – ${_fmtIsoShort(wi.end)}) and NOT counted</strong> — ${hrs.toFixed(2)} h total. `+
+      `Only the loaded schedule's week is paid. If a date below is wrong, fix it in Actuals Intake (rows flagged "Outside week").`+
+      `<ul style="margin:6px 0 0 18px">${list}</ul></div>`;
+  }
+  if(wi.noDateRow){
+    html+=`<div class="week-filter-banner" style="background:#FEF2F2;color:#991B1B;border:1px solid #FCA5A5;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:13px">`+
+      `<strong>⚠ This schedule has no date row, so the week filter is OFF.</strong> Punches from any date are counted and stacked by weekday. Add the dates under the day names in the schedule file (or set the week start on the Schedules tab and re-export) before paying.</div>`;
+  }
+  return html;
+}
+// All entities: {count, hours, text} for the export toast and the preview summary.
+function _weekExclusionSummary(){
+  let count=0,hours=0;const parts=[];
+  entities.forEach((e,i)=>{
+    const c=computePayrollForEntity(i);
+    const n=(c.excludedActuals||[]).length;
+    if(n){count+=n;hours+=c.excludedActuals.reduce((a,x)=>a+x.hours,0);parts.push(`${e.name||('Entity '+(i+1))}: ${n}`);}
+    if(c.weekInfo&&c.weekInfo.noDateRow)parts.push(`${e.name||('Entity '+(i+1))}: schedule has no dates (filter off)`);
+  });
+  hours=Math.round(hours*100)/100;
+  return{count,hours,parts,text:parts.length?parts.join(' · '):''};
 }
 
 // ================================================================
@@ -2477,8 +2519,10 @@ function renderPayrollEntityContent(idx){
 
   const activeSub=activePayrollSubTab[idx]||'timecard';
 
+  const _fc32Calc=computePayrollForEntity(idx);
   container.innerHTML=`
     ${_dupBannerHtml()}
+    ${_weekFilterBannerHtml(ent,_fc32Calc)}
     <div class="entity-header-strip" style="padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:13px;flex-wrap:wrap">
       <strong style="font-size:15px">${entityName}</strong>
       <span class="entity-emp-count"><span class="n">${empCount}</span> employee${empCount===1?'':'s'} in the system</span>
@@ -2651,7 +2695,9 @@ function renderFc00013PreviewPanel(){
   }
   const tableHtml=renderPayrollExportPreviewHtml();
   const copyBtn=_fc24Scratch?'':'<span style="flex:1"></span><button class="btn" onclick="_fc24MakeCopy()" title="Snapshot this preview into a separate table you can hand-edit and export — real data is never changed" style="font-size:12px;padding:5px 12px">✎ Make editable copy</button>';
-  host.innerHTML=(tableHtml?`<div class="fc13-preview-panel"><h3>Combined export preview <span class="fc13-readonly-badge">read-only</span>${copyBtn}</h3><div class="fc13-preview-scroll">${tableHtml}</div></div>`:'')+_fc24ScratchPanelHtml();
+  const _fc32=_weekExclusionSummary();
+  const _fc32Note=_fc32.parts.length?`<div class="week-filter-banner" style="background:#FFF7ED;color:#9A3412;border:1px solid #FB923C;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-size:12px">⚠ Not in this export: ${_fc32.count} punch day${_fc32.count===1?'':'s'} outside the schedule week (${_fc32.hours.toFixed(2)} h) — ${escHtml(_fc32.text)}. See each entity's Payroll tab.</div>`:'';
+  host.innerHTML=(tableHtml?`<div class="fc13-preview-panel">${_fc32Note}<h3>Combined export preview <span class="fc13-readonly-badge">read-only</span>${copyBtn}</h3><div class="fc13-preview-scroll">${tableHtml}</div></div>`:'')+_fc24ScratchPanelHtml();
 }
 
 // ---- FC-00024: editable scratch copy of the combined preview ("god mode") ----
@@ -3447,13 +3493,13 @@ function getAutoEscalate(){return _prefGet('pv26_auto_escalate')==='1'}
 
 // Toast notification
 let _toastTimer=null;
-function showToast(msg,kind){
+function showToast(msg,kind,ms){
   const t=document.getElementById('toast');if(!t)return;
   const icon=kind==='err'?'✕':'✓';
   t.innerHTML='<span class="icon">'+icon+'</span>'+msg.replace(/</g,'&lt;');
   t.className=kind==='err'?'show err':'show ok';
   clearTimeout(_toastTimer);
-  _toastTimer=setTimeout(()=>{t.className=t.className.replace('show','').trim();},2600);
+  _toastTimer=setTimeout(()=>{t.className=t.className.replace('show','').trim();},ms||2600);
 }
 function updateKeyStatusBadge(){
   const el=document.getElementById('keyStatusBadge');if(!el)return;
@@ -5663,6 +5709,13 @@ function _applyEntityPalette(row,pal,role,cashColIdx){
   });
 }
 
+// FC-00032: every payroll export reports what the week filter left out, so it is never silent.
+function _toastExportWithWeekNote(fname){
+  const w=_weekExclusionSummary();
+  if(w.parts.length)showToast(`Exported ${fname} — NOT included: ${w.count} punch day${w.count===1?'':'s'} outside the schedule week (${w.hours.toFixed(2)} h). ${w.text}`,'err',9000);
+  else showToast(`Exported ${fname}`,'ok');
+}
+
 // ---- Excel writer ----
 async function _exportExcel(kind){
   if(!_confirmBreaksOrBail())return;
@@ -5818,7 +5871,7 @@ async function _exportExcel(kind){
 
   const fname=_exportFilenameBase(kind)+'.xlsx';
   downloadBlob(await ewb.xlsx.writeBuffer(),fname);
-  showToast(`Exported ${fname}`,'ok');
+  _toastExportWithWeekNote(fname);
 }
 
 // ---- PDF writer ----
@@ -5984,7 +6037,7 @@ async function _exportPdf(kind){
 
   const pdfName=_exportFilenameBase(kind)+'.pdf';
   doc.save(pdfName);
-  showToast(`Exported ${pdfName}`,'ok');
+  _toastExportWithWeekNote(pdfName);
 }
 
 // ================================================================

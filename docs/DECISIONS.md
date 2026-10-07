@@ -23,6 +23,7 @@ Never delete an entry — move it between sections and note the date.
 | 11 | **No payroll data persists.** `localStorage` may hold API credentials and UI preferences only. Never roster, wages, punches or figures. Always empty of payroll data on first load. | [DATE] |
 | 12 | No payroll figures, employee names, wages or real data may appear in any tracked file. Real values live in `docs/REFERENCE_WEEKS.md`, which is gitignored. The repository is public. | [DATE] |
 | 13 | The settings file is the only persistence mechanism. Roster, aliases, rates, methods and thresholds all live there. Anything needing to survive between weeks becomes a settings field. | [DATE] |
+| 16 | **Week filter stays; it is never silent** (was Open #17). Only the loaded schedule's week is paid; excluded punch days are listed on the Payroll tab, in the preview and in every export toast; a schedule without dates warns that the filter is off. Sastry: "I'm only looking to calculate time in the week of the schedule that is uploaded. However dropping it without notification … is bad." FC-00032. | 2026-10-07 |
 | 15 | **Reviewer edits are final; MN supersedes overlapping OCR** (was Open #11). Editing a time/date on an OCR row makes it MN; an approved MN pair replaces any overlapping TC/EC pair for the same employee+date; non-overlapping pairs add. Sastry: "when I change it it should be my changed time that is retained … I am the final verification." FC-00029. | 2026-10-07 |
 | 14 | **The tool has no authentication by design.** It is public framework holding no payroll data — everything arrives by upload and leaves by download, so there is nothing to gate. Do not add a login, password, or access gate. The original plain-text gate was removed in full in Phase 0 (BUILD_SPEC §9B.1); the retired password is burned and must never be reused. | 2026-08-03 |
 
@@ -54,7 +55,7 @@ Never delete an entry — move it between sections and note the date.
 | 13 | Overstaffing thresholds are hardcoded at ≥4 before 4:30 PM and ≥5 after, which do not match the documented 3-staff minimum. What are the correct values, and per entity? | Phase 6 |
 | 14 | Eleven exports exist, not six. Which need the deck treatment beyond Combined? | Phase 5 |
 | 16 | **Employee identity across weeks.** IDs are minted per session in the order names are first seen, so they shift between weeks unless the settings file is imported before the schedule; importing a settings file after a schedule can relabel one employee's record as another (an ID collision is treated as a rename); schedule names resolve by canonical name only, so a name kept as an alias mints a fresh, empty record. Raised 2026-10-07 — proposal with Sastry. | Phase 1 |
-| 17 | **Week filter visibility.** Approved punches dated outside the loaded schedule's seven dates are dropped from payroll with no warning on the Payroll tab. Surface a count / list, or keep silent? Raised 2026-10-07. | Phase 4 |
+| 17 | ~~**Week filter visibility.**~~ **Settled 2026-10-07 → Settled #16 (FC-00032).** Approved punches dated outside the loaded schedule's seven dates are dropped from payroll with no warning on the Payroll tab. Surface a count / list, or keep silent? Raised 2026-10-07. | Phase 4 |
 
 ---
 

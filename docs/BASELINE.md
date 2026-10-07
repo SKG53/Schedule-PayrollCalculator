@@ -364,9 +364,11 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
     actuals still appears in exports (deliberate zero-hour retention for flat pay).
 12. **Display-name upgrading:** payroll rows show the longest full name seen in
     OCR for that employee, found partly by fuzzy containment across employees.
-13. **Week filtering is silent:** actuals dated outside the schedule's date labels
-    are dropped from payroll without any flag ("Outside week" appears only in the
-    intake review table); if the schedule has no date row, nothing is filtered.
+13. **Week filtering is visible (FC-00032):** actuals dated outside the schedule's date
+    labels are not paid; each excluded employee-day is listed in a banner on the
+    entity's Payroll tab, summarized above the Combined preview and in every payroll
+    export toast. If the schedule has no date row, nothing is filtered and a red
+    banner says the filter is off.
 14. **Aggregation is by day-of-week**, not by date (relevant only if the week
     filter is inactive — then multiple weeks fold onto the same weekday).
 15. **Entity identity:** wages/methods/overrides key on a stable per-session
