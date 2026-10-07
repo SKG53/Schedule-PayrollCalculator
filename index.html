@@ -2227,11 +2227,11 @@ function clearActuals(){
 // ================================================================
 function computePayrollForEntity(idx){
   const ent=entities[idx];
-  const entNameLower=ent.name.toLowerCase().trim();
-  const mandBreakH=ent.breakMinutes/60;
+  const entNameLower=(ent.name||'').toLowerCase().trim();
+  const mandBreakH=(ent.breakMinutes||0)/60;
 
   // Parse schedule week ISO dates for filtering
-  const schedDateISO=ent.dateLabels.map(label=>{
+  const schedDateISO=(ent.dateLabels||[]).map(label=>{
     if(!label)return null;
     const m=label.match(/^(\w{3})\s+(\d{1,2})\s+(\d{4})$/);
     if(!m)return null;
@@ -2298,7 +2298,7 @@ function computePayrollForEntity(idx){
     return schedEmp.name;
   }
 
-  const results=ent.employees.map(emp=>{
+  const results=(ent.employees||[]).map(emp=>{
     const row={
       name:resolveDisplayName(emp),schedName:emp.name,isOrphan:false,days:[],
       scheduledHours:0,scheduledDays:0,expectedBreakH:0,expectedH:0,
@@ -2366,7 +2366,7 @@ function computePayrollForEntity(idx){
   });
 
   // Orphans: in actuals for this entity but not in schedule
-  const schedNamesLower=new Set(ent.employees.map(e=>e.name.toLowerCase().trim()));
+  const schedNamesLower=new Set((ent.employees||[]).map(e=>e.name.toLowerCase().trim()));
   const orphanMap={};
   entityActuals.forEach(d=>{
     const k=d.empName.toLowerCase().trim();
@@ -2810,14 +2810,16 @@ function renderAllEntityPreview(){
     }
   }
   const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
-  const entityResults=entities.filter(e=>e.employees.length>0).map((e,_i)=>{
+  // FC-00027: include entities with no schedule — their actuals-only rows are real payroll.
+  const entityResults=entities.map((e,_i)=>{
     const realIdx=entities.indexOf(e);
     return{entityIdx:realIdx,entityName:e.name||('Entity '+(realIdx+1)),...computePayrollForEntity(realIdx)};
   });
-  if(entityResults.length===0){host.innerHTML='';return;}
+  const nonEmpty=entityResults.filter(r=>r.results.length+r.orphanRows.length+getFlatWageRows(r.entityName).length>0);
+  if(nonEmpty.length===0){host.innerHTML='';return;}
   let grandH=0,grandPay=0,grandDep=0,grandCash=0;
   let html='<div class="all-entity-preview"><h3>All-entity preview — final export</h3><table><thead><tr><th>Entity</th><th>Employee</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Actual Total</th><th>Method</th><th class="num">Deposit</th><th class="num">Cash</th><th class="num">Rounded Final</th><th class="num">Diff</th></tr></thead><tbody>';
-  entityResults.forEach(({entityIdx,entityName,results,orphanRows})=>{
+  nonEmpty.forEach(({entityIdx,entityName,results,orphanRows})=>{
     const ent=entities[entityIdx];
     const flatExtras=getFlatWageRows(entityName);
     let allRows=results.concat(orphanRows).concat(flatExtras);
@@ -5130,7 +5132,9 @@ function syncActualsFromReview(){
 
 function _confirmBreaksOrBail(){
   syncActualsFromReview();
-  const unset=entities.filter(e=>e.employees.length>0&&!e.breakMinutesSet);
+  // FC-00027: an entity with actuals but no schedule still deducts its break, so it needs
+  // the same confirmation prompt.
+  const unset=entities.filter(e=>(e.employees.length>0||(e.actualDays&&e.actualDays.length>0))&&!e.breakMinutesSet);
   if(unset.length>0){
     const names=unset.map(e=>e.name||'(unnamed)').join(', ');
     if(!confirm('Break minutes not confirmed for: '+names+'.\n\nCurrent values will be used anyway. Continue with export?'))return false;
@@ -5158,7 +5162,11 @@ function _exportFilenameBase(kind){
 
 function _collectExportData(){
   const out=[];
-  entities.filter(e=>e.employees.length>0||getFlatWageRows(e.name||('Entity '+(entities.indexOf(e)+1))).length>0).forEach(e=>{
+  // FC-00027: every entity is considered, scheduled or not. An entity with no schedule still
+  // produces payroll rows from its actuals (orphan rows) and must never be dropped from an
+  // export — that was a silent underpay path. Entities with nothing at all are skipped below
+  // by the allRows.length===0 check.
+  entities.forEach(e=>{
     const idx=entities.indexOf(e);
     const entName=e.name||('Entity '+(idx+1));
     const {results,orphanRows}=computePayrollForEntity(idx);

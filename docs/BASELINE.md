@@ -291,6 +291,11 @@ were already numeric and now carry `0.00`. PDFs remain rendered text by design.
 There is no deck export (BUILD_SPEC §7 is unbuilt), no entity fills, no numeric
 cross-check block.
 
+**Every entity with rows is exported** (FC-00027): an entity with approved actuals but no
+schedule appears in every payroll export, the Combined preview and the all-entity preview,
+and its unconfirmed break triggers the same pre-export prompt. Only entities with no rows at
+all are skipped.
+
 **Exports are never gated** (FC-00023): duplicate employee names and flagged /
 needs-review rows show an informational banner and inline "Possible duplicate —
 double-check" flag, but every export always writes its file. The only remaining
