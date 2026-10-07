@@ -372,6 +372,8 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
     settings .xlsx import re-binds by entity *name*.
 16. **Overstaffing thresholds are hard-coded** (5+ flags; calendar warn at 4/5 by
     time of day); there is no minimum-coverage validation at all.
+17a. **Images join by job id** (FC-00030): each upload is a job with a unique id; rows
+    carry `imageJobId`; thumbnails and re-runs use it. Jobs accumulate across batches.
 17. **OCR keeps manual rows:** re-running OCR clears prior TC/EC rows but preserves
     MN rows; per-image re-run drops and replaces only that image's unedited rows —
     reviewer-edited (MN) rows from that image are kept (FC-00029).

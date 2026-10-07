@@ -32,3 +32,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00027 | 2026-10-07 | S | Medium | done | [features/FC-00027-2026-10-07-export-no-schedule-entities.md](features/FC-00027-2026-10-07-export-no-schedule-entities.md) | Export entities that have actuals but no schedule |
 | FC-00028 | 2026-10-07 | S | Medium | done | [features/FC-00028-2026-10-07-ocr-year.md](features/FC-00028-2026-10-07-ocr-year.md) | Remove the hardcoded year from OCR |
 | FC-00029 | 2026-10-07 | M | Medium-High | done | [features/FC-00029-2026-10-07-reviewer-edits-final.md](features/FC-00029-2026-10-07-reviewer-edits-final.md) | Reviewer edits are final; MN supersedes overlapping OCR |
+| FC-00030 | 2026-10-07 | S | Low | done | [features/FC-00030-2026-10-07-image-job-ids.md](features/FC-00030-2026-10-07-image-job-ids.md) | Join review rows to images by job id, not filename |

@@ -3689,11 +3689,31 @@ function _revokeThumbUrlsForJobs(jobs){
 // captured when the job was queued — see runOcrForEntity/retryOcrJob). Returns null (no
 // throw) when there's no matching job, e.g. an older row from a previous session whose
 // in-memory File/job no longer exists.
-function _findJobForRow(entIdx,imageName){
-  if(!imageName)return null;
+// FC-00030: rows are joined to their source image by a unique per-upload job id, not by
+// filename — two different images can share a name (pasted "image.png", WhatsApp re-sends),
+// and a filename join showed the wrong thumbnail and let one image's re-run delete the other
+// image's rows. `rowOrName` is a review row (preferred) or, for older callers, a filename;
+// a filename only resolves when exactly one job carries it.
+function _newJobId(){return 'job_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8)}
+function _findJobForRow(entIdx,rowOrName){
+  if(!rowOrName)return null;
   const ent=entities[entIdx];if(!ent||!ent.intake)return null;
   const jobs=ent.intake._ocrJobs;if(!Array.isArray(jobs))return null;
-  return jobs.find(j=>j&&j.name===imageName)||null;
+  if(typeof rowOrName==='object'){
+    if(rowOrName.imageJobId)return jobs.find(j=>j&&j.id===rowOrName.imageJobId)||null;
+    rowOrName=rowOrName.originalName;
+    if(!rowOrName)return null;
+  }
+  const byId=jobs.find(j=>j&&j.id===rowOrName);
+  if(byId)return byId;
+  const byName=jobs.filter(j=>j&&j.name===rowOrName);
+  return byName.length===1?byName[0]:null;
+}
+// True when review row `r` came from OCR job `job` (id when both have one, else filename).
+function _rowFromJob(r,job){
+  if(!r||!job)return false;
+  if(r.imageJobId&&job.id)return r.imageJobId===job.id;
+  return r.originalName===job.name;
 }
 
 // Create-once/cache a blob URL for a job's File so repeated renders of the review table
@@ -3706,8 +3726,8 @@ function _thumbUrlForJob(job){
 
 // Render the Image-column thumbnail (or placeholder) for one review row. Returns an HTML
 // fragment meant to sit immediately before the filename text in the existing Image <td>.
-function _thumbCellHtml(entIdx,imageName){
-  const job=_findJobForRow(entIdx,imageName);
+function _thumbCellHtml(entIdx,rowOrName){
+  const job=_findJobForRow(entIdx,rowOrName);
   if(!job||!job.file){
     return '<span class="tc-thumb-placeholder" title="No source image available">\uD83D\uDDCE</span>';
   }
@@ -3822,13 +3842,22 @@ const OCR_MAX_AUTO_ATTEMPTS = 3;
 function renderOcrFileList(idx, jobs){
   const el=document.getElementById('ocrFileList_'+idx);if(!el)return;
   if(!jobs||jobs.length===0){el.className='ocr-file-list';el.innerHTML='';return;}
-  // Persist jobs on the entity so per-file retry can find them after re-render
-  const ent=entities[idx];if(ent&&ent.intake)ent.intake._ocrJobs=jobs;
+  // Persist jobs on the entity so per-file retry can find them after re-render. FC-00030:
+  // jobs ACCUMULATE across batches (FC-00011 append) — replacing the list dropped earlier
+  // batches' thumbnails and re-run targets. The list shows every job for the entity.
+  const ent=entities[idx];
+  if(ent&&ent.intake){
+    const all=Array.isArray(ent.intake._ocrJobs)?ent.intake._ocrJobs:[];
+    if(all!==jobs)jobs.forEach(j=>{if(j&&!all.includes(j))all.push(j);});
+    all.forEach(j=>{if(j&&!j.id)j.id=_newJobId();});
+    ent.intake._ocrJobs=all;
+    jobs=all;
+  }
   el.className='ocr-file-list active';
   el.innerHTML=jobs.map((j,i)=>{
     const retryBtns=(j.status==='err')?
-      `<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i},1)" title="Retry once (single attempt)">↻ Retry 1x</button>`+
-      `<button class="mini-btn retry-btn" onclick="retryOcrJob(${idx},${i},3)" title="Retry up to 3 times with delay between attempts">↻ Retry 3x</button>`
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(j.id)}',1)" title="Retry once (single attempt)">↻ Retry 1x</button>`+
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(j.id)}',3)" title="Retry up to 3 times with delay between attempts">↻ Retry 3x</button>`
       :'';
     const attemptBadge=(j.attempt&&j.attempt>1)?`<span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:4px">Attempt ${j.attempt}/${j.maxAttempts||OCR_MAX_AUTO_ATTEMPTS}</span>`:'';
     const statusCls=j.status==='retrying'?'status-running':('status-'+j.status);
@@ -3855,7 +3884,7 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
   const scheduleAnchors=buildScheduleAnchors(ent);
 
   // Drop any existing rows extracted from this file (in case of partial success on a prior attempt)
-  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name||_isManualRow(r));
+  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>!_rowFromJob(r,job)||_isManualRow(r));
 
   let lastErr=null;
   for(let attempt=1;attempt<=maxAttempts;attempt++){
@@ -3886,10 +3915,10 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
             rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
           }catch(e){/* keep original rows if Pro fails */}
         }
-        rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+        rows.forEach(r=>{r.originalName=job.file.name;r.imageJobId=job.id;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
       }else{
         rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
-        rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
+        rows.forEach(r=>{r.originalName=job.file.name;r.imageJobId=job.id;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(processReviewRow(r,ent));});
       }
       job.status='done';
       job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`+(attempt>1?` (attempt ${attempt})`:'');
@@ -3904,7 +3933,7 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
         job.detail=`Attempt ${attempt}/${maxAttempts} failed — retrying in ${Math.round(OCR_RETRY_DELAY_MS/1000)}s…`;
         renderOcrFileList(idx,jobs);
         await new Promise(r=>setTimeout(r,OCR_RETRY_DELAY_MS));
-        ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name||_isManualRow(r));
+        ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>!_rowFromJob(r,job)||_isManualRow(r));
       }else{
         job.status='err';
         const errMsg=(err.message||String(err)).slice(0,120);
@@ -3921,13 +3950,15 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
 // Re-run OCR for a single image from within the review table.
 // Finds the matching job by filename and delegates to retryOcrJob.
 // maxAttempts: 1 (default) for a single attempt, 3 for triple-retry with delay.
-async function rerunOcrForImage(entIdx, imageName, maxAttempts){
+async function rerunOcrForImage(entIdx, imageKey, maxAttempts){
   maxAttempts=Math.max(1,parseInt(maxAttempts,10)||1);
   const ent=entities[entIdx];if(!ent||!ent.intake)return;
   const jobs=ent.intake._ocrJobs;
   if(!jobs||jobs.length===0){showToast('No OCR jobs found — please re-upload and run OCR','err');return;}
-  const jobIdx=jobs.findIndex(j=>j.name===imageName);
-  if(jobIdx<0){showToast('Image "'+imageName+'" not found in OCR jobs. Try re-uploading.','err');return;}
+  // FC-00030: imageKey is a job id (preferred) or a filename that only one job carries.
+  const target=_findJobForRow(entIdx,imageKey);
+  const jobIdx=target?jobs.indexOf(target):-1;
+  if(jobIdx<0){showToast('Image "'+imageKey+'" not found in OCR jobs (or the name is shared by several images). Try re-uploading.','err');return;}
   // Force job status so retryOcrJob doesn't skip it (it only retries 'err' or completed jobs)
   const job=jobs[jobIdx];
   if(job.status==='running'||job.status==='retrying'){showToast('OCR already running for this image','ok');return;}
@@ -3962,9 +3993,9 @@ async function runOcrForEntity(idx){
   const scheduleAnchors=buildScheduleAnchors(ent);
 
   const jobs=[
-    ...tcFiles.map(f=>({name:f.name,kind:'TC',file:f,status:'queued',detail:''})),
-    ...ecFiles.map(f=>({name:f.name,kind:'EC',file:f,status:'queued',detail:''})),
-    ...mixFiles.map(f=>({name:f.name,kind:'MIX',file:f,status:'queued',detail:'auto-classifying…'}))
+    ...tcFiles.map(f=>({id:_newJobId(),name:f.name,kind:'TC',file:f,status:'queued',detail:''})),
+    ...ecFiles.map(f=>({id:_newJobId(),name:f.name,kind:'EC',file:f,status:'queued',detail:''})),
+    ...mixFiles.map(f=>({id:_newJobId(),name:f.name,kind:'MIX',file:f,status:'queued',detail:'auto-classifying…'}))
   ];
   // FC-00011: this batch's files are now captured in `jobs` (each job holds its own file
   // handle) — clear the upload queues so a later "Add more timecards" + Run OCR doesn't
@@ -4016,10 +4047,10 @@ async function runOcrForEntity(idx){
               rows=proRows.map(r=>Object.assign(r,{_escalated:true}));
             }catch(e){/* keep original rows if Pro call fails */}
           }
-          rows.forEach(r=>{r.originalName=job.file.name;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(Object.assign(processReviewRow(r,ent),{_newSinceUpload:true}));});
+          rows.forEach(r=>{r.originalName=job.file.name;r.imageJobId=job.id;r.source='TC';r.modelUsed=r._escalated?'gemini-2.5-pro':tcModel;ent.intake.reviewRows.push(Object.assign(processReviewRow(r,ent),{_newSinceUpload:true}));});
         } else {
           rows=await ocrImage(job.file,'EC',apiKey,ecModel,scheduleNames,scheduleWeek,scheduleAnchors);
-          rows.forEach(r=>{r.originalName=job.file.name;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(Object.assign(processReviewRow(r,ent),{_newSinceUpload:true}));});
+          rows.forEach(r=>{r.originalName=job.file.name;r.imageJobId=job.id;r.source='EC';r.modelUsed=ecModel;ent.intake.reviewRows.push(Object.assign(processReviewRow(r,ent),{_newSinceUpload:true}));});
         }
         job.status='done';
         job.detail=`${rows.length} row${rows.length===1?'':'s'} extracted`+(attempt>1?` (attempt ${attempt})`:'');
@@ -4032,7 +4063,7 @@ async function runOcrForEntity(idx){
           renderOcrFileList(idx,jobs);
           await new Promise(r=>setTimeout(r,RETRY_DELAY));
           // Clear rows from failed attempt before retrying
-          ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name||_isManualRow(r));
+          ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>!_rowFromJob(r,job)||_isManualRow(r));
         }else{
           job.status='err';
           job.detail=`Failed all ${MAX_ATTEMPTS} attempts: `+(err.message||String(err)).slice(0,100);
@@ -4509,6 +4540,7 @@ function processReviewRow(r,ent){
     confidence:typeof r.confidence==='number'?r.confidence:0.8,
     notes:r.notes||'',
     originalName:r.originalName||'',
+    imageJobId:r.imageJobId||'',
     _lowConf:false,_gt2Pairs:false,_escalated:!!r._escalated,
     flags:[],needsReview:false,approved:false
   };
@@ -4751,11 +4783,11 @@ function renderReviewTableHtml(ent,idx){
     const imgName=r.originalName||'';
     const isOcrSource=r.source==='TC'||r.source==='EC'||!!r._ocrSource;
     const rerunBtn=isOcrSource?
-      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',1)" title="Re-run OCR once for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ 1x</button>`+
-      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(r.imageJobId||imgName)}',1)" title="Re-run OCR once for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ 1x</button>`+
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(r.imageJobId||imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`
       :'';
     // FC-00016: small thumbnail of the source timecard image, left of the filename text.
-    const thumbHtml=_thumbCellHtml(idx,imgName);
+    const thumbHtml=_thumbCellHtml(idx,r);
     html+=`<td style="font-size:10px;max-width:180px;word-break:break-all;line-height:1.3"><div class="tc-thumb-cell">${thumbHtml}<span title="${escHtml(imgName)}">${escHtml(imgName)}${rerunBtn}</span></div></td>`;
     // 3. Employee dropdown (schedule names only).
     // If OCR name fuzzy-matched a schedule name via _suggestedName, treat that
