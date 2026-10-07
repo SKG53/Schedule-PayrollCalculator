@@ -53,6 +53,8 @@ Never delete an entry — move it between sections and note the date.
 | 12 | The OCR prompt sends the full roster and every employee's scheduled shifts to Google as disambiguation anchors. Keep, reduce, or remove? Removing will degrade name matching. | Phase 4 |
 | 13 | Overstaffing thresholds are hardcoded at ≥4 before 4:30 PM and ≥5 after, which do not match the documented 3-staff minimum. What are the correct values, and per entity? | Phase 6 |
 | 14 | Eleven exports exist, not six. Which need the deck treatment beyond Combined? | Phase 5 |
+| 16 | **Employee identity across weeks.** IDs are minted per session in the order names are first seen, so they shift between weeks unless the settings file is imported before the schedule; importing a settings file after a schedule can relabel one employee's record as another (an ID collision is treated as a rename); schedule names resolve by canonical name only, so a name kept as an alias mints a fresh, empty record. Raised 2026-10-07 — proposal with Sastry. | Phase 1 |
+| 17 | **Week filter visibility.** Approved punches dated outside the loaded schedule's seven dates are dropped from payroll with no warning on the Payroll tab. Surface a count / list, or keep silent? Raised 2026-10-07. | Phase 4 |
 
 ---
 

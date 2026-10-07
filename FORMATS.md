@@ -1,6 +1,6 @@
 # Payroll v26 — Data File Formats
 
-Two kinds of files go into the app: a **Schedule** (the planned roster) and **Actuals** (what actually happened). Below is the exact structure each one needs. Sample files (`Entity1_Schedule.xlsx`, `Entity1_ActualTime.xlsx`, etc.) are in this folder and in your downloads — open them in Excel to see real working examples.
+Two kinds of files go into the app: a **Schedule** (the planned roster) and **Actuals** (what actually happened). Below is the exact structure each one needs. No sample files are kept in this repository (it is public and `.gitignore` excludes `*.xlsx`); build them from the layouts below.
 
 ---
 
@@ -46,7 +46,7 @@ This section is for the xlsx path.
 
 | Col | Header | Example | Notes |
 |---|---|---|---|
-| A | `Entity` | `DOWNTOWN STORE` | Free-text label. Doesn't have to match the entity tab name; the app uses whatever tab you uploaded the file into. |
+| A | `Entity` | `DOWNTOWN STORE` | **Must equal an entity name in the app** (case-insensitive). Rows whose entity matches no entity are skipped and listed in the import toast. |
 | B | `Employee Name` | `Emily` | Must match the scheduled name (fuzzy match tolerates minor typos). |
 | C | `Date` | `4/13/2026` | Excel date. The work date is the clock-in date. |
 | D | `Day of the Week` | `Monday` | Optional label, ignored by the app but useful for humans. |
@@ -84,3 +84,13 @@ No naming convention required — the app asks which entity each image belongs t
 - [ ] Actuals xlsx has all 10 headers in row 1 in the exact order above.
 - [ ] Overnight shift actuals are dated by clock-in date, not clock-out date.
 - [ ] Break minutes required are set per entity (default 0) before you export.
+
+---
+
+## 4. Files the app writes and re-imports
+
+| File | Schema tag | Re-import |
+|---|---|---|
+| Actuals Intake (`Actuals_Intake_<date>.xlsx`) | `SPCalcActualsIntakeV1` | Yes — first 10 columns are the combined layout above, then Approved, Source, Image, Confidence, Flags, Suggested Name, Row ID. `Source = MN` marks a manual or reviewer-edited row (FC-00029). Matches by entity name. |
+| Payroll Settings (`Payroll_Settings_<date>.xlsx`) | `SPCalcPayrollSettingsV3` (+ `V2` when breaks are included) | Yes — Entity, Employee, Wage/hour, Type, Flat Amount, Pay Method, Deposit Amount, Deposit Typed As, Employee ID, Aliases (JSON array), Active, Final Pass Method, Notes, Palette, then optional break columns. Matched by column name, so older files still load. |
+| Payroll reports (Cash-Only, Deposit-Only, Combined, Time Card Data, Payroll Calculation, Full; Excel + PDF) | — | No (output only). |

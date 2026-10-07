@@ -4,11 +4,9 @@ A lightweight, single-file payroll app that turns weekly schedules and clock-in/
 
 ## Live app
 
-Once GitHub Pages is enabled on this repo, the app is served at:
+https://skg53.github.io/Schedule-PayrollCalculator/
 
-`https://<your-username>.github.io/<repo-name>/`
-
-For this repo, replace with your own username + repo name after you enable Pages.
+Every push to `main` redeploys it (see *Deployment* below).
 
 ## What it does
 
@@ -66,19 +64,28 @@ Drop them into the Timecard or EasyClocking drop zone. The app routes each to th
 
 Typical weekly batch costs cents, not dollars. Flash ≈ $0.15 input / $0.60 output per 1M tokens. Pro ≈ $1.25 / $10 per 1M. Images are small. A full week of 10-employee timecards runs well under a penny per week.
 
-## Enabling GitHub Pages
+## Deployment
 
-1. Upload `index.html` to the repo root (commit it on `main`).
-2. Repo → **Settings** → **Pages**.
-3. **Source** = "Deploy from a branch".
-4. **Branch** = `main`, **Folder** = `/ (root)`. Save.
-5. Wait about 60 seconds, refresh the Pages screen. Your URL appears at the top.
+`.github/workflows/pages-preview.yml` runs on every push to `main`: it copies `index.html`
+into a fresh `gh-pages` branch (force-pushed, one commit) and GitHub Pages serves that.
+
+Pages setting: Repo → **Settings** → **Pages** → **Source** = "Deploy from a branch",
+**Branch** = `gh-pages`, **Folder** = `/ (root)`.
+
+## Tests
+
+```
+npm test            # same as: node --test "tests/*.test.js"   (Node 21+)
+```
 
 ## Files in this repo
 
-- `index.html` — the entire app. Single HTML file, no build step, no dependencies.
+- `index.html` — the entire app. Single HTML file, no build step; libraries load from cdnjs.
 - `README.md` — this file.
-- `FORMATS.md` — detailed spec of the input file formats.
+- `FORMATS.md` — input/output file formats.
+- `CLAUDE.md` — working rules for anyone (human or AI) changing the code.
+- `docs/` — domain rules, decisions, baseline inventory, build spec, Feature Cards.
+- `tests/` — Node test suite; `tests/load-app.js` runs the real `index.html` script in a sandbox.
 
 ## License
 

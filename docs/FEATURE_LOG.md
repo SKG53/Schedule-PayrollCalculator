@@ -28,8 +28,10 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00022 | 2026-09-28 | M | Medium | done | [features/FC-00022-2026-09-28-rename-persist-ids.md](features/FC-00022-2026-09-28-rename-persist-ids.md) | Rename persists on every page and keeps the employee ID |
 | FC-00023 | 2026-09-28 | S | Low | done | [features/FC-00023-2026-09-28-never-block-export.md](features/FC-00023-2026-09-28-never-block-export.md) | Never block export |
 | FC-00024 | 2026-09-28 | M | Low | done | [features/FC-00024-2026-09-28-editable-preview-copy.md](features/FC-00024-2026-09-28-editable-preview-copy.md) | Editable scratch copy of the combined preview |
+| FC-00025 | 2026-09-28 | S | Low | done | [features/FC-00025-2026-09-28-combined-pdf-totals.md](features/FC-00025-2026-09-28-combined-pdf-totals.md) | Combined PDF subtotal and grand-total rows match Excel (backfilled) |
 | FC-00026 | 2026-10-07 | S | Low | done | [features/FC-00026-2026-10-07-scrub-real-names.md](features/FC-00026-2026-10-07-scrub-real-names.md) | Remove real employee names from the repository |
 | FC-00027 | 2026-10-07 | S | Medium | done | [features/FC-00027-2026-10-07-export-no-schedule-entities.md](features/FC-00027-2026-10-07-export-no-schedule-entities.md) | Export entities that have actuals but no schedule |
 | FC-00028 | 2026-10-07 | S | Medium | done | [features/FC-00028-2026-10-07-ocr-year.md](features/FC-00028-2026-10-07-ocr-year.md) | Remove the hardcoded year from OCR |
 | FC-00029 | 2026-10-07 | M | Medium-High | done | [features/FC-00029-2026-10-07-reviewer-edits-final.md](features/FC-00029-2026-10-07-reviewer-edits-final.md) | Reviewer edits are final; MN supersedes overlapping OCR |
 | FC-00030 | 2026-10-07 | S | Low | done | [features/FC-00030-2026-10-07-image-job-ids.md](features/FC-00030-2026-10-07-image-job-ids.md) | Join review rows to images by job id, not filename |
+| FC-00031 | 2026-10-07 | S | Low | done | [features/FC-00031-2026-10-07-docs-infra-drift.md](features/FC-00031-2026-10-07-docs-infra-drift.md) | Fix documentation drift, npm test and .gitignore |

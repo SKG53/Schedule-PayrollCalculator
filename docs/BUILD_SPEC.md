@@ -6,7 +6,7 @@ actually does today.
 
 Work through this in phase order (Section 10). Do not attempt multiple phases at once.
 
-**Status:** not started. Update the checkboxes in Section 10 as phases complete.
+**Status (2026-10-07):** Phases 0–2 largely done, Phase 4 and 5 partial, Phase 3 and 6 not started. Item-level status is the table at the end of Section 10 — keep it current.
 
 ---
 
@@ -292,15 +292,30 @@ Ordered by dependency, not by value. Items in a phase can be built in parallel.
 | **5** | Deck export (§7), ledger (§8) | Deck depends on the roster for §7.4 and §7.5. |
 | **6** | Schedule validation module (§9) | Standalone. Lowest coupling, defer without cost. |
 
-**Progress:**
+**Progress (as of 2026-10-07):**
 
-- [x] Phase 0 — login gate removed in full (password, session flag, all attached code)
-- [ ] Phase 1 — mutable session, mutation dispatcher, roster registry, test harness
-- [ ] Phase 2 — schedule editing, incremental intake, rename cascade
-- [ ] Phase 3 — change log panel, reassignment toast, row-count indicator
-- [ ] Phase 4 — flag split, zero-hour retention, numeric cells, dead-code fixes (§9B.3)
-- [ ] Phase 5 — deck export, ledger
-- [ ] Phase 6 — schedule validation module
+| Phase | Item | Status | Where |
+|---|---|---|---|
+| 0 | Login gate removed | Done | c7fbc6f, FC-00002 |
+| 1 | Mutable session + dispatcher | Done | 293ee93 |
+| 1 | Roster registry (IDs, aliases, active, final-pass, notes in settings file) | Partial — fields round-trip, but identity still resolves by name and IDs are minted per session; see DECISIONS open #16 | 293ee93, 3d3770c, 423147c, FC-00007, FC-00022 |
+| 1 | Test harness + `npm test` | Done | ee4132a, FC-00031 |
+| 1 | Reference weeks as test fixtures | Not started (fixtures must stay local — real data) | — |
+| 2 | Schedule editing after upload | Partial — edit/add/remove rows; no reorder, no per-week inactive | baseline |
+| 2 | Incremental intake | Done | FC-00008, FC-00011 |
+| 2 | Rename cascade | Done | FC-00007, FC-00022 |
+| 3 | Change log panel, reassignment toast, row-count indicator | Not started (log + `revert()` exist, no UI) | — |
+| 4 | Flag split (`OCR_LOW_CONFIDENCE` / `NOT_IN_ROSTER`) | Not started | — |
+| 4 | MN overlap rule | Done | FC-00029 |
+| 4 | Zero-hour retention | Done for scheduled and flat employees | baseline, FC-00027 |
+| 4 | Numeric export cells | Done | 565c864 |
+| 4 | Dead-code fixes §9B.3 | Partial — Avg In/Out fixed; the rest open | 76dbb5c |
+| 5 | Deck fills, subtotals F/G/H, widths, palettes, PDF | Done | FC-00012–00015, FC-00025 |
+| 5 | §7.4 orphan name resolution | Not started — exports still append `(orphan)` | — |
+| 5 | §7.5 final-pass override | Superseded — Contract Check is a real pay type (FC-00020); `final_pass_method` is stored but not applied | FC-00020 |
+| 5 | §7.6 Cash Total cross-check block | Not started | — |
+| 5 | §8 Ledger (5 measures, delta alert) | Not started | — |
+| 6 | Schedule validation module | Not started | — |
 
 Phase 4 items are individually small enough to slot into any earlier phase if convenient. §6.3 in particular is a one-line change.
 
@@ -337,13 +352,13 @@ control. Decision required before changing — removing it will degrade name mat
 
 | Item | Detail | Phase |
 |---|---|---|
-| Time Card Data export | Avg In/Out Diff columns always empty — export reads `avgInDiffMin`/`avgOutDiffMin`, calc sets `avgInDiff`/`avgOutDiff` (3955 vs 1678). Screen is right, export is dead. | 4 |
+| ~~Time Card Data export~~ | ~~Avg In/Out Diff columns always empty.~~ **Fixed 76dbb5c.** | 4 |
 | `collectAllFlags` | No-show/unscheduled/orphan rollup computed nowhere, shown nowhere. Dead. | 4 |
 | Week filter | Silently disabled when a schedule lacks its date row — nothing is filtered and data aggregates by day-of-week instead of date. | 4 |
 | `resolveDisplayName` | Fuzzy containment can match across employees (1607–1612). This is the mechanism behind the known two-employee conflation. | 4 |
 | Fuzzy-matched rows | Once approved, silently pay under the *suggested* schedule name while displaying the OCR text. | 4 |
 | Legacy combined-xlsx import | Bypasses the review/approval step entirely. | 4 |
-| Entity-name matching | Legacy combined import filters rows by exact entity-name match; mismatches are silently excluded from payroll. `FORMATS.md` documents the opposite and is stale. | 4 |
+| Entity-name matching | Legacy combined import filters rows by exact entity-name match; mismatches are excluded from payroll. (`FORMATS.md` corrected in FC-00031.) | 4 |
 
 ### 9B.4 Coverage validation does not exist
 
@@ -353,26 +368,16 @@ Section 9 of this spec is therefore new work, not a modification.
 
 ### 9B.5 Test suite
 
-`tests/break_and_sort.test.js` **copies** the break and sort helpers rather than importing
-them — it will drift silently from the real code and pass while production is broken.
-`tests/integration_smoke.test.js` loads the real script from `index.html` into a sandbox and
-is the sound one.
-
-No runner and no `package.json`. Node.js is not installed on the development machine.
-
-Phase 1 should: install Node, add a `package.json` with a test script, rewrite
-`break_and_sort.test.js` to import rather than copy, and add the three reference weeks as
-fixtures so `/regression` is executable rather than manual.
+**Resolved except reference-week fixtures.** Every test file now loads the real script from
+`index.html` through `tests/load-app.js` (ee4132a); `npm test` runs the whole suite
+(FC-00031). The three reference weeks are still a manual check — they are real data and can
+only ever be local, gitignored fixtures.
 
 ### 9B.6 Documentation
 
-`FORMATS.md` is stale. It documents the schedule `.xlsx` layout and the 10-column combined
-actuals `.xlsx`, but describes entity-name matching incorrectly and covers none of the three
-newer re-importable schemas (Actuals Intake V1, Payroll Settings V1/V2). Update it in the
-phase that touches import.
-
-`README.md` advertises that everything lives in browser `localStorage`. Correct it — only
-credentials and preferences do.
+**Resolved (FC-00031).** `FORMATS.md` now states the entity-name match correctly and lists
+the re-importable schemas; `README.md` states the persistence rule, live URL and deployment
+correctly.
 
 ---
 

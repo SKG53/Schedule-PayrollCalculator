@@ -1,6 +1,7 @@
 # Functionality Baseline
 
-**Status: complete as of 2026-08-03, commit 72542f3** (branch `tool-v2`)
+**Status: complete as of 2026-08-03, commit 72542f3** (branch `tool-v2`); kept current by every
+Feature Card since — last updated FC-00031 (2026-10-07).
 **Reconciled against the v2 docs** (`CLAUDE.md`, `docs/DOMAIN.md`) the same day —
 see the note at the head of §10.
 
@@ -16,7 +17,8 @@ commit.
 ## 1. Stack and structure
 
 - **Language / framework:** Vanilla JavaScript, single-file app. All HTML, CSS, and JS
-  live in `index.html`. No framework, no build step, no bundler, no package.json.
+  live in `index.html`. No framework, no build step, no bundler. `package.json` holds only
+  the test script (`npm test` → `node --test "tests/*.test.js"`).
 - **File layout:**
   - `index.html` — the entire application (~275 KB). Structure: CSS (lines 12–440),
     HTML shell (442–646), then one `<script>` block: constants/state (649–790),
@@ -372,11 +374,11 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
     settings .xlsx import re-binds by entity *name*.
 16. **Overstaffing thresholds are hard-coded** (5+ flags; calendar warn at 4/5 by
     time of day); there is no minimum-coverage validation at all.
-17a. **Images join by job id** (FC-00030): each upload is a job with a unique id; rows
-    carry `imageJobId`; thumbnails and re-runs use it. Jobs accumulate across batches.
 17. **OCR keeps manual rows:** re-running OCR clears prior TC/EC rows but preserves
     MN rows; per-image re-run drops and replaces only that image's unedited rows —
     reviewer-edited (MN) rows from that image are kept (FC-00029).
+17a. **Images join by job id** (FC-00030): each upload is a job with a unique id; rows
+    carry `imageJobId`; thumbnails and re-runs use it. Jobs accumulate across batches.
 18. **Break-confirmation friction is deliberate:** every entity has
     `breakMinutesSet`; exports prompt if any entity is unconfirmed; changing the
     default with per-day overrides present opens a 3-way modal (keep/overwrite/
@@ -433,10 +435,9 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
    export `flatWages` — needs a live round-trip with a real settings file.
 9. **`collectAllFlags` is dead code** (4820) — the no-show/unsched/orphan/40 h+
    rollup is computed nowhere and shown nowhere.
-10. **Node.js is now installed** (v24.19.0, npm 11.17.0, `C:\Program Files\nodejs`,
-    on the user PATH as of 2026-08-03), so both test files run. There is still no
-    `package.json` and no runner. `break_and_sort.test.js` only *mirrors* the
-    production helpers (drift risk); the smoke test loads the real code.
+10. ~~No runner; `break_and_sort.test.js` mirrors helpers.~~ **Resolved.** Node is installed
+    (v24.19.0 on the dev machine); every test file loads the real script through
+    `tests/load-app.js`; `npm test` runs the suite (FC-00031).
 11. **Weekly expected-break total overstates on short shifts:**
     `expectedBreakH = scheduledDays × mandBreak` charges a full break to every
     scheduled day, including shifts shorter than the break itself. The per-day
