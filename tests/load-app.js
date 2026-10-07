@@ -464,6 +464,8 @@ function loadApp() {
       syncActualsFromReview,
       retryOcrJob,
       rerunOcrForImage,
+      rerunOcrForRow,
+      _pickRowReread,
       renderOcrFileList,
     };
   `;

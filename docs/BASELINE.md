@@ -394,6 +394,12 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
     reviewer-edited (MN) rows from that image are kept (FC-00029).
 17a. **Images join by job id** (FC-00030): each upload is a job with a unique id; rows
     carry `imageJobId`; thumbnails and re-runs use it. Jobs accumulate across batches.
+17b. **One-row re-read** (FC-00034): "↻ This row" on any OCR row re-reads just that
+    employee+date from its image (focus prompt names employee, date and current
+    reading; EC picks the nearest clock-in). The row is updated in place (same id),
+    becomes an unedited OCR row with a new `_ocr` baseline, is unapproved and flagged
+    "Re-read from image — check and approve". A reviewer-edited row asks first. No match
+    leaves the row unchanged. Other rows are never touched.
 18. **Break-confirmation friction is deliberate:** every entity has
     `breakMinutesSet`; exports prompt if any entity is unconfirmed; changing the
     default with per-day overrides present opens a 3-way modal (keep/overwrite/

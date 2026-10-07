@@ -4036,6 +4036,105 @@ async function rerunOcrForImage(entIdx, imageKey, maxAttempts){
   await retryOcrJob(entIdx,jobIdx,maxAttempts);
 }
 
+// ---- FC-00034: re-read ONE review row from its source image ----
+// The image re-run (above) replaces every unedited row from that image. This re-reads just one
+// employee-date entry: the model gets the normal prompt plus a focus block naming the employee,
+// the date and the current (wrong) reading, and must return that one entry. The fresh reading
+// replaces the row's times in place (same row id), the row goes back to an unedited OCR row
+// (reviewer edits can be made on top again, FC-00029) and is unapproved for review.
+function _rowFocusPrompt(row,kind){
+  const t=k=>row[k]?to12h(row[k]):'(blank)';
+  const who=row.empName||row.rawOcrName||'(name unreadable)';
+  let cur=`In ${t('clockIn1')} / Out ${t('clockOut1')}`;
+  if(row.clockIn2||row.clockOut2)cur+=` · In ${t('clockIn2')} / Out ${t('clockOut2')}`;
+  if(row.clockIn3||row.clockOut3)cur+=` · In ${t('clockIn3')} / Out ${t('clockOut3')}`;
+  const which=kind==='EC'?` — the screenshot row whose Time In is nearest ${t('clockIn1')}`:'';
+  return `
+
+FOCUS — RE-READ ONE ENTRY ONLY:
+Return ONLY the punches for employee "${who}" on ${row.date||'(date unknown)'}${which}.
+The current reading of that entry is: ${cur}. A reviewer marked it as wrong. Read the image again carefully and independently; do not copy the current reading.
+Return a JSON array with exactly one element for that entry, or [] if the image has no such entry. Use the same element format as above.`;
+}
+function _clockMin(v){const h=parseClockTime(v);return h==null?null:Math.round(h*60)}
+// Picks the fresh reading that matches the row: same date, then nearest clock-in. A single
+// reading with a different date is used but flagged; anything else is no match.
+function _pickRowReread(row,cands){
+  if(!cands.length)return null;
+  const same=row.date?cands.filter(c=>c.date===row.date):cands.slice();
+  const pool=same.length?same:(cands.length===1?cands:[]);
+  if(!pool.length)return null;
+  const target=_clockMin(row.clockIn1);
+  let best=pool[0];
+  if(target!=null&&pool.length>1){
+    let bd=Infinity;
+    pool.forEach(c=>{const m=_clockMin(c.clockIn1);if(m==null)return;let d=Math.abs(m-target);d=Math.min(d,1440-d);if(d<bd){bd=d;best=c;}});
+  }
+  const note=(row.date&&best.date!==row.date)?`Re-read returned date ${best.date} (row had ${row.date}) — verify`:'';
+  return{row:best,note};
+}
+function _applyRowReread(row,fresh,kind,model,note,ent){
+  ['date','dayIdx','clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3','confidence','notes','_lowConf','_gt2Pairs','_escalated'].forEach(k=>{row[k]=fresh[k];});
+  if(fresh._yearCorrectedFrom!=null)row._yearCorrectedFrom=fresh._yearCorrectedFrom;else delete row._yearCorrectedFrom;
+  // The reviewer may already have fixed the name; keep it when it is a schedule name.
+  const sched=(ent.employees||[]).map(e=>e.name).filter(Boolean);
+  if(!(row.empName&&sched.includes(row.empName))){
+    row.empName=fresh.empName;row.rawOcrName=fresh.rawOcrName;
+    if(fresh._suggestedName)row._suggestedName=fresh._suggestedName;else delete row._suggestedName;
+  }
+  row.source=kind;row._ocrSource=kind;row._ocr=_reviewerFieldSnapshot(row);row._reviewerEdited=false;
+  delete row._superseded;
+  row.approved=false;row.modelUsed=model;row._rereadRow=true;
+  recomputeRowFlags(row,ent);
+  if(fresh.notes)row.flags.push(fresh.notes);
+  if(note)row.flags.push(note);
+  row.flags.push('Re-read from image — check and approve');
+  row.needsReview=true;
+}
+async function rerunOcrForRow(entIdx,rowId){
+  const ent=entities[entIdx];if(!ent||!ent.intake)return;
+  const row=ent.intake.reviewRows.find(r=>r.id===rowId);if(!row)return;
+  if(row._rerunning){showToast('Already re-reading this row','ok');return;}
+  const job=_findJobForRow(entIdx,row);
+  if(!job||!job.file){showToast('The image for this row is not in this session. Re-upload it to re-read the row.','err');return;}
+  if(job.status==='running'||job.status==='retrying'){showToast('OCR is already running for this image','ok');return;}
+  const edited=row._reviewerEdited||row.source==='MN';
+  if(edited&&!confirm('This row has your manual edits. Re-reading replaces them with a fresh OCR reading (you can edit again afterwards). Continue?'))return;
+  const apiKey=_prefGet('pv26_api_key');
+  if(!apiKey){showToast('No Gemini API key set. Opening Settings…','err');openSettings();return;}
+  const kind=row._ocrSource==='EC'||(!row._ocrSource&&job.kind==='EC')?'EC':'TC';
+  let model=kind==='TC'?getTcModel():getEcModel();
+  const names=ent.employees.map(e=>e.name).filter(Boolean);
+  const week=(ent.dateLabels||[]).filter(Boolean);
+  const anchors=buildScheduleAnchors(ent);
+  const focus=_rowFocusPrompt(row,kind);
+  row._rerunning=true;refreshReviewTable(entIdx);
+  let pick=null;
+  try{
+    let rows=await ocrImage(job.file,kind,apiKey,model,names,week,anchors,focus);
+    if(kind==='TC'&&getAutoEscalate()&&model!=='gemini-2.5-pro'&&rows.some(r=>(r.confidence||0)<0.75)){
+      try{rows=(await ocrImage(job.file,kind,apiKey,'gemini-2.5-pro',names,week,anchors,focus)).map(r=>Object.assign(r,{_escalated:true}));model='gemini-2.5-pro';}catch(e){/* keep first read */}
+    }
+    const cands=(rows||[]).map(r=>processReviewRow(Object.assign({},r,{source:kind,originalName:row.originalName,imageJobId:row.imageJobId}),ent));
+    pick=_pickRowReread(row,cands);
+  }catch(err){
+    row._rerunning=false;
+    showToast('Re-read failed: '+(err.message||String(err)).slice(0,120),'err');
+    refreshReviewTable(entIdx);
+    return;
+  }
+  row._rerunning=false;
+  if(!pick){
+    showToast(`OCR found no entry for ${row.empName||'this employee'} on ${row.date||'that date'} — row left unchanged`,'err');
+    refreshReviewTable(entIdx);
+    return;
+  }
+  _applyRowReread(row,pick.row,kind,model,pick.note,ent);
+  refreshReviewTable(entIdx);
+  scheduleDynamicRecompute();
+  showToast(`Row re-read · ${row.empName||'row'} ${row.date} — check and approve`,'ok');
+}
+
 async function runOcrForEntity(idx){
   const ent=entities[idx];ensureIntakeState(ent);
   const apiKey=_prefGet('pv26_api_key');
@@ -4432,8 +4531,8 @@ async function callGeminiVisionJson(file,prompt,apiKey,model,schema,maxEdge){
   return parsed;
 }
 
-async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,scheduleAnchors){
-  const prompt=kind==='TC'?tcPrompt(scheduleNames,scheduleWeek,scheduleAnchors):ecPrompt(scheduleNames,scheduleWeek,scheduleAnchors);
+async function ocrImage(file,kind,apiKey,model,scheduleNames,scheduleWeek,scheduleAnchors,extraPrompt){
+  const prompt=(kind==='TC'?tcPrompt(scheduleNames,scheduleWeek,scheduleAnchors):ecPrompt(scheduleNames,scheduleWeek,scheduleAnchors))+(extraPrompt||'');
   const schema={
     type:'ARRAY',
     items:{
@@ -4853,7 +4952,11 @@ function renderReviewTableHtml(ent,idx){
     const isOcrSource=r.source==='TC'||r.source==='EC'||!!r._ocrSource;
     const rerunBtn=isOcrSource?
       `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(r.imageJobId||imgName)}',1)" title="Re-run OCR once for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ 1x</button>`+
-      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(r.imageJobId||imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`
+      `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(r.imageJobId||imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`+
+      // FC-00034: re-read only this row (employee + date) from the same image.
+      (r._rerunning?
+        `<span class="row-reread-busy" style="margin-left:4px;font-size:10px;color:var(--amber);font-weight:600">re-reading…</span>`:
+        `<button class="mini-btn retry-btn row-reread-btn" onclick="rerunOcrForRow(${idx},'${escJs(r.id)}')" title="Re-read only this row (this employee and date) from the image. Other rows are not touched." style="margin-left:2px;font-size:10px;padding:1px 5px">↻ This row</button>`)
       :'';
     // FC-00016: small thumbnail of the source timecard image, left of the filename text.
     const thumbHtml=_thumbCellHtml(idx,r);
