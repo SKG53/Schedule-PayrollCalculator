@@ -113,9 +113,11 @@ mistake made in this codebase.
    entity in the tool, with per-day overrides that bypass the floor. Never change,
    default, or "correct" a break value in code.
 
-3. **MN precedence is currently additive.** All sources merge additively; no
-   overlap-supersede rule exists. Do not implement one without an explicit decision — it
-   changes paid hours.
+3. **The reviewer's edits are final; MN supersedes overlapping OCR.** Editing a time or
+   date on a TC/EC row turns it into a manual (MN) entry that keeps the edited values and
+   survives OCR re-runs. Within one employee+date, an approved MN pair replaces any TC/EC
+   pair it overlaps; non-overlapping pairs from every source still add. Settled 2026-10-07
+   (FC-00029). Do not revert to plain additive merging.
 
 4. **Overnight shifts.** If OUT is less than or equal to IN, add 24 hours.
 

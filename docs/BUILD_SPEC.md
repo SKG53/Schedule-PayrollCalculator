@@ -149,7 +149,7 @@ Confidence threshold for `OCR_LOW_CONFIDENCE` is currently unstated in the codeb
 
 ## 6. Calculation Rule Corrections
 
-### 6.1 MN-supersedes — not implemented, decision required
+### 6.1 MN-supersedes — **decided and built 2026-10-07 (FC-00029)**: overlap-supersede, plus reviewer edits turn an OCR row into MN. The text below is the original analysis.
 
 The handoff doc states manual-entry (MN) rows supersede TC/EC rows for the same employee and date. **No such rule exists in the code.** `syncActualsFromReview` concatenates the pairs of every approved row for the same employee and date regardless of source.
 

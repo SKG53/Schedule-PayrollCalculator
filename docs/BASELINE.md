@@ -189,15 +189,13 @@ has a name):
   Multi-pair overnight fix: a pair whose clock-in is earlier than the previous
   pair's adjusted clock-out is advanced by 24 h so span math stays correct
   (parseActuals 1487–1499, syncActualsFromReview mkPair 3774–3782).
-- **MN vs TC/EC (same employee + date):** **purely additive.** `syncActualsFromReview`
-  merges all approved rows for the same employee+date by concatenating their pairs
-  (3789–3797). There is **no overlap-supersede logic anywhere** — the
-  overlap-supersede rule is NOT implemented. Overlapping MN+TC pairs are both
-  kept; the span-based formula caps the damage (a duplicate pair cannot push a day
-  past its own span). Per `docs/DOMAIN.md` and CLAUDE.md hard rule 3 this is the
-  **current accepted state** — whether to implement the overlap rule is an open
-  decision, and doing so changes paid hours. On OCR re-run, MN rows are preserved
-  (2853).
+- **MN vs TC/EC (same employee + date) — FC-00029:** `syncActualsFromReview` merges
+  all approved rows for the same employee+date, then drops every TC/EC pair that
+  overlaps an approved MN pair (row gets `_superseded`, badge "⤳ replaced by manual
+  entry"). Non-overlapping pairs from every source still add. Editing any time/date on
+  an OCR row sets `source='MN'` (`_reviewerEdited`, badge "✎ edited (was TC)"); setting
+  every value back to the OCR snapshot (`_ocr`) restores the original source. On OCR
+  re-run (whole batch or one image) MN rows — including reviewer-edited ones — are kept.
 - **Rounding:** pay per row = 2 dp. Cash = `Math.round` to whole dollars.
   Deposit = 2 dp. `roundingFactors` is legacy no-op. Split ("Deposit + Cash",
   `_computeBothBreakdown` 755–772): typed whole-number deposit → deposit kept
@@ -341,8 +339,8 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
    win over both.
 2. **Billable hours are span-based** (first-in→last-out minus effective break),
    not pair-sum — equivalent only when the actual gap ≥ mandatory break.
-3. **MN/TC/EC rows are merged additively** per employee+date; the documented
-   MN-overlap-supersede rule does not exist in code.
+3. **MN supersedes overlapping TC/EC** per employee+date (FC-00029); non-overlapping
+   pairs merge additively. A reviewer edit to an OCR row's times/date makes it MN.
 4. **Approval gate:** only explicitly approved review rows reach payroll. If an
    entity has zero approved rows, previously synced `actualDays` (e.g. from a
    legacy xlsx import) are preserved rather than wiped.
@@ -375,7 +373,8 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
 16. **Overstaffing thresholds are hard-coded** (5+ flags; calendar warn at 4/5 by
     time of day); there is no minimum-coverage validation at all.
 17. **OCR keeps manual rows:** re-running OCR clears prior TC/EC rows but preserves
-    MN rows; per-image re-run drops and replaces only that image's rows.
+    MN rows; per-image re-run drops and replaces only that image's unedited rows —
+    reviewer-edited (MN) rows from that image are kept (FC-00029).
 18. **Break-confirmation friction is deliberate:** every entity has
     `breakMinutesSet`; exports prompt if any entity is unconfirmed; changing the
     default with per-day overrides present opens a 3-way modal (keep/overwrite/
@@ -397,7 +396,7 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
 > defects are confirmed *intended behavior* by `docs/DOMAIN.md` and `CLAUDE.md`
 > rules 1–3, and have been moved to §9 (undocumented → now documented behavior):
 > span-based hours, the mandatory-break floor, and additive MN merging. Do not
-> "fix" them. The MN overlap rule remains an open decision, not a defect.
+> "fix" them. The MN overlap rule was decided 2026-10-07 and built in FC-00029.
 
 1. ~~All export currency/hours cells are text strings.~~ **Fixed** — every `rowFn`,
    subtotal and grand-total cell now writes a number with `$#,##0.00` / `0.00`.

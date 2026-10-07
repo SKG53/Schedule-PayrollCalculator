@@ -3855,7 +3855,7 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
   const scheduleAnchors=buildScheduleAnchors(ent);
 
   // Drop any existing rows extracted from this file (in case of partial success on a prior attempt)
-  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
+  ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name||_isManualRow(r));
 
   let lastErr=null;
   for(let attempt=1;attempt<=maxAttempts;attempt++){
@@ -3904,7 +3904,7 @@ async function retryOcrJob(idx,jobIdx,maxAttempts){
         job.detail=`Attempt ${attempt}/${maxAttempts} failed — retrying in ${Math.round(OCR_RETRY_DELAY_MS/1000)}s…`;
         renderOcrFileList(idx,jobs);
         await new Promise(r=>setTimeout(r,OCR_RETRY_DELAY_MS));
-        ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
+        ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name||_isManualRow(r));
       }else{
         job.status='err';
         const errMsg=(err.message||String(err)).slice(0,120);
@@ -4032,7 +4032,7 @@ async function runOcrForEntity(idx){
           renderOcrFileList(idx,jobs);
           await new Promise(r=>setTimeout(r,RETRY_DELAY));
           // Clear rows from failed attempt before retrying
-          ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name);
+          ent.intake.reviewRows=ent.intake.reviewRows.filter(r=>r.originalName!==job.name||_isManualRow(r));
         }else{
           job.status='err';
           job.detail=`Failed all ${MAX_ATTEMPTS} attempts: `+(err.message||String(err)).slice(0,100);
@@ -4472,6 +4472,23 @@ async function runScheduleOcrForEntity(entIdx,imageBlob,maxAttempts){
   }
 }
 
+// ---- FC-00029: reviewer edits are final ----
+// The reviewer reads the card and is the final verification. When they change a time or the
+// date on an OCR row, the row becomes a manual entry (source MN): it keeps the reviewer's
+// values, survives OCR re-runs of its image, and in payroll an MN pair replaces any
+// overlapping TC/EC pair for the same employee and date (non-overlapping pairs still add).
+const REVIEWER_EDIT_FIELDS=['date','clockIn1','clockOut1','clockIn2','clockOut2','clockIn3','clockOut3'];
+function _reviewerFieldSnapshot(row){const o={};REVIEWER_EDIT_FIELDS.forEach(k=>{o[k]=row[k]||''});return o}
+function _applyReviewerEditState(row){
+  if(!row||!row._ocr||!row._ocrSource)return;
+  const edited=REVIEWER_EDIT_FIELDS.some(k=>(row[k]||'')!==(row._ocr[k]||''));
+  row.source=edited?'MN':row._ocrSource;
+  row._reviewerEdited=edited;
+}
+function _isManualRow(r){return !!r&&r.source==='MN'}
+// Positive-length overlap between two punch pairs on the same clock-in date.
+function _pairsOverlap(a,b){return a.in<b.outAdj&&b.in<a.outAdj}
+
 function processReviewRow(r,ent){
   // Ensure all fields exist and normalize — keep raw values always (never blank on validation fail)
   const rawOcrName=(r.empName||'').trim();
@@ -4523,6 +4540,10 @@ function processReviewRow(r,ent){
     .reduce((n,k,i)=>n+(i%2===0&&row[k]?1:0),0);
   if(pairCount>2)row._gt2Pairs=true;
 
+  // FC-00029: remember exactly what OCR produced, so a reviewer edit can be detected (the row
+  // becomes a manual MN entry and is final) and undone (back to the OCR source) if every
+  // value is set back to what OCR read.
+  if(row.source==='TC'||row.source==='EC'){row._ocrSource=row.source;row._ocr=_reviewerFieldSnapshot(row);}
   // Let the shared flag recomputer add the human-readable tight wording
   recomputeRowFlags(row,ent);
   // notes from Gemini — keep as extra flag if non-empty
@@ -4728,7 +4749,7 @@ function renderReviewTableHtml(ent,idx){
     html+=`<td><span class="src-chip ${srcCls}" title="${r.source==='TC'?'Timecard photo':(r.source==='EC'?'EasyClocking screenshot':(r.source==='MN'?'Manual entry':'Actuals .xlsx'))}">${r.source}</span></td>`;
     // 2b. Source image filename + per-image Re-run OCR button
     const imgName=r.originalName||'';
-    const isOcrSource=r.source==='TC'||r.source==='EC';
+    const isOcrSource=r.source==='TC'||r.source==='EC'||!!r._ocrSource;
     const rerunBtn=isOcrSource?
       `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',1)" title="Re-run OCR once for this image" style="margin-left:4px;font-size:10px;padding:1px 5px">↻ 1x</button>`+
       `<button class="mini-btn retry-btn" onclick="rerunOcrForImage(${idx},'${escJs(imgName)}',3)" title="Re-run OCR up to 3 times with delay between attempts" style="margin-left:2px;font-size:10px;padding:1px 5px">↻ 3x</button>`
@@ -4784,7 +4805,9 @@ function renderReviewTableHtml(ent,idx){
       html+=`<td><input class="time-text" type="text" inputmode="text" pattern="[0-9:aApPmM ]*" maxlength="8" placeholder="--:-- --" value="${escHtml(to12h(r[k]))}" oninput="handleTimeInput(this,'${r.id}','${k}')" onblur="commitTimeInput(this,'${r.id}','${k}')" style="width:76px;text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px"></td>`;
     });
     // Flags
-    html+=`<td class="flag-cell">${renderFlagPills(r.flags)}${r._newSinceUpload?'<span class="new-badge" title="Added in a later upload for this employee — not part of the original batch">🆕 new</span>':''}</td>`;
+    const editBadge=r._reviewerEdited?`<span class="new-badge" style="background:#E0F2FE;color:#075985;border-color:#7DD3FC" title="You changed what OCR read. Your values are final: this row is now a manual entry and survives OCR re-runs.">✎ edited (was ${escHtml(r._ocrSource||'OCR')})</span>`:'';
+    const supBadge=r._superseded?'<span class="new-badge" style="background:#F1F5F9;color:#475569;border-color:#CBD5E1" title="An approved manual entry for the same employee and date overlaps this row, so its overlapping punches are not paid.">⤳ replaced by manual entry</span>':'';
+    html+=`<td class="flag-cell">${renderFlagPills(r.flags)}${r._newSinceUpload?'<span class="new-badge" title="Added in a later upload for this employee — not part of the original batch">🆕 new</span>':''}${editBadge}${supBadge}</td>`;
     // Per-row approve/unapprove button
     html+=`<td class="actions-cell" style="width:110px">`;
     if(r.approved){
@@ -4855,6 +4878,7 @@ function handleTimeInput(el,id,field){
   const h=findReviewRow(id);if(!h)return;
   // Store raw during typing; commit normalizes on blur
   h.row[field]=from12h(filtered)||filtered;
+  _applyReviewerEditState(h.row);
   scheduleDynamicRecompute();
 }
 function commitTimeInput(el,id,field){
@@ -4897,6 +4921,7 @@ function findReviewRow(id){
 function updateReviewFieldLight(id,field,val){
   const h=findReviewRow(id);if(!h)return;
   h.row[field]=val;
+  if(REVIEWER_EDIT_FIELDS.includes(field))_applyReviewerEditState(h.row);
   // Nudge payroll recompute on next settle (debounced) so Payroll tab stays in sync
   scheduleDynamicRecompute();
 }
@@ -4914,6 +4939,7 @@ function scheduleDynamicRecompute(){
 function updateReviewField(id,field,val){
   const h=findReviewRow(id);if(!h)return;
   h.row[field]=val;
+  if(REVIEWER_EDIT_FIELDS.includes(field))_applyReviewerEditState(h.row);
   recomputeRowFlags(h.row,h.ent);
   // If the row was previously approved and edits invalidate it, un-approve
   if(h.row.needsReview)h.row.approved=false;
@@ -5159,6 +5185,10 @@ function syncActualsFromReview(){
       const p2=mkPair(r.clockIn2,r.clockOut2);if(p2)pairs.push(p2);
       const p3=mkPair(r.clockIn3,r.clockOut3);if(p3)pairs.push(p3);
       if(pairs.length===0)return;
+      // FC-00029: tag every pair with its row and whether it is a manual (reviewer) entry, so
+      // the supersede pass below can drop OCR pairs a manual pair replaces.
+      const mn=_isManualRow(r);
+      pairs.forEach(p=>{p._mn=mn;p._rowId=r.id;});
       const pad=n=>String(n).padStart(2,'0');
       const iso=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
       // Merge with any existing row with same empName+date (e.g., EasyClocking row per punch-pair)
@@ -5170,6 +5200,22 @@ function syncActualsFromReview(){
         if(candidateFull.split(/\s+/).length>(existing.fullName||'').split(/\s+/).filter(Boolean).length)existing.fullName=candidateFull;
       }
       else out.push({empName:effectiveName,fullName:(r.rawOcrName||r.empName||'').trim(),entityName:ent.name||'',date:iso,dayIdx:d.getDay(),pairs});
+    });
+    // FC-00029: MN supersedes overlapping TC/EC. Within one employee+date, any OCR pair that
+    // overlaps a manual pair is dropped; non-overlapping pairs from every source still add.
+    rows.forEach(r=>{if(r)delete r._superseded;});
+    out.forEach(day=>{
+      const mnPairs=day.pairs.filter(p=>p._mn);
+      if(mnPairs.length===0)return;
+      const kept=[];
+      day.pairs.forEach(p=>{
+        if(!p._mn&&mnPairs.some(m=>_pairsOverlap(p,m))){
+          const src=rows.find(x=>x&&x.id===p._rowId);if(src)src._superseded=true;
+          return;
+        }
+        kept.push(p);
+      });
+      day.pairs=kept;
     });
     ent.actualDays=out;
   });

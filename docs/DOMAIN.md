@@ -70,18 +70,22 @@ show a break that does not appear anywhere in the punches. That is expected.
 
 **Overnight shifts.** If OUT ≤ IN, add 24 hours.
 
-### MN precedence — currently additive
+### MN precedence — the reviewer's values are final (settled 2026-10-07, FC-00029)
 
-All punch sources merge **additively**. `syncActualsFromReview` concatenates the pairs of
-every approved row for the same employee and date regardless of source. There is no
-overlap-supersede rule in the code.
+Sastry reads every card and is the final verification. Two rules follow:
 
-A genuine overlapping MN correction will therefore not supersede the row it was meant to
-correct. The span-based formula caps the damage — a duplicate pair cannot push a day past
-its own span — but the rule is unimplemented. Whether to implement it is open; see
-`docs/DECISIONS.md`.
+1. **An edited OCR row becomes a manual entry.** Changing any time or the date on a TC/EC
+   row marks it MN (shown as "✎ edited (was TC)"). Its values are kept exactly as typed and
+   it survives OCR re-runs of its image. Setting every value back to what OCR read returns
+   it to its original source. Changing only the employee name is not a time edit.
+2. **MN supersedes overlapping OCR pairs.** In `syncActualsFromReview`, within one
+   employee+date, any approved TC/EC pair that overlaps (positive-length overlap of
+   clock-in→clock-out) an approved MN pair is dropped; the TC/EC row shows "⤳ replaced by
+   manual entry". Pairs that do not overlap still merge additively.
 
-MN rows survive OCR re-runs.
+Known limit: overlap is checked on the clock-in date's own clock. A separate manual row
+holding only the post-midnight part of an overnight shift does not overlap the OCR pair
+that started the night before; correct that case by editing the OCR row itself.
 
 ### Shift merging
 
