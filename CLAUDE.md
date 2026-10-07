@@ -121,9 +121,11 @@ mistake made in this codebase.
 
 4. **Overnight shifts.** If OUT is less than or equal to IN, add 24 hours.
 
-5. **Zero-hour rows are retained.** An employee at 0.00 hours still appears in every
-   output. Departure is expressed by an `active = false` flag on the roster, never by
-   silent omission.
+5. **Zero-hour rows are retained.** An active employee at 0.00 hours still appears in
+   every output. Departure is expressed by an `active = false` flag on the roster, never
+   by silent omission. Unchecking Active leaves that person out of this week's preview
+   and exports (FC-00035), and every preview and export names who was left out —
+   loudly when they have hours or pay.
 
 6. **Currency cells in exports must be numeric**, with number format `$#,##0.00`.
    Never write pre-formatted text strings — they cannot be summed in Excel. Derived

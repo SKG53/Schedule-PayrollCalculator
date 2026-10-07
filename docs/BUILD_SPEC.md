@@ -174,7 +174,7 @@ The mandatory break is a per-entity user setting with per-day overrides that byp
 
 Rows at 0.00 hours must be retained through to the deck. Observed in real weeks: a 0.00-hour employee appeared in the plain export and was missing from the deck, and two employees were dropped entirely from a later deck.
 
-Departure is expressed by `active = false` on the roster, not by silent omission from output. An employee at 0.00 who is still active is a fact worth seeing.
+Departure is expressed by `active = false` on the roster, not by silent omission from output. An employee at 0.00 who is still active is a fact worth seeing. An inactive employee is left out of the week's preview and exports, and that omission is always stated (FC-00035).
 
 ### 6.3 Export values must be numeric
 

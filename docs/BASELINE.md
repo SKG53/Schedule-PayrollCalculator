@@ -334,11 +334,15 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
   been conflated in this data before, and an alias is the mechanism that would do it
   silently. Refusals surface on both the UI edit and the settings import.
 - **Active flag:** per-employee checkbox in the Payroll Calculation grid, stored in
-  `rosterActive` and carried in the settings file. It gates one thing only —
-  `parseSchedule`, i.e. loading a **new** week. Inactive employees on the incoming
+  `rosterActive` and carried in the settings file. It gates two things:
+  `parseSchedule` (loading a **new** week — inactive employees on the incoming
   schedule are left out and named in a toast; if every employee on the file is
-  inactive the load is refused with an alert rather than producing an empty roster.
-  Marking someone inactive never removes them from the week already loaded.
+  inactive the load is refused) and, since FC-00035, **this week's preview and
+  exports**: `_collectExportData` and the all-entity preview drop unchecked people.
+  They stay visible (dimmed, "left out of export" pill) in Payroll Calculation, whose
+  totals exclude them. The preview and every export toast name who was left out; a
+  person left out with hours or pay is a red warning. The settings file still lists
+  them (Active = No).
 - **Missing roster entry for an intake employee:** the row buckets under
   "Unrecognized" (or a fuzzy suggestion); if approved with a non-schedule name it
   becomes an **orphan** row in payroll — computed, flagged, exported with

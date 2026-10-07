@@ -336,6 +336,8 @@ function loadApp() {
       _ingestPayrollSettings,
       isRosterActive,
       setRosterActive,
+      setRowActive,
+      _inactiveExclusionSummary,
       getFinalPassMethod,
       setFinalPassMethod,
       getRosterNotes,

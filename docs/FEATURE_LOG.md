@@ -38,3 +38,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00032 | 2026-10-07 | S | Low | done | [features/FC-00032-2026-10-07-week-filter-notice.md](features/FC-00032-2026-10-07-week-filter-notice.md) | Week filter: never drop punches silently |
 | FC-00033 | 2026-10-07 | M | Medium | done | [features/FC-00033-2026-10-07-excel-live-formulas.md](features/FC-00033-2026-10-07-excel-live-formulas.md) | Excel exports carry live formulas |
 | FC-00034 | 2026-10-07 | S | Low | done | [features/FC-00034-2026-10-07-rerun-ocr-one-row.md](features/FC-00034-2026-10-07-rerun-ocr-one-row.md) | Re-run OCR for one review row |
+| FC-00035 | 2026-10-07 | S | Medium | done | [features/FC-00035-2026-10-07-active-excludes-from-export.md](features/FC-00035-2026-10-07-active-excludes-from-export.md) | Unchecking Active leaves a person out of the preview and exports |
