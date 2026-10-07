@@ -47,18 +47,18 @@ function makeSingleEntityFixture(api, overrides = {}) {
   const ent = resetToSingleEntity(api, Object.assign({
     id: 0,
     name: 'Nirvana 11th',
-    employees: [{ name: 'Balu', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Avery', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     breakMinutes: 0,
     breakMinutesSet: true,
     actualDays: [{
-      empName: 'Balu', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
+      empName: 'Avery', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }],
   }, overrides));
   api._syncEntityCode(ent);
-  api.wageRates[api.wKey(0, 'Balu')] = 15;
-  api.payMethod[api.wKey(0, 'Balu')] = 'cash';
+  api.wageRates[api.wKey(0, 'Avery')] = 15;
+  api.payMethod[api.wKey(0, 'Avery')] = 'cash';
   return ent;
 }
 
@@ -176,7 +176,7 @@ test('test_settings_round_trip_palette', () => {
   const colMap = makeColMap(headers);
   const row = makeSettingsRow(headers, {
     Entity: 'Nirvana 11th',
-    Employee: 'Balu',
+    Employee: 'Avery',
     'Wage/hour': '15',
     Type: 'Hourly',
     'Pay Method': 'Cash',
@@ -187,7 +187,7 @@ test('test_settings_round_trip_palette', () => {
   resetToSingleEntity(fresh, {
     id: 0,
     name: 'Nirvana 11th',
-    employees: [{ name: 'Balu', shifts: ['', '', '', '', '', '', ''] }],
+    employees: [{ name: 'Avery', shifts: ['', '', '', '', '', '', ''] }],
   });
   fresh._syncEntityCode(fresh.entities[0]);
   assert.equal(fresh.getEntityPalette(fresh.entities[0]), 'Green', 'fresh session starts at the code default');
@@ -203,7 +203,7 @@ test('test_settings_import_without_palette_column_keeps_default', () => {
   resetToSingleEntity(api, {
     id: 0,
     name: 'Zion',
-    employees: [{ name: 'Varshitha', shifts: ['', '', '', '', '', '', ''] }],
+    employees: [{ name: 'Blake', shifts: ['', '', '', '', '', '', ''] }],
   });
   api._syncEntityCode(api.entities[0]);
   api.setEntityPalette(0, 'Mint'); // pre-existing selection should NOT be clobbered by a V1/V2-shaped file
@@ -211,7 +211,7 @@ test('test_settings_import_without_palette_column_keeps_default', () => {
   const legacyHeaders = ['Entity', 'Employee', 'Wage/hour', 'Type', 'Flat Amount', 'Pay Method', 'Deposit Amount', 'Deposit Typed As'];
   const colMap = makeColMap(legacyHeaders);
   const row = makeSettingsRow(legacyHeaders, {
-    Entity: 'Zion', Employee: 'Varshitha', 'Wage/hour': '18', Type: 'Hourly', 'Pay Method': 'Cash',
+    Entity: 'Zion', Employee: 'Blake', 'Wage/hour': '18', Type: 'Hourly', 'Pay Method': 'Cash',
   });
 
   api._ingestPayrollSettings([row], colMap, false);

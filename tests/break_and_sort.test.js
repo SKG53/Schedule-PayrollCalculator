@@ -188,7 +188,7 @@ test('settings import with breaks restores defaults, overrides, zero overrides, 
     'Deposit Amount': '$50.00',
     'Deposit Typed As': 'whole',
     'Employee ID': 'e11111111',
-    Aliases: '["Alicia"]',
+    Aliases: '["Allie"]',
     Active: 'No',
     'Final Pass Method': 'Contract Check',
     Notes: 'seasonal',
@@ -208,7 +208,7 @@ test('settings import with breaks restores defaults, overrides, zero overrides, 
   // but any touch of the record (this import counts) migrates it to the new visible format.
   assert.match(api.wKey(0, 'Alice'), /^EMP_[A-Z0-9]{3}_\d{5}$/);
   assert.equal(api.isRosterActive(0, 'Alice'), false);
-  assert.deepEqual(api.getAliases(0, 'Alice'), ['Alicia']);
+  assert.deepEqual(api.getAliases(0, 'Alice'), ['Allie']);
   assert.equal(api.getFinalPassMethod(0, 'Alice'), 'Contract Check');
   assert.equal(api.getRosterNotes(0, 'Alice'), 'seasonal');
   assert.equal(api.entities[0].breakMinutes, 30);

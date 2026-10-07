@@ -68,7 +68,9 @@ messages, and example values in code.
 - Never restate its contents in a tracked file, and never paste them into a commit
   message.
 - Never commit a timecard, settings export, payroll report, or screenshot of one.
-- Test data and code examples must be fabricated.
+- Test data and code examples must be fabricated. Use obviously made-up names (Alice, Bob,
+  Avery, Blake, …). Never copy a name from a schedule, timecard, settings file or report —
+  not even a first name, not even in a comment.
 
 Before any `git push`, list what would be pushed and confirm it contains none of the
 above. If you are unsure whether a value is real, treat it as real.

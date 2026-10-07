@@ -4204,7 +4204,7 @@ Return ONLY the JSON object, no prose.`;
 }
 
 // Build a compact per-employee/per-day anchor block. Returns a multi-line string like:
-//   BALU — Sun Apr 5: 3:00pm–10:15pm · Mon Apr 6: 3:15pm–12:15am (overnight) · Tue Apr 7: OFF …
+//   AVERY — Sun Apr 5: 3:00pm–10:15pm · Mon Apr 6: 3:15pm–12:15am (overnight) · Tue Apr 7: OFF …
 // Used to anchor OCR times so AM/PM and overnight calls can be disambiguated.
 function buildScheduleAnchors(ent){
   if(!ent||!ent.employees||ent.employees.length===0)return '';

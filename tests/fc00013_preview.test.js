@@ -21,53 +21,53 @@ function makeThreeEntityFixture(api) {
   const nirvana = resetToSingleEntity(api, {
     id: 0,
     name: 'Nirvana 11th',
-    employees: [{ name: 'Balu', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Avery', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: WEEK_LABELS,
     breakMinutes: 0,
     breakMinutesSet: true,
     actualDays: [{
-      empName: 'Balu', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
+      empName: 'Avery', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }],
   });
   api._syncEntityCode(nirvana);
-  api.wageRates[api.wKey(0, 'Balu')] = 15;
-  api.payMethod[api.wKey(0, 'Balu')] = 'cash';
+  api.wageRates[api.wKey(0, 'Avery')] = 15;
+  api.payMethod[api.wKey(0, 'Avery')] = 'cash';
 
   const zion = { id: 1, name: 'Zion', code: '',
-    employees: [{ name: 'Varshitha', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Blake', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: WEEK_LABELS,
     newDateLabels: ['', '', '', '', '', '', ''], newWeekStartVal: '',
     breakMinutes: 0, breakMinutesSet: true,
     actualDays: [{
-      empName: 'Varshitha', entityName: 'Zion', date: '2026-08-10', dayIdx: 1,
+      empName: 'Blake', entityName: 'Zion', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }] };
   api._syncEntityCode(zion);
   api.entities.push(zion);
-  api.wageRates[api.wKey(1, 'Varshitha')] = 15;
-  api.payMethod[api.wKey(1, 'Varshitha')] = 'cash';
+  api.wageRates[api.wKey(1, 'Blake')] = 15;
+  api.payMethod[api.wKey(1, 'Blake')] = 'cash';
 
   const hefner = { id: 2, name: 'Hefner', code: '',
     employees: [
-      { name: 'Faisal', shifts: ['', '9AM - 5PM', '', '', '', '', ''] },
-      { name: 'Shumaila', shifts: ['', '', '', '', '', '', ''] },
+      { name: 'Devon', shifts: ['', '9AM - 5PM', '', '', '', '', ''] },
+      { name: 'Emery', shifts: ['', '', '', '', '', '', ''] },
     ],
     dateLabels: WEEK_LABELS,
     newDateLabels: ['', '', '', '', '', '', ''], newWeekStartVal: '',
     breakMinutes: 0, breakMinutesSet: true,
     actualDays: [{
-      empName: 'Faisal', entityName: 'Hefner', date: '2026-08-10', dayIdx: 1,
+      empName: 'Devon', entityName: 'Hefner', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }] };
   api._syncEntityCode(hefner);
   api.entities.push(hefner);
-  api.wageRates[api.wKey(2, 'Faisal')] = 15;
-  api.payMethod[api.wKey(2, 'Faisal')] = 'cash';
-  api.payMethod[api.wKey(2, 'Shumaila')] = 'cash';
-  // Shumaila is a flat-amount employee — exercises the " (flat)" row shape.
-  api.flatWages[api.wKey(2, 'Shumaila')] = 400;
-  api.flatWagesDisplayNames['shumaila'] = 'Shumaila';
+  api.wageRates[api.wKey(2, 'Devon')] = 15;
+  api.payMethod[api.wKey(2, 'Devon')] = 'cash';
+  api.payMethod[api.wKey(2, 'Emery')] = 'cash';
+  // Emery is a flat-amount employee — exercises the " (flat)" row shape.
+  api.flatWages[api.wKey(2, 'Emery')] = 400;
+  api.flatWagesDisplayNames['emery'] = 'Emery';
 
   return { nirvana, zion, hefner };
 }
@@ -79,7 +79,7 @@ test('test_preview_renders_expected_row_count', () => {
   const html = api.renderPayrollExportPreviewHtml();
   assert.ok(html.length > 0, 'expected non-empty preview HTML');
 
-  // 4 employees (Balu, Varshitha, Faisal, Shumaila) across 3 entities.
+  // 4 employees (Avery, Blake, Devon, Emery) across 3 entities.
   // N + 3 subtotal + 2 blank-separator + 1 grand + 1 header + 1 title = N + 8 rows.
   const N = 4;
   const rowCount = (html.match(/<tr\b/g) || []).length;
@@ -146,9 +146,9 @@ test('test_preview_flat_employee_row_shape', () => {
   makeThreeEntityFixture(api);
 
   const html = api.renderPayrollExportPreviewHtml();
-  assert.ok(html.includes('Shumaila (flat)'), 'flat employee name must be suffixed " (flat)"');
+  assert.ok(html.includes('Emery (flat)'), 'flat employee name must be suffixed " (flat)"');
   // Rate cell renders the literal text "flat" for a flat-amount employee.
-  assert.match(html, /Shumaila \(flat\)[\s\S]*?<td[^>]*>flat<\/td>/, 'flat employee Rate cell must read "flat"');
+  assert.match(html, /Emery \(flat\)[\s\S]*?<td[^>]*>flat<\/td>/, 'flat employee Rate cell must read "flat"');
 });
 
 test('test_preview_cells_have_tooltip_title_attributes', () => {
@@ -188,7 +188,7 @@ test('test_preview_live_updates_when_wage_changes', () => {
   const before = api.renderPayrollExportPreviewHtml();
   assert.ok(before.includes('$120.00'), 'expected initial 8h * $15 = $120.00 total to appear');
 
-  api.wageRates[api.wKey(0, 'Balu')] = 20;
+  api.wageRates[api.wKey(0, 'Avery')] = 20;
   const after = api.renderPayrollExportPreviewHtml();
   assert.ok(after.includes('$160.00'), 'expected updated 8h * $20 = $160.00 total to appear after wage change');
   assert.notEqual(before, after, 'preview HTML must change when underlying payroll data changes');

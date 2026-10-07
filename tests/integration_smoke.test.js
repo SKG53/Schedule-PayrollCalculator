@@ -80,7 +80,7 @@ test('settings row gather uses real active and alias state', () => {
   });
 
   api.setRosterActive(0, 'Alice', false);
-  const aliasResult = api.setAliases(0, 'Alice', ['Alicia']);
+  const aliasResult = api.setAliases(0, 'Alice', ['Allie']);
   assert.deepEqual(aliasResult.rejected, []);
   api.setFinalPassMethod(0, 'Alice', 'Contract Check');
   api.setRosterNotes(0, 'Alice', 'manual review');
@@ -91,7 +91,7 @@ test('settings row gather uses real active and alias state', () => {
   // FC-00007: employee IDs are now visible EMP_<ENTITY3>_NNNNN, minted per-entity.
   assert.match(withoutBreaks[0].employeeId, /^EMP_[A-Z0-9]{3}_\d{5}$/);
   assert.equal(withoutBreaks[0].active, 'No');
-  assert.equal(withoutBreaks[0].aliases, '["Alicia"]');
+  assert.equal(withoutBreaks[0].aliases, '["Allie"]');
   assert.equal(withoutBreaks[0].finalPassMethod, 'Contract Check');
   assert.equal(withoutBreaks[0].notes, 'manual review');
   assert.equal(withoutBreaks[0].dayBreaks, undefined);
@@ -114,11 +114,11 @@ test('roster registry uses stable IDs through rename cascade', () => {
   });
 
   const id = api.wKey(0, 'Alice');
-  api.dispatch({ type: 'rosterRename', screen: 'schedule', target: { kind: 'employee', entity: 0, id, field: 'name' }, from: 'Alice', to: 'Alicia', meta: { empName: 'Alice' } });
+  api.dispatch({ type: 'rosterRename', screen: 'schedule', target: { kind: 'employee', entity: 0, id, field: 'name' }, from: 'Alice', to: 'Allie', meta: { empName: 'Alice' } });
 
-  assert.equal(api.wKey(0, 'Alicia'), id);
-  assert.equal(api.getRosterRecord(0, 'Alicia').canonical_name, 'Alicia');
-  assert.deepEqual(api.getAliases(0, 'Alicia'), ['Alice']);
+  assert.equal(api.wKey(0, 'Allie'), id);
+  assert.equal(api.getRosterRecord(0, 'Allie').canonical_name, 'Allie');
+  assert.deepEqual(api.getAliases(0, 'Allie'), ['Alice']);
 });
 
 test('test-mode guard blocks direct writes and allows dispatcher writes', () => {

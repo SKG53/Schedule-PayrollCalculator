@@ -75,7 +75,7 @@ commit.
   `SPCalcPayrollSettingsV2` appended to the description). Round-trip: wage
   (including explicit-blank state), type, flat amount, pay method, typed deposit +
   whole/decimal flag, the active flag and the alias list survive. Aliases are a JSON
-  array in one cell (`["Variant One","Ferrer, Angelyca"]`), so commas and quotes
+  array in one cell (`["Variant One","Doe, Jane"]`), so commas and quotes
   inside a name round-trip; a hand-typed comma-separated cell is accepted as a
   fallback. Break columns survive only when the "Include per-day breaks" toggle is on
   for both export AND import. The importer matches on **column name**, so V1 and V2

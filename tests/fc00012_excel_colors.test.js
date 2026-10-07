@@ -3,8 +3,8 @@
 // The Combined/Cash-Only/Deposit-Only Excel exports must come out with the exact
 // per-entity color palette that used to be applied by hand (FFE8F0DC for Nirvana 11th,
 // FFDCE6F1 for Zion, FFFCE4D6 for Hefner, with a bluer FFBDD7EE/FF9DC3E6 tint on the Cash
-// column) — see FC_00012_BRIEF.md and the reference file
-// Nirvana_Zion_Hefner_0809to0815_AllEmployeesPayroll_Colors.xlsx. Palette is hardcoded,
+// column) — see FC_00012_BRIEF.md and the hand-colored reference report (kept locally,
+// never committed). Palette is hardcoded,
 // looked up by ent.code (FC-00007), with a DEFAULT fallback for unknown codes.
 //
 // These tests exercise the real `_exportExcel` writer end-to-end against the ExcelJS mock
@@ -21,54 +21,54 @@ function makeThreeEntityFixture(api) {
   const nirvana = resetToSingleEntity(api, {
     id: 0,
     name: 'Nirvana 11th',
-    employees: [{ name: 'Balu', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Avery', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     breakMinutes: 0,
     breakMinutesSet: true,
     actualDays: [{
-      empName: 'Balu', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
+      empName: 'Avery', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }],
   });
   api._syncEntityCode(nirvana);
-  api.wageRates[api.wKey(0, 'Balu')] = 15;
-  api.payMethod[api.wKey(0, 'Balu')] = 'cash';
+  api.wageRates[api.wKey(0, 'Avery')] = 15;
+  api.payMethod[api.wKey(0, 'Avery')] = 'cash';
 
   const zion = { id: 1, name: 'Zion', code: '',
-    employees: [{ name: 'Varshitha', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Blake', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     newDateLabels: ['', '', '', '', '', '', ''], newWeekStartVal: '',
     breakMinutes: 0, breakMinutesSet: true,
     actualDays: [{
-      empName: 'Varshitha', entityName: 'Zion', date: '2026-08-10', dayIdx: 1,
+      empName: 'Blake', entityName: 'Zion', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }] };
   api._syncEntityCode(zion);
   api.entities.push(zion);
-  api.wageRates[api.wKey(1, 'Varshitha')] = 15;
-  api.payMethod[api.wKey(1, 'Varshitha')] = 'cash';
+  api.wageRates[api.wKey(1, 'Blake')] = 15;
+  api.payMethod[api.wKey(1, 'Blake')] = 'cash';
 
   const hefner = { id: 2, name: 'Hefner', code: '',
     employees: [
-      { name: 'Faisal', shifts: ['', '9AM - 5PM', '', '', '', '', ''] },
-      { name: 'Shumaila', shifts: ['', '', '', '', '', '', ''] },
+      { name: 'Devon', shifts: ['', '9AM - 5PM', '', '', '', '', ''] },
+      { name: 'Emery', shifts: ['', '', '', '', '', '', ''] },
     ],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     newDateLabels: ['', '', '', '', '', '', ''], newWeekStartVal: '',
     breakMinutes: 0, breakMinutesSet: true,
     actualDays: [{
-      empName: 'Faisal', entityName: 'Hefner', date: '2026-08-10', dayIdx: 1,
+      empName: 'Devon', entityName: 'Hefner', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }] };
   api._syncEntityCode(hefner);
   api.entities.push(hefner);
-  api.wageRates[api.wKey(2, 'Faisal')] = 15;
-  api.payMethod[api.wKey(2, 'Faisal')] = 'cash';
-  api.payMethod[api.wKey(2, 'Shumaila')] = 'cash';
-  // Shumaila is a flat-amount employee (no hourly wage/schedule) — exercised by
-  // getFlatWageRows, matching how the reference report shows "SHUMAILA (flat)".
-  api.flatWages[api.wKey(2, 'Shumaila')] = 400;
-  api.flatWagesDisplayNames['shumaila'] = 'Shumaila';
+  api.wageRates[api.wKey(2, 'Devon')] = 15;
+  api.payMethod[api.wKey(2, 'Devon')] = 'cash';
+  api.payMethod[api.wKey(2, 'Emery')] = 'cash';
+  // Emery is a flat-amount employee (no hourly wage/schedule) — exercised by
+  // getFlatWageRows, matching how the reference report shows "EMERY (flat)".
+  api.flatWages[api.wKey(2, 'Emery')] = 400;
+  api.flatWagesDisplayNames['emery'] = 'Emery';
 
   return { nirvana, zion, hefner };
 }
@@ -116,7 +116,7 @@ test('test_export_applies_entity_palette', async () => {
   // palette's body fill landed there, and that the Cash column (col 8) got the cash tint.
   const nirvanaRow = findRowIndex(sheet, row => row[1] && row[1].value === 'Nirvana 11th');
   const zionRow = findRowIndex(sheet, row => row[1] && row[1].value === 'Zion');
-  const hefnerRow = findRowIndex(sheet, row => row[1] && row[1].value === 'Hefner' && /Faisal/.test(row[2].value || ''));
+  const hefnerRow = findRowIndex(sheet, row => row[1] && row[1].value === 'Hefner' && /Devon/.test(row[2].value || ''));
   assert.ok(nirvanaRow > 0 && zionRow > 0 && hefnerRow > 0, 'expected to find one data row per entity');
 
   assert.equal(fills[`${nirvanaRow},1`], api.FC12_PALETTES.N11.body, 'Nirvana 11th body fill');
@@ -149,7 +149,7 @@ test('test_export_applies_entity_palette', async () => {
 
   // Deposit-Only export: no special cash tint — every body column (including the Deposit
   // Portion column) is just the palette's plain body color.
-  api.payMethod[api.wKey(1, 'Varshitha')] = 'deposit';
+  api.payMethod[api.wKey(1, 'Blake')] = 'deposit';
   await api.exportDepositExcel();
   const wbDep = api.__lastExcelWorkbook;
   const sheetDep = wbDep.worksheets.find(w => w.name === 'Report');
@@ -183,7 +183,7 @@ test('test_export_flat_employee_row_shape', async () => {
   const row = sheet.rows[flatRowIdx];
 
   // Name gets " (flat)" suffix (col 2 = Employee).
-  assert.equal(row[2].value, 'Shumaila (flat)');
+  assert.equal(row[2].value, 'Emery (flat)');
   // Hours cell (col 4) is blank for a flat employee.
   assert.equal(row[4].value, '', 'Hours must be blank for a flat-amount employee');
   // Rate cell (col 5) reads the literal text "flat".

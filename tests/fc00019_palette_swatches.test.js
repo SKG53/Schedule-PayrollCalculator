@@ -25,7 +25,7 @@ function makeSingleEntityFixture(api, overrides = {}) {
   const ent = resetToSingleEntity(api, Object.assign({
     id: 0,
     name: 'Nirvana 11th',
-    employees: [{ name: 'Balu', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Avery', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     breakMinutes: 0,
     breakMinutesSet: true,
@@ -97,7 +97,7 @@ test('test_old_setting_name_maps_to_new', () => {
   const colMap = makeColMap(headers);
   const row = makeSettingsRow(headers, {
     Entity: 'Nirvana 11th',
-    Employee: 'Balu',
+    Employee: 'Avery',
     'Wage/hour': '15',
     Type: 'Hourly',
     'Pay Method': 'Cash',
@@ -131,7 +131,7 @@ test('test_settings_export_writes_new_name_after_legacy_import', () => {
   const headers = api.PAYROLL_SETTINGS_HEADERS;
   const colMap = makeColMap(headers);
   const row = makeSettingsRow(headers, {
-    Entity: 'Nirvana 11th', Employee: 'Balu', 'Wage/hour': '15', Type: 'Hourly', 'Pay Method': 'Cash',
+    Entity: 'Nirvana 11th', Employee: 'Avery', 'Wage/hour': '15', Type: 'Hourly', 'Pay Method': 'Cash',
     Palette: 'Zion Blue', // legacy name, deliberately mismatched vs N11's own default, to prove it round-trips
   });
   api._ingestPayrollSettings([row], colMap, false);
@@ -148,7 +148,7 @@ test('test_settings_import_without_palette_column_still_resolves_renamed_default
   const ent = makeSingleEntityFixture(api, { name: 'Nirvana 11th' });
   const legacyHeaders = ['Entity', 'Employee', 'Wage/hour', 'Type', 'Pay Method'];
   const colMap = makeColMap(legacyHeaders);
-  const row = makeSettingsRow(legacyHeaders, { Entity: 'Nirvana 11th', Employee: 'Balu', 'Wage/hour': '15', Type: 'Hourly', 'Pay Method': 'Cash' });
+  const row = makeSettingsRow(legacyHeaders, { Entity: 'Nirvana 11th', Employee: 'Avery', 'Wage/hour': '15', Type: 'Hourly', 'Pay Method': 'Cash' });
   api._ingestPayrollSettings([row], colMap, false);
   assert.equal(api.session.entityPalettes[0], undefined, 'no Palette column means no explicit selection is set');
   assert.equal(api.getEntityPalette(ent), 'Green', 'falls back to the renamed code default');

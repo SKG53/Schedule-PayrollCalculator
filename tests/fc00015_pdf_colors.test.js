@@ -20,32 +20,32 @@ function makeTwoEntityFixture(api) {
   const nirvana = resetToSingleEntity(api, {
     id: 0,
     name: 'Nirvana 11th',
-    employees: [{ name: 'Balu', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Avery', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     breakMinutes: 0,
     breakMinutesSet: true,
     actualDays: [{
-      empName: 'Balu', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
+      empName: 'Avery', entityName: 'Nirvana 11th', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }],
   });
   api._syncEntityCode(nirvana);
-  api.wageRates[api.wKey(0, 'Balu')] = 15;
-  api.payMethod[api.wKey(0, 'Balu')] = 'cash';
+  api.wageRates[api.wKey(0, 'Avery')] = 15;
+  api.payMethod[api.wKey(0, 'Avery')] = 'cash';
 
   const zion = { id: 1, name: 'Zion', code: '',
-    employees: [{ name: 'Varshitha', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
+    employees: [{ name: 'Blake', shifts: ['', '9AM - 5PM', '', '', '', '', ''] }],
     dateLabels: ['', 'Mon Aug 10 2026', '', '', '', '', ''],
     newDateLabels: ['', '', '', '', '', '', ''], newWeekStartVal: '',
     breakMinutes: 0, breakMinutesSet: true,
     actualDays: [{
-      empName: 'Varshitha', entityName: 'Zion', date: '2026-08-10', dayIdx: 1,
+      empName: 'Blake', entityName: 'Zion', date: '2026-08-10', dayIdx: 1,
       pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }],
     }] };
   api._syncEntityCode(zion);
   api.entities.push(zion);
-  api.wageRates[api.wKey(1, 'Varshitha')] = 15;
-  api.payMethod[api.wKey(1, 'Varshitha')] = 'cash';
+  api.wageRates[api.wKey(1, 'Blake')] = 15;
+  api.payMethod[api.wKey(1, 'Blake')] = 'cash';
 
   return { nirvana, zion };
 }
@@ -150,7 +150,7 @@ test('test_pdf_cashonly_and_depositonly_apply_palette_correctly', async () => {
 
   // Deposit-Only: no cash tint anywhere — every body column (including Deposit Portion,
   // the last column) is just the plain body color, matching the Excel writer's behavior.
-  api.payMethod[api.wKey(1, 'Varshitha')] = 'deposit';
+  api.payMethod[api.wKey(1, 'Blake')] = 'deposit';
   await api.exportDepositPdf();
   const depCells = lastCallParsedCells(api).filter(c => c.section === 'body');
   const depSpec = api._columnsFor('depositOnly');
@@ -200,16 +200,16 @@ test('test_pdf_flat_employee_row_shape_preserved', async () => {
   // their entity's palette body fill like every other row for that entity.
   const api = loadApp();
   const { zion } = makeTwoEntityFixture(api);
-  api.payMethod[api.wKey(1, 'Shumaila')] = 'cash';
-  api.flatWages[api.wKey(1, 'Shumaila')] = 400;
-  api.flatWagesDisplayNames['shumaila'] = 'Shumaila';
+  api.payMethod[api.wKey(1, 'Emery')] = 'cash';
+  api.flatWages[api.wKey(1, 'Emery')] = 400;
+  api.flatWagesDisplayNames['emery'] = 'Emery';
 
   await api.exportCombinedPdf();
   const calls = api.__lastAutoTableCalls;
   const lastCall = calls[calls.length - 1];
   const flatRow = lastCall.options.body.find(row => typeof row[1] === 'string' && row[1].includes('(flat)'));
   assert.ok(flatRow, 'expected to find the flat employee row in the PDF body');
-  assert.equal(flatRow[1], 'Shumaila (flat)');
+  assert.equal(flatRow[1], 'Emery (flat)');
   assert.equal(flatRow[3], '', 'Hours must be blank for a flat-amount employee');
   assert.equal(flatRow[4], 'flat', 'Rate must read the text "flat"');
 });
