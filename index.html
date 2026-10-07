@@ -2029,7 +2029,7 @@ async function exportEmployee(){
 async function exportManager(){
   readTableState();
   const ent=entities[activeEntityIdx];
-  const ewb=new ExcelJS.Workbook(),ws=ewb.addWorksheet('Manager Report');
+  const ewb=_xlFormulaWorkbook(),ws=ewb.addWorksheet('Manager Report');
   const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
   const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
   const hoursFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF5F5F3'}};
@@ -2037,6 +2037,7 @@ async function exportManager(){
   r1.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:thinB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
   const r2=ws.addRow(['',...ent.newDateLabels,'']);
   r2.eachCell((c,ci)=>{c.font={name:'Arial',size:10,color:{argb:'FF6B6960'}};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:{style:'medium',color:{argb:'FF999999'}},bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}}});
+  const hoursRowNums=[];
   ent.employees.forEach(emp=>{
     const r=ws.addRow([emp.name,...emp.shifts]);
     r.eachCell((c,ci)=>{c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:thinB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};
@@ -2045,6 +2046,9 @@ async function exportManager(){
     for(let d=0;d<7;d++){const h=calcHours(parseShift(emp.shifts[d]));t2+=h;hRow.push(h>0?h:'')}
     t2=Math.round(t2*100)/100;hRow.push(t2);
     const hr=ws.addRow(hRow);
+    // FC-00033: weekly total is a live SUM of the seven day cells.
+    hr.getCell(9).value={formula:'SUM(B'+hr.number+':H'+hr.number+')',result:t2};
+    hoursRowNums.push(hr.number);
     hr.eachCell((c,ci)=>{c.fill=hoursFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};
       if(ci>1)c.numFmt=XL_FMT_HOURS;
       if(ci===1)c.font={name:'Arial',italic:true,size:10,color:{argb:'FF999999'}};
@@ -2054,7 +2058,11 @@ async function exportManager(){
   const gRow=['TOTAL'];let gt=0;
   for(let d=0;d<7;d++){let dt=0;ent.employees.forEach(emp=>dt+=calcHours(parseShift(emp.shifts[d])));gt+=dt;gRow.push(Math.round(dt*100)/100)}
   gRow.push(Math.round(gt*100)/100);
-  const gr=ws.addRow(gRow);gr.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:medB,bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};if(ci>1)c.numFmt=XL_FMT_HOURS});
+  const gr=ws.addRow(gRow);
+  // FC-00033: day totals sum the Hours rows above; the corner cell sums the day totals.
+  for(let ci=2;ci<=8;ci++){const L=_xlCol(ci-1);gr.getCell(ci).value={formula:hoursRowNums.length?'SUM('+hoursRowNums.map(n=>L+n).join(',')+')':'0',result:gRow[ci-1]}}
+  gr.getCell(9).value={formula:'SUM(B'+gr.number+':H'+gr.number+')',result:gRow[8]};
+  gr.eachCell((c,ci)=>{c.font={name:'Arial',bold:true,size:11};c.fill=hdrFill;c.alignment={horizontal:'center',vertical:'middle'};c.border={top:medB,bottom:medB,right:{style:(ci===1||ci===9)?'medium':'thin',color:{argb:(ci===1||ci===9)?'FF666666':'FFB0B0B0'}}};if(ci>1)c.numFmt=XL_FMT_HOURS});
   ws.getColumn(1).width=14;for(let c=2;c<=8;c++)ws.getColumn(c).width=22;ws.getColumn(9).width=14;
   const fname=(ent.name||'Entity')+'_Manager_Report.xlsx';
   downloadBlob(await ewb.xlsx.writeBuffer(),fname);
@@ -2761,13 +2769,16 @@ async function _fc24ExportScratchExcel(){
   if(!m){showToast('Make an editable copy first','err');return;}
   const hdr=m.rows.find(r=>r.kind==='hdr');
   const n=hdr?hdr.cells.length:m.headers.length;
-  const ewb=new ExcelJS.Workbook();
+  const ewb=_xlFormulaWorkbook();
   const ws=ewb.addWorksheet('Report');
   // Same fonts/borders/widths as _exportExcel's combined report; fills come from the copy's
   // own per-cell colors, which were snapshotted from the same entity palettes.
   const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
   const align=(ci)=>({horizontal:m.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'});
   const paint=(cell,row,ci)=>{const a=_fc24CssToArgb(row.bgs[ci-1]);if(a)cell.fill=_fc12Fill(a);};
+  // FC-00033: data rows keep the values typed into the copy; subtotal and grand rows become
+  // SUM formulas over the rows they close, so further edits in Excel still add up.
+  let blockStart=0,blockEnd=0;const subNums=[];
   m.rows.forEach(row=>{
     if(row.kind==='title'){
       const t=ws.addRow([row.cells[0]]);
@@ -2787,6 +2798,18 @@ async function _fc24ExportScratchExcel(){
     }else{
       const vals=row.cells.map((t,ci)=>_fc24CellFromText(t,ci,m.numCols));
       const r=ws.addRow(vals.map(_cellValue));
+      if(row.kind==='data'){if(!blockStart)blockStart=r.number;blockEnd=r.number;}
+      else if(row.kind==='subtotal'||row.kind==='grand'){
+        vals.forEach((v,ci)=>{
+          if(!_isNumCell(v))return;
+          const L=_xlCol(ci);
+          let f;
+          if(row.kind==='subtotal'&&blockStart)f='SUM('+L+blockStart+':'+L+blockEnd+')';
+          else if(row.kind==='grand'&&subNums.length)f='SUM('+subNums.map(n=>L+n).join(',')+')';
+          if(f)r.getCell(ci+1).value={formula:f,result:v.v};
+        });
+        if(row.kind==='subtotal'){subNums.push(r.number);blockStart=0;blockEnd=0;}
+      }
       const bold=row.kind!=='data',grand=row.kind==='grand';
       r.eachCell((cell,ci)=>{
         cell.font={name:'Arial',bold,size:grand?11:10};
@@ -5413,6 +5436,90 @@ function _cellValue(c){return _isNumCell(c)?c.v:c}
 // Applies the number format when the source cell carried one. Call inside eachCell.
 function _applyNumFmt(cell,src){if(_isNumCell(src))cell.numFmt=src.fmt}
 
+// ---- FC-00033: live Excel formulas ----
+// Every money/hours figure the tool derives is written as a formula with its computed value
+// cached as the result, so the sheet opens showing the tool's numbers and recalculates when
+// an hour, rate, flat amount or row changes. The formulas restate the tool's own math
+// (computePayrollForEntity pay rounding, roundCash/roundDeposit, _computeBothBreakdown).
+// Zero amounts are numeric 0 shown as "—" (or blank) by number format, never the text "—",
+// because text inside a summed or multiplied range breaks the arithmetic.
+const XL_FMT_MONEY_DASH='$#,##0.00;-$#,##0.00;"—"';
+const XL_FMT_MONEY_BLANK0='$#,##0.00;-$#,##0.00;""';
+const XL_FMT_SIGNED_BLANK0='+$#,##0.00;-$#,##0.00;""';
+const XL_FMT_HOURS_BLANK0='0.00;-0.00;""';
+// Workbooks that carry formulas ask Excel to recalculate everything on open. ExcelJS does not
+// store a cached result of 0, so without this a viewer that trusts cached values shows blanks.
+function _xlFormulaWorkbook(){const wb=new ExcelJS.Workbook();wb.calcProperties=Object.assign(wb.calcProperties||{},{fullCalcOnLoad:true});return wb}
+function _xlCol(i){let s='',n=i+1;while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26)}return s}
+// Pay = hours x rate rounded to the employee's rounding digits, then to cents (roundDeposit).
+function _fxPay(hRef,rRef,k){
+  k=Math.max(0,Math.min(6,k==null?2:k));
+  const p=hRef+'*'+rRef;
+  if(k===2)return 'ROUND('+p+',2)';
+  if(k<2)return 'ROUND('+p+','+k+')';
+  return 'ROUND(ROUND('+p+','+k+'),2)';
+}
+// Cash-and-deposit split, mirroring _computeBothBreakdown. `t` is the total cell reference.
+function _fxBothCashDecimal(t,req){return 'MIN(MAX(ROUND('+t+'-'+req+',0),0),ROUNDDOWN('+t+',0))'}
+function _fxBothWhole(meta){return !!(meta&&meta.typed&&meta.isWhole&&(meta.deposit||0)>0)}
+function _fxCash(t,method,meta){
+  if(method==='cash')return 'ROUND('+t+',0)';
+  if(method!=='both')return '0';
+  const req=+(meta.deposit||0);
+  if(_fxBothWhole(meta))return 'IF('+req+'<='+t+',MAX(0,ROUND('+t+'-'+req+',0)),'+_fxBothCashDecimal(t,req)+')';
+  return _fxBothCashDecimal(t,req);
+}
+function _fxDeposit(t,method,meta){
+  if(method==='deposit'||method==='contract')return 'ROUND('+t+',2)';
+  if(method!=='both')return '0';
+  const req=+(meta.deposit||0);
+  const dec='ROUND('+t+'-'+_fxBothCashDecimal(t,req)+',2)';
+  if(_fxBothWhole(meta))return 'IF('+req+'<='+t+','+req+','+dec+')';
+  return dec;
+}
+// Columns of the pay block for one row. cols = 0-based indexes {hours,rate,total,deposit,cash,
+// final,diff} (any may be omitted). Returns {colIdx:{f|v, r, fmt}} for _exportExcel to apply.
+function _fxPayBlock(r,n,cols,opts){
+  const out={};
+  if(r._wageBlank)return out;
+  const b=r._breakdown,meta=getSplitMeta(r._entityId,r._empName);
+  const ref=(ci)=>_xlCol(ci)+n;
+  const T=ref(cols.total);
+  const hourly=!r.isFlat&&r.wage>0&&opts.hoursDrivePay;
+  if(hourly){
+    out[cols.rate]={v:r.wage,fmt:XL_FMT_MONEY};
+    out[cols.total]={f:_fxPay(ref(cols.hours),ref(cols.rate),r.rounding),r:b.actualFinal,fmt:XL_FMT_MONEY_DASH};
+  }else if(r.isFlat&&opts.flatInRate){
+    out[cols.total]={f:'ROUND('+ref(cols.rate)+',2)',r:b.actualFinal,fmt:XL_FMT_MONEY_DASH};
+  }else{
+    out[cols.total]={v:b.actualFinal,fmt:XL_FMT_MONEY_DASH};
+  }
+  if(cols.deposit!=null)out[cols.deposit]={f:_fxDeposit(T,b.method,meta),r:b.deposit,fmt:XL_FMT_MONEY_DASH};
+  if(cols.cash!=null)out[cols.cash]={f:_fxCash(T,b.method,meta),r:b.cash,fmt:XL_FMT_MONEY_DASH};
+  if(cols.final!=null)out[cols.final]={f:'ROUND('+ref(cols.deposit)+'+'+ref(cols.cash)+',2)',r:b.roundedFinal,fmt:XL_FMT_MONEY_DASH};
+  if(cols.diff!=null)out[cols.diff]={f:'ROUND('+ref(cols.final)+'-'+T+',2)',r:b.roundingDiff||0,fmt:XL_FMT_SIGNED_BLANK0};
+  return out;
+}
+// Writes a {f|v,r,fmt} map onto a just-added ExcelJS row.
+function _xlApplyFx(row,fx){
+  Object.keys(fx).forEach(k=>{
+    const ci=+k,spec=fx[k],cell=row.getCell(ci+1);
+    cell.value=spec.f!=null?{formula:spec.f,result:Math.round((spec.r||0)*100)/100}:spec.v;
+    if(spec.fmt)cell.numFmt=spec.fmt;
+  });
+}
+// Shared subtotal math for the Excel and PDF writers: spec.totals lists the summed columns.
+function _sectionTotals(spec,rows){
+  const out={};
+  (spec.totals||[]).forEach(t=>{out[t.col]=Math.round(rows.reduce((a,r)=>a+(t.val(r)||0),0)*100)/100});
+  return out;
+}
+function _totalCellText(t,v){
+  if(t.blankZero&&Math.abs(v)<0.005)return '';
+  return _cellText(t.hours?xlHours(v):xlMoney(v));
+}
+function _totalFmt(t){return t.hours?(t.blankZero?XL_FMT_HOURS_BLANK0:XL_FMT_HOURS):(t.blankZero?XL_FMT_MONEY_BLANK0:XL_FMT_MONEY)}
+
 // ---- Table spec per kind ----
 function _columnsFor(kind){
   const hasActuals=entities.some(e=>e.actualDays&&e.actualDays.length>0);
@@ -5425,6 +5532,8 @@ function _columnsFor(kind){
         const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?xlMoney(r.wage):'—'));
         return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':'Cash',hrs,rate,r._wageBlank?'':xlMoney(r._totalPay),r._wageBlank?'':xlMoney(r._breakdown.cash)];
       },
+      fx:(r,n)=>_fxPayBlock(r,n,{hours:3,rate:4,total:5,cash:6},{hoursDrivePay:hasActuals}),
+      totals:[{col:6,val:r=>r._breakdown.cash}],
       numCols:[3,4,5,6],
       sortFn:_paytypeExportSortFn
     };
@@ -5438,6 +5547,8 @@ function _columnsFor(kind){
         const rate=r._wageBlank?'':(r.isFlat?'flat':(r.wage>0?xlMoney(r.wage):'—'));
         return [r._entityName,r._empName+(r.isOrphan?' (orphan)':'')+(r.isFlat?' (flat)':''),r._breakdown.method==='both'?'Deposit + Cash':methodLabel(r._breakdown.method),hrs,rate,r._wageBlank?'':xlMoney(r._totalPay),r._wageBlank?'':xlMoney(r._breakdown.deposit)];
       },
+      fx:(r,n)=>_fxPayBlock(r,n,{hours:3,rate:4,total:5,deposit:6},{hoursDrivePay:hasActuals}),
+      totals:[{col:6,val:r=>r._breakdown.deposit}],
       numCols:[3,4,5,6],
       sortFn:_paytypeExportSortFn
     };
@@ -5465,6 +5576,13 @@ function _columnsFor(kind){
           diffCell
         ];
       },
+      fx:(r,n)=>_fxPayBlock(r,n,{hours:3,rate:4,total:5,deposit:6,cash:7,final:8,diff:9},{hoursDrivePay:hasActuals}),
+      // Reference layout: only Actual Total, Deposit and Cash carry subtotals.
+      totals:[
+        {col:5,val:r=>r._breakdown.actualFinal||0},
+        {col:6,val:r=>r._breakdown.deposit||0,blankZero:true},
+        {col:7,val:r=>r._breakdown.cash||0,blankZero:true}
+      ],
       numCols:[3,4,5,6,7,8,9],
       sortFn:_paytypeExportSortFn
     };
@@ -5487,6 +5605,12 @@ function _columnsFor(kind){
         const ot=(r.actualHours||0)>40?'⚠ '+((r.actualHours-40).toFixed(2))+'h over':'';
         return [r._entityName,r._empName+(r.isOrphan?' (orphan)':''),expBreak,expH,actBreak,actH,diff,avgIn,avgOut,ot];
       },
+      fx:(r,n)=>r.isFlat?{}:{6:{f:'ROUND(F'+n+'-D'+n+',2)',r:Math.round(((r.actualHours||0)-(r.expectedH||0))*100)/100,fmt:XL_FMT_HOURS}},
+      totals:[
+        {col:3,hours:true,val:r=>r.isFlat?0:(r.expectedH||0)},
+        {col:5,hours:true,val:r=>r.isFlat?0:(r.actualHours||0)},
+        {col:6,hours:true,val:r=>r.isFlat?0:Math.round(((r.actualHours||0)-(r.expectedH||0))*100)/100}
+      ],
       numCols:[2,3,4,5,6]
     };
   }
@@ -5517,6 +5641,16 @@ function _columnsFor(kind){
           diffCell
         ];
       },
+      // Actual Hrs (D) drives pay; a flat employee's amount sits in Wage/Flat (E).
+      fx:(r,n)=>_fxPayBlock(r,n,{hours:3,rate:4,total:9,deposit:7,cash:8,final:10,diff:11},{hoursDrivePay:true,flatInRate:true}),
+      // Subtotals sit under the columns they total (they used to land in Diff).
+      totals:[
+        {col:3,hours:true,val:r=>r.isFlat?0:(r.actualHours||0)},
+        {col:7,val:r=>r._breakdown.deposit||0,blankZero:true},
+        {col:8,val:r=>r._breakdown.cash||0,blankZero:true},
+        {col:9,val:r=>r._breakdown.actualFinal||0},
+        {col:10,val:r=>r._breakdown.roundedFinal||0}
+      ],
       numCols:[2,3,4,7,8,9,10,11],
       sortFn:_paytypeExportSortFn
     };
@@ -5722,7 +5856,7 @@ async function _exportExcel(kind){
   const data=_collectExportData();
   if(data.length===0){alert('No data to export.');return;}
 
-  const ewb=new ExcelJS.Workbook();
+  const ewb=_xlFormulaWorkbook();
   const ws=ewb.addWorksheet('Report');
   const thinB={style:'thin',color:{argb:'FFB0B0B0'}},medB={style:'medium',color:{argb:'FF666666'}};
   const hdrFill={type:'pattern',pattern:'solid',fgColor:{argb:'FFE8E8E4'}};
@@ -5749,10 +5883,14 @@ async function _exportExcel(kind){
   title.getCell(1).alignment={horizontal:'center'};
   title.height=26;
 
+  let titleMerged=false;
   async function writeSection(sectionKind){
     const spec=_columnsFor(sectionKind);
     if(!spec)return;
-    ws.mergeCells(title.number,1,title.number,spec.headers.length);
+    // The title is merged once. The Full report writes two sections, and merging the same
+    // range twice makes ExcelJS throw ("Cannot merge already merged cells"), which killed
+    // the Full Excel export before any file was produced.
+    if(!titleMerged){ws.mergeCells(title.number,1,title.number,spec.headers.length);titleMerged=true;}
 
     // Section label (for "full" kind)
     if(kind==='full'){
@@ -5779,75 +5917,66 @@ async function _exportExcel(kind){
       sectionKind==='cashOnly'?spec.headers.length:
       null;
 
-    let grandTotal=0,grandHours=0,grandDeposit=0,grandCash=0;
+    // FC-00033: data cells carry row formulas; subtotals are SUM() over the entity's rows and
+    // the grand total is the sum of the subtotal cells, so editing any input recalculates.
+    const totals=spec.totals||[];
+    const grandVals={};totals.forEach(t=>{grandVals[t.col]=0});
+    const subRowNums=[];
     data.forEach(({entityName,entityId,rows})=>{
       let filtered=_filterRowsForKind(rows,sectionKind);
       if(filtered.length===0)return;
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
       const entPal=_fc12Colorize?_paletteForEntity(entities.find(e=>e.id===entityId)):null;
-      let entTotal=0,entHours=0,entDeposit=0,entCash=0;
+      let firstRow=0,lastRow=0;
       filtered.forEach(r=>{
         const vals=spec.rowFn(r);
         const row=ws.addRow(vals.map(_cellValue));
+        if(!firstRow)firstRow=row.number;
+        lastRow=row.number;
+        if(spec.fx)_xlApplyFx(row,spec.fx(r,row.number));
         row.eachCell((cell,ci)=>{
           cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
           cell.border={bottom:thinB,left:thinB,right:thinB};cell.font={name:'Arial',size:10};
-          _applyNumFmt(cell,vals[ci-1]);
+          if(!cell.numFmt)_applyNumFmt(cell,vals[ci-1]);
         });
         if(_fc12Colorize)_applyEntityPalette(row,entPal,'body',cashColIdx);
-        if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
-        else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
-        else if(sectionKind==='combined')entTotal+=r._breakdown.actualFinal||0;
-        else entTotal+=r._breakdown.final;
-        entDeposit+=r._breakdown.deposit||0;entCash+=r._breakdown.cash||0;
-        if(!r.isFlat)entHours+=(r.actualHours||r.expectedH||0);
       });
       // Entity subtotal
+      const entVals=_sectionTotals(spec,filtered);
       const subCells=new Array(spec.headers.length).fill('');
       subCells[0]=entityName+' subtotal';
-      if(sectionKind==='timecard'){
-        // For timecard, subtotal hours in actual hrs col (index 5)
-        subCells[5]=xlHours(entHours);
-      }else if(sectionKind==='combined'){
-        // Reference layout: only Actual Total (F/idx5), Deposit (G/idx6) and Cash (H/idx7)
-        // carry subtotal amounts — Rounded Final and Diff stay blank on the subtotal row.
-        subCells[5]=xlMoney(entTotal);
-        subCells[6]=entDeposit>0?xlMoney(entDeposit):'';
-        subCells[7]=entCash>0?xlMoney(entCash):'';
-      }else{
-        subCells[spec.headers.length-1]=xlMoney(entTotal);
-      }
-      const sub=ws.addRow(subCells.map(_cellValue));
+      const sub=ws.addRow(subCells);
+      totals.forEach(t=>{
+        const L=_xlCol(t.col),cell=sub.getCell(t.col+1);
+        cell.value={formula:'SUM('+L+firstRow+':'+L+lastRow+')',result:entVals[t.col]};
+        cell.numFmt=_totalFmt(t);
+        grandVals[t.col]+=entVals[t.col];
+      });
+      subRowNums.push(sub.number);
       sub.eachCell((cell,ci)=>{
         cell.font={name:'Arial',bold:true,size:10};cell.fill=subtotalFill;
         cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
         cell.border={top:medB,bottom:medB,left:thinB,right:thinB};
-        _applyNumFmt(cell,subCells[ci-1]);
       });
       if(_fc12Colorize)_applyEntityPalette(sub,entPal,'subtotal',null);
       // Blank separator row between entities, matching the reference report's layout.
       if(_fc12Colorize)ws.addRow([]);
-      grandTotal+=entTotal;grandHours+=entHours;grandDeposit+=entDeposit;grandCash+=entCash;
     });
 
-    // Grand total row
+    // Grand total row = sum of the subtotal cells above it.
     const grandCells=new Array(spec.headers.length).fill('');
     grandCells[0]='GRAND TOTAL';
-    if(sectionKind==='timecard'){
-      grandCells[5]=xlHours(grandHours);
-    }else if(sectionKind==='combined'){
-      grandCells[5]=xlMoney(grandTotal);
-      grandCells[6]=grandDeposit>0?xlMoney(grandDeposit):'';
-      grandCells[7]=grandCash>0?xlMoney(grandCash):'';
-    }else{
-      grandCells[spec.headers.length-1]=xlMoney(grandTotal);
-    }
-    const g=ws.addRow(grandCells.map(_cellValue));
+    const g=ws.addRow(grandCells);
+    totals.forEach(t=>{
+      const L=_xlCol(t.col),cell=g.getCell(t.col+1);
+      const f=subRowNums.length?subRowNums.map(n=>L+n).join(','):'0';
+      cell.value={formula:'SUM('+f+')',result:Math.round(grandVals[t.col]*100)/100};
+      cell.numFmt=_totalFmt(t);
+    });
     g.eachCell((cell,ci)=>{
       cell.font={name:'Arial',bold:true,size:11};cell.fill=grandFill;
       cell.alignment={horizontal:spec.numCols.indexOf(ci-1)>=0?'right':'left',vertical:'middle'};
       cell.border={top:medB,bottom:medB,left:medB,right:medB};
-      _applyNumFmt(cell,grandCells[ci-1]);
     });
     if(_fc12Colorize)_applyEntityPalette(g,FC14_PRESETS.Plain,'grand',null);
 
@@ -5931,58 +6060,39 @@ async function _exportPdf(kind){
     // row content. Built in lockstep with `body` as rows are pushed.
     const rowRoles=[];
     const body=[];
-    let grandTotal=0,grandHours=0,grandDeposit=0,grandCash=0;
+    // Subtotals come from the same spec.totals the Excel writer sums (FC-00033), so the PDF
+    // and the workbook always total the same columns.
+    const totals=spec.totals||[];
+    const grandVals={};totals.forEach(t=>{grandVals[t.col]=0});
     data.forEach(({entityName,entityId,rows})=>{
       let filtered=_filterRowsForKind(rows,sectionKind);
       if(filtered.length===0)return;
       if(spec.sortFn)filtered=filtered.slice().sort(spec.sortFn);
       const entPal=_fc15Colorize?_paletteForEntity(entities.find(e=>e.id===entityId)):null;
-      let entTotal=0,entHours=0,entDeposit=0,entCash=0;
       filtered.forEach(r=>{
         // PDF is a rendered document — unwrap the numeric cells back to display text.
         body.push(spec.rowFn(r).map(_cellText));
         rowRoles.push({role:'body',pal:entPal});
-        if(sectionKind==='cashOnly')entTotal+=r._breakdown.cash;
-        else if(sectionKind==='depositOnly')entTotal+=r._breakdown.deposit;
-        else if(sectionKind==='combined')entTotal+=r._breakdown.actualFinal||0;
-        else entTotal+=r._breakdown.final;
-        entDeposit+=r._breakdown.deposit||0;entCash+=r._breakdown.cash||0;
-        if(!r.isFlat)entHours+=(r.actualHours||r.expectedH||0);
       });
+      const entVals=_sectionTotals(spec,filtered);
       const subRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[240,239,233],fontStyle:'bold'}});
       subRow[0]={content:entityName+' subtotal',styles:{fillColor:[240,239,233],fontStyle:'bold'}};
-      if(sectionKind==='timecard'){
-        subRow[5]={content:_cellText(xlHours(entHours)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
-      }else if(sectionKind==='combined'){
-        // Same layout as the Combined Excel/preview: Actual Total, Deposit and Cash carry
-        // subtotals; Rounded Final and Diff stay blank.
-        const subCell=(v)=>({content:v,styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}});
-        subRow[5]=subCell(_cellText(xlMoney(entTotal)));
-        subRow[6]=subCell(entDeposit>0?_cellText(xlMoney(entDeposit)):'');
-        subRow[7]=subCell(entCash>0?_cellText(xlMoney(entCash)):'');
-      }else{
-        subRow[spec.headers.length-1]={content:_cellText(xlMoney(entTotal)),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
-      }
+      totals.forEach(t=>{
+        subRow[t.col]={content:_totalCellText(t,entVals[t.col]),styles:{fillColor:[240,239,233],fontStyle:'bold',halign:'right'}};
+        grandVals[t.col]+=entVals[t.col];
+      });
       body.push(subRow);
       // FC-00015: keep an entity's subtotal row on the same page as its data rows whenever
       // possible — autoTable's own per-row 'avoid' setting (vs. the table-wide 'avoid',
       // which would force the whole table onto one page) does exactly this.
       rowRoles.push({role:'subtotal',pal:entPal,pageBreak:'avoid'});
-      grandTotal+=entTotal;grandHours+=entHours;grandDeposit+=entDeposit;grandCash+=entCash;
     });
 
     const grandRow=new Array(spec.headers.length).fill({content:'',styles:{fillColor:[224,222,213],fontStyle:'bold'}});
     grandRow[0]={content:'GRAND TOTAL',styles:{fillColor:[224,222,213],fontStyle:'bold'}};
-    if(sectionKind==='timecard'){
-      grandRow[5]={content:_cellText(xlHours(grandHours)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
-    }else if(sectionKind==='combined'){
-      const grandCell=(v)=>({content:v,styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}});
-      grandRow[5]=grandCell(_cellText(xlMoney(grandTotal)));
-      grandRow[6]=grandCell(grandDeposit>0?_cellText(xlMoney(grandDeposit)):'');
-      grandRow[7]=grandCell(grandCash>0?_cellText(xlMoney(grandCash)):'');
-    }else{
-      grandRow[spec.headers.length-1]={content:_cellText(xlMoney(grandTotal)),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
-    }
+    totals.forEach(t=>{
+      grandRow[t.col]={content:_totalCellText(t,Math.round(grandVals[t.col]*100)/100),styles:{fillColor:[224,222,213],fontStyle:'bold',halign:'right'}};
+    });
     body.push(grandRow);
     rowRoles.push({role:'grand',pal:_fc15Colorize?FC14_PRESETS.Plain:null,pageBreak:'avoid'});
 

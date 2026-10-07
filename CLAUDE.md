@@ -126,7 +126,11 @@ mistake made in this codebase.
    silent omission.
 
 6. **Currency cells in exports must be numeric**, with number format `$#,##0.00`.
-   Never write pre-formatted text strings — they cannot be summed in Excel.
+   Never write pre-formatted text strings — they cannot be summed in Excel. Derived
+   figures (pay, deposit/cash split, rounded final, diff, subtotals, grand totals) are
+   **formulas with the tool's value cached as the result**, never pasted values, so the
+   sheet recalculates when Sastry edits an hour, rate or flat amount (FC-00033). Zero is
+   numeric 0 shown as `—` or blank by number format, never the text `—`.
 
 ---
 

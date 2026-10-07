@@ -7,6 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadApp, resetToSingleEntity } = require('./load-app');
+const { xlNum } = require('./xl-helpers');
 
 const WEEK = ['Aug 9 2026', 'Aug 10 2026', 'Aug 11 2026', 'Aug 12 2026', 'Aug 13 2026', 'Aug 14 2026', 'Aug 15 2026'];
 const SHIFT = ['', '9AM - 5PM', '', '', '', '', ''];
@@ -134,7 +135,8 @@ test('test_export_copy_excel_matches_cells', async () => {
   const g = s.rows[s.rows.length - 1];
   const gRow = ws.rows[ws.rows.length - 1];
   assert.equal(gRow[1].value, 'GRAND TOTAL');
-  assert.equal(gRow[6].value, parseFloat(g.cells[5].replace(/[$,]/g, '')));
+  assert.equal(xlNum(gRow[6]), parseFloat(g.cells[5].replace(/[$,]/g, '')));
+  assert.match(gRow[6].value.formula, /^SUM\(/, 'grand total is a live SUM of the subtotals');
 });
 
 test('test_export_copy_pdf_matches_cells', async () => {

@@ -291,6 +291,19 @@ blank placeholders, which `SUM` ignores. The Payroll Settings export carries
 thousands separators so the round-trip still parses. The Manager Report's hours cells
 were already numeric and now carry `0.00`. PDFs remain rendered text by design.
 
+**Live formulas (FC-00033).** Payroll reports write each derived cell as a formula with
+the tool's value as the cached result: Actual Total `ROUND(Hours*Rate,2)` (rounding digits
+honored; flat amounts and no-actuals rows are input values), Cash `ROUND(Total,0)` or the
+split formula, Deposit `ROUND(Total,2)` or the split formula, Rounded Final `Deposit+Cash`,
+Diff `Rounded Final−Actual Total`; Time Card Diff `Actual−Expected`. Subtotals are
+`SUM()` over the entity's rows (`spec.totals`, shared with the PDF writer); the grand
+total sums the subtotal cells. Payroll Calculation subtotals now sit under Actual Hrs,
+Deposit, Cash, Actual Total and Rounded Final (they used to land in Diff); Time Card
+subtotals cover Expected Hrs, Actual Hrs and Diff. Manager Report weekly and TOTAL cells
+are SUMs; the Edited Copy's subtotal/grand cells are SUMs over the typed values. Zero
+amounts are numeric 0 with a `"—"`/blank zero format. Workbooks set `fullCalcOnLoad`.
+The Actuals Intake and Payroll Settings exports stay values (they are re-import files).
+
 There is no deck export (BUILD_SPEC §7 is unbuilt), no entity fills, no numeric
 cross-check block.
 

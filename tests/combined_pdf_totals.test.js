@@ -5,6 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadApp, resetToSingleEntity } = require('./load-app');
+const { xlNum, xlHidesZero } = require('./xl-helpers');
 
 const WEEK = ['Aug 9 2026', 'Aug 10 2026', 'Aug 11 2026', 'Aug 12 2026', 'Aug 13 2026', 'Aug 14 2026', 'Aug 15 2026'];
 const SHIFT = ['', '9AM - 5PM', '', '', '', '', ''];
@@ -38,6 +39,8 @@ function setup() {
 
 const isTotal = (label) => typeof label === 'string' && (label.endsWith(' subtotal') || label === 'GRAND TOTAL');
 const money = (v) => (v === '' || v == null ? '' : '$' + Number(v).toFixed(2));
+// Excel shows a formula's result, and a hidden-zero format shows 0 as blank.
+const shown = (c) => (!c ? '' : (xlHidesZero(c) && xlNum(c) === 0 ? '' : money(xlNum(c))));
 
 test('test_combined_pdf_totals_match_excel_and_preview', async () => {
   const api = setup();
@@ -46,7 +49,7 @@ test('test_combined_pdf_totals_match_excel_and_preview', async () => {
   const ws = api.__lastExcelWorkbook.worksheets[0];
   // 10 combined columns; 1-based sheet cells -> 0-based display text.
   const excelTotals = ws.rows.filter(r => r && r[1] && isTotal(r[1].value))
-    .map(r => Array.from({ length: 10 }, (_, i) => (i === 0 ? r[1].value : money(r[i + 1] ? r[i + 1].value : ''))));
+    .map(r => Array.from({ length: 10 }, (_, i) => (i === 0 ? r[1].value : shown(r[i + 1]))));
 
   await api.exportCombinedPdf();
   const call = api.__lastAutoTableCalls[api.__lastAutoTableCalls.length - 1];

@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadApp, resetToSingleEntity } = require('./load-app');
+const { xlNum } = require('./xl-helpers');
 
 const WEEK = ['Aug 9 2026', 'Aug 10 2026', 'Aug 11 2026', 'Aug 12 2026', 'Aug 13 2026', 'Aug 14 2026', 'Aug 15 2026'];
 const day = (empName, entityName) => ({ empName, entityName, date: '2026-08-10', dayIdx: 1, pairs: [{ in: 9, out: 17, outAdj: 17, minutes: 480 }] });
@@ -43,7 +44,7 @@ test('test_combined_excel_and_pdf_carry_no_schedule_entity', async () => {
   const janeRow = ws.rows.find(r => r && r[2] && /^Jane/.test(String(r[2].value)));
   assert.ok(janeRow, 'Jane in the Combined Excel');
   const grand = ws.rows.filter(r => r && r[1] && r[1].value === 'GRAND TOTAL').pop();
-  assert.equal(grand[6].value, 120 + 160, 'grand total = 8h x $15 + 8h x $20');
+  assert.equal(xlNum(grand[6]), 120 + 160, 'grand total = 8h x $15 + 8h x $20');
 
   await api.exportCashPdf();
   const call = api.__lastAutoTableCalls[api.__lastAutoTableCalls.length - 1];

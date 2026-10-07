@@ -36,3 +36,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00030 | 2026-10-07 | S | Low | done | [features/FC-00030-2026-10-07-image-job-ids.md](features/FC-00030-2026-10-07-image-job-ids.md) | Join review rows to images by job id, not filename |
 | FC-00031 | 2026-10-07 | S | Low | done | [features/FC-00031-2026-10-07-docs-infra-drift.md](features/FC-00031-2026-10-07-docs-infra-drift.md) | Fix documentation drift, npm test and .gitignore |
 | FC-00032 | 2026-10-07 | S | Low | done | [features/FC-00032-2026-10-07-week-filter-notice.md](features/FC-00032-2026-10-07-week-filter-notice.md) | Week filter: never drop punches silently |
+| FC-00033 | 2026-10-07 | M | Medium | done | [features/FC-00033-2026-10-07-excel-live-formulas.md](features/FC-00033-2026-10-07-excel-live-formulas.md) | Excel exports carry live formulas |

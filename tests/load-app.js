@@ -111,6 +111,10 @@ function loadApp() {
         return rowApi;
       },
       mergeCells(r1, c1, r2, c2) {
+        // Real ExcelJS throws when a range overlaps one already merged; mirror that so a
+        // double merge fails in tests instead of only in the browser.
+        const hit = merges.some(([a, b, c, d]) => r1 <= c && a <= r2 && c1 <= d && b <= c2);
+        if (hit) throw new Error('Cannot merge already merged cells');
         merges.push([r1, c1, r2, c2]);
       },
       getColumn(i) {
@@ -182,6 +186,7 @@ function loadApp() {
           this.creator = '';
           this.description = '';
           this.worksheets = [];
+          this.calcProperties = {};
           this.xlsx = { writeBuffer: async () => new ArrayBuffer(0) };
           // FC-00012: tests need to inspect the workbook an export just built (fills,
           // column widths, cell values) — track the most recently constructed one on
@@ -371,6 +376,7 @@ function loadApp() {
       exportTimecardExcel,
       exportEmployee,
       exportManager,
+      switchEntity,
       exportActualsIntakePdf,
       exportFullExcel,
       exportPayrollCalcExcel,
