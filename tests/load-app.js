@@ -347,6 +347,7 @@ function loadApp() {
       validateAlias,
       resolveAlias,
       matchEmployeeName,
+      _aliasNorm,
       getFlatWageRows,
       OLD_EMP_ID_RE,
       NEW_EMP_ID_RE,

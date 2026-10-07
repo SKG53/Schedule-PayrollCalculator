@@ -391,6 +391,18 @@ pre-export prompt is the unconfirmed-break `confirm()`, which the user answers.
 15. **Entity identity:** wages/methods/overrides key on a stable per-session
     entity `id`, so renames are safe, but deleting an entity orphans its settings;
     settings .xlsx import re-binds by entity *name*.
+15a. **Permanent employee IDs** (FC-00036): the settings file is the master roster.
+    Its IDs are registered before any row is applied (`_noteSeenEmployeeId`), so new
+    people continue after the highest file ID; a session-minted record sitting on a
+    file ID is moved aside (`_rekeyRecord`), never renamed into the file's person;
+    session records that are a file person under another spelling are merged
+    (`_mergeProvisionalRecords`, file values win) and every name reference is
+    rewritten to the canonical name; remaining new people are renumbered after the
+    file's highest ID so load order never changes an ID. `_aliasNorm` ignores case,
+    periods and repeated spaces. Schedules load under canonical names
+    (`_canonicalNameFor`); OCR/intake alias hits resolve even for people not on the
+    schedule. The settings export keeps every file person (inactive and unscheduled
+    included), sorted by ID.
 16. **Overstaffing thresholds are hard-coded** (5+ flags; calendar warn at 4/5 by
     time of day); there is no minimum-coverage validation at all.
 17. **OCR keeps manual rows:** re-running OCR clears prior TC/EC rows but preserves

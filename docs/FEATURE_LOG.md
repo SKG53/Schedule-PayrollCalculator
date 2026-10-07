@@ -39,3 +39,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00033 | 2026-10-07 | M | Medium | done | [features/FC-00033-2026-10-07-excel-live-formulas.md](features/FC-00033-2026-10-07-excel-live-formulas.md) | Excel exports carry live formulas |
 | FC-00034 | 2026-10-07 | S | Low | done | [features/FC-00034-2026-10-07-rerun-ocr-one-row.md](features/FC-00034-2026-10-07-rerun-ocr-one-row.md) | Re-run OCR for one review row |
 | FC-00035 | 2026-10-07 | S | Medium | done | [features/FC-00035-2026-10-07-active-excludes-from-export.md](features/FC-00035-2026-10-07-active-excludes-from-export.md) | Unchecking Active leaves a person out of the preview and exports |
+| FC-00036 | 2026-10-07 | M | Medium-High | done | [features/FC-00036-2026-10-07-permanent-employee-ids.md](features/FC-00036-2026-10-07-permanent-employee-ids.md) | Permanent employee IDs; master settings file owns identity |

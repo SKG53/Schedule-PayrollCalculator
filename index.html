@@ -845,6 +845,32 @@ function _entityCodeFor(entId){
   if(!ent.code)_syncEntityCode(ent);
   return ent.code||'ENT';
 }
+// FC-00036: IDs are permanent. Every ID seen in a settings file raises that entity's
+// counter, so a new employee always continues after the highest ID ever issued — a gap
+// left by someone missing from a file is never handed to a new person.
+function _noteSeenEmployeeId(id,fromFile){
+  const m=/^EMP_([A-Z0-9]{3})_(\d{5})$/.exec(id||'');
+  if(!m)return;
+  session._empIdSeq=session._empIdSeq||{};
+  const n=parseInt(m[2],10);
+  if(!(session._empIdSeq[m[1]]>=n))session._empIdSeq[m[1]]=n;
+  if(fromFile){session._fileIdMax=session._fileIdMax||{};if(!(session._fileIdMax[m[1]]>=n))session._fileIdMax[m[1]]=n;}
+}
+// After a settings import, people who are not in the file (new this week) are numbered right
+// after the file's highest ID, in the order they first appeared — the same IDs they would
+// have got had the settings file been loaded first. Import order never changes an ID.
+function _renumberProvisionalIds(entId){
+  const code=_entityCodeFor(entId);
+  const fileMax=(session._fileIdMax||{})[code];
+  if(fileMax==null)return;
+  const num=id=>{const m=/_(\d{5})$/.exec(id);return m?parseInt(m[1],10):1e9};
+  const prov=Object.keys(session.roster.byId).map(id=>session.roster.byId[id])
+    .filter(r=>r&&r.entity===entId&&!r.fromFile&&NEW_EMP_ID_RE.test(r.id)).sort((a,b)=>num(a.id)-num(b.id));
+  prov.forEach((r,i)=>_rekeyRecord(r,'TMP_'+code+'_'+i));
+  prov.forEach((r,i)=>_rekeyRecord(r,`EMP_${code}_${String(fileMax+1+i).padStart(5,'0')}`));
+  session._empIdSeq[code]=fileMax+prov.length;
+}
+const ROSTER_KEYED_STORES=()=>[wageRates,payMethod,splitAmounts,wageBlank,breakOverrides,rosterActive,rosterAliases,flatWages];
 function _mintEmployeeId(entId){
   const code=_entityCodeFor(entId);
   session._empIdSeq=session._empIdSeq||{};
@@ -857,11 +883,22 @@ function _mintEmployeeId(entId){
 function ensureRosterRecord(entId,empName,existingId){
   const canonical=(empName||'').toString().trim();
   const key=_rosterKey(entId,canonical);
-  let id=existingId&&(OLD_EMP_ID_RE.test(existingId)||NEW_EMP_ID_RE.test(existingId))?existingId:session.roster.keyToId[key];
+  const fileId=existingId&&(OLD_EMP_ID_RE.test(existingId)||NEW_EMP_ID_RE.test(existingId))?existingId:null;
+  if(fileId&&NEW_EMP_ID_RE.test(fileId)){
+    _noteSeenEmployeeId(fileId);
+    // FC-00036: a record minted earlier this session (schedule loaded before the settings
+    // file) may already sit on this file ID under another name. That ID belongs to the file's
+    // person; move the provisional record to a fresh ID instead of renaming it into them.
+    const squat=session.roster.byId[fileId];
+    if(squat&&!squat.fromFile&&canonical&&_aliasNorm(squat.canonical_name)!==_aliasNorm(canonical))_rekeyRecord(squat,_mintEmployeeId(entId));
+  }
+  let id=fileId||session.roster.keyToId[key];
   // A name this entity's employee was renamed away from still resolves to that same record
   // (never a freshly minted one), so any reference that still carries the old name keeps
   // its id and pay data. Resolution only — the record's current name is left alone.
   if(!id&&canonical){const prev=_recordForFormerName(entId,canonical);if(prev)return prev;}
+  // FC-00036: a registered alias resolves to its person too (resolution only).
+  if(!id&&canonical){const viaAlias=_recordForAlias(entId,canonical);if(viaAlias)return viaAlias;}
   if(!id)id=_mintEmployeeId(entId);
   let rec=session.roster.byId[id];
   if(!rec){
@@ -891,6 +928,69 @@ function _noteFormerName(rec,fromName,toName){
   if(fromName&&_aliasNorm(fromName)!==_aliasNorm(toName)&&!list.some(n=>_aliasNorm(n)===_aliasNorm(fromName)))list.push(fromName);
   rec.former_names=list;
 }
+function _recordForAlias(entId,name){
+  const n=_aliasNorm(name);
+  if(!n)return null;
+  for(const k in rosterAliases){
+    const rec=session.roster.byId[k];
+    if(rec&&rec.entity===entId&&(rosterAliases[k]||[]).some(x=>_aliasNorm(x)===n))return rec;
+  }
+  return null;
+}
+// The name a person should carry everywhere: the roster's canonical name when the given
+// spelling is that person (same name in another case/punctuation, an alias, or a former
+// name); otherwise the spelling as given, trimmed.
+function _canonicalNameFor(entId,name){
+  const raw=(name||'').toString().trim();
+  if(!raw)return raw;
+  const rec=_recordForKey(entId,raw)||_recordForAlias(entId,raw)||_recordForFormerName(entId,raw);
+  return rec&&rec.canonical_name?rec.canonical_name:raw;
+}
+// FC-00036: folds a record minted this session (provisional) into the settings-file record
+// that is the same person — same name ignoring case/punctuation, or one of its aliases. The
+// file's values win; the provisional record only fills gaps. Every reference by name
+// (schedule, actuals, intake) is rewritten to the canonical name.
+function _mergeRecordInto(p,t){
+  if(!p||!t||p===t)return;
+  _withSessionMutation(()=>{
+    ROSTER_KEYED_STORES().forEach(store=>{
+      if(!store)return;
+      if(Object.prototype.hasOwnProperty.call(store,p.id)){
+        if(!Object.prototype.hasOwnProperty.call(store,t.id))store[t.id]=store[p.id];
+        delete store[p.id];
+      }
+      if(store===breakOverrides){
+        Object.keys(store).forEach(k=>{
+          if(k.indexOf(p.id+'|')!==0)return;
+          const tk=t.id+k.slice(p.id.length);
+          if(!Object.prototype.hasOwnProperty.call(store,tk))store[tk]=store[k];
+          delete store[k];
+        });
+      }
+    });
+    if(!t.final_pass_method&&p.final_pass_method)t.final_pass_method=p.final_pass_method;
+    if(!t.notes&&p.notes)t.notes=p.notes;
+    delete session.roster.byId[p.id];
+    Object.keys(session.roster.keyToId).forEach(k=>{if(session.roster.keyToId[k]===p.id)session.roster.keyToId[k]=t.id;});
+  });
+  _propagateEmployeeRename(t.entity,p.canonical_name,t.canonical_name,{exact:true});
+}
+function _mergeProvisionalRecords(entId){
+  const recs=Object.keys(session.roster.byId).map(id=>session.roster.byId[id]).filter(r=>r&&r.entity===entId);
+  const fileRecs=recs.filter(r=>r.fromFile);
+  let merged=0;
+  recs.filter(r=>!r.fromFile).forEach(p=>{
+    const n=_aliasNorm(p.canonical_name);
+    if(!n)return;
+    const t=fileRecs.find(f=>_aliasNorm(f.canonical_name)===n)
+      ||fileRecs.find(f=>(rosterAliases[f.id]||[]).some(a=>_aliasNorm(a)===n))
+      ||fileRecs.find(f=>(f.former_names||[]).some(a=>_aliasNorm(a)===n));
+    if(t){_mergeRecordInto(p,t);merged++;}
+  });
+  // Same person, different spelling of the canonical name in schedule/actuals/intake.
+  fileRecs.forEach(f=>_propagateEmployeeRename(entId,f.canonical_name,f.canonical_name,{exact:true}));
+  return merged;
+}
 function _recordForFormerName(entId,name){
   const n=_aliasNorm(name);
   if(!n)return null;
@@ -903,12 +1003,14 @@ function _recordForFormerName(entId,name){
 // Employee names are also stored by value outside the roster (schedule rows, intake review
 // rows, loaded actuals, per-entity intake UI state). A rename must rewrite those too, or the
 // next wKey() lookup on the old name finds nothing and mints a new id for an empty record.
-function _propagateEmployeeRename(entId,fromName,toName){
+function _propagateEmployeeRename(entId,fromName,toName,opts){
   const from=_aliasNorm(fromName);
-  if(!from||!toName||from===_aliasNorm(toName))return;
+  // opts.exact (FC-00036): also rewrite spellings that only differ in case/punctuation.
+  const exact=!!(opts&&opts.exact);
+  if(!from||!toName||(!exact&&from===_aliasNorm(toName)))return;
   const ent=entities.find(e=>e.id===entId);
   if(!ent)return;
-  const hit=n=>_aliasNorm(n)===from;
+  const hit=n=>_aliasNorm(n)===from&&(!exact||n!==toName);
   (ent.employees||[]).forEach(e=>{if(e&&hit(e.name))e.name=toName;});
   (ent.actualDays||[]).forEach(d=>{if(d&&hit(d.empName))d.empName=toName;});
   const entNorm=_aliasNorm(ent.name);
@@ -934,14 +1036,18 @@ function _propagateEmployeeRename(entId,fromName,toName){
 function _migrateRecordId(rec){
   const oldId=rec.id;
   if(!OLD_EMP_ID_RE.test(oldId))return oldId;
-  const newId=_mintEmployeeId(rec.entity);
+  return _rekeyRecord(rec,_mintEmployeeId(rec.entity));
+}
+// Moves a record to a new id, re-keying every store that is keyed by employee id.
+function _rekeyRecord(rec,newId){
+  const oldId=rec.id;
+  if(!newId||newId===oldId)return oldId;
   _withSessionMutation(()=>{
     rec.id=newId;
     delete session.roster.byId[oldId];
     session.roster.byId[newId]=rec;
     Object.keys(session.roster.keyToId).forEach(k=>{if(session.roster.keyToId[k]===oldId)session.roster.keyToId[k]=newId;});
-    const keyedStores=[wageRates,payMethod,splitAmounts,wageBlank,breakOverrides,rosterActive,rosterAliases,flatWages];
-    keyedStores.forEach(store=>{
+    ROSTER_KEYED_STORES().forEach(store=>{
       if(store&&Object.prototype.hasOwnProperty.call(store,oldId)){
         const v=store[oldId];delete store[oldId];store[newId]=v;
       }
@@ -1087,7 +1193,9 @@ function _applyRecordMirror(entId,empName,field,value){
   else if(field==='notes')rec.notes=(value||'').toString();
 }
 function getAliases(entId,empName){return rosterAliases[wKey(entId,empName)]||[]}
-function _aliasNorm(s){return (s||'').toString().toLowerCase().trim()}
+// FC-00036: case, periods and repeated spaces never make two people out of one —
+// "devon. P", "Devon P." and "DEVON  P" all compare equal.
+function _aliasNorm(s){return (s||'').toString().toLowerCase().replace(/\./g,'').replace(/\s+/g,' ').trim()}
 // Employee IDs are now the settings-file round-trip identity. wKey is retained as the
 // old call-site API, but resolves name -> stable employee id inside the transient registry.
 function wKey(entId,empName){return _employeeIdFor(entId,empName)}
@@ -1671,6 +1779,13 @@ function parseSchedule(rows,idx){
     employees.push({name,shifts});
   }
   if(employees.length===0){alert('No employees found');return}
+  // FC-00036: a schedule spelling the roster already knows (alias, other case/punctuation,
+  // former name) loads under the person's canonical name, so it lands on their permanent ID
+  // instead of a new empty record.
+  {
+    const eid=entities[idx].id;
+    employees.forEach(e=>{e.name=_canonicalNameFor(eid,e.name);});
+  }
   // Parsing a schedule is the "new week" boundary — the one place the active flag applies.
   // Anyone marked inactive is left out here, and we say who: a roster entry vanishing from
   // a payroll week without a word is the failure mode this tool exists to avoid.
@@ -4808,8 +4923,16 @@ function matchEmployeeName(name,ent){
   for(const s of schedNames){if(s.toLowerCase()===n)return{exact:s};}
   // Registered alias — a known spelling for this person. Treated as exact: it resolves to
   // the canonical name silently, with no flag, which is the whole point of keeping the list.
+  // FC-00036: a registered alias is that person, scheduled this week or not (an off-schedule
+  // person becomes an orphan row under their canonical name and permanent ID).
   const aliasHit=resolveAlias(ent.id,n);
-  if(aliasHit&&schedNames.some(s=>s.toLowerCase()===aliasHit.toLowerCase()))return{exact:aliasHit,viaAlias:true};
+  if(aliasHit)return{exact:schedNames.find(s=>_aliasNorm(s)===_aliasNorm(aliasHit))||aliasHit,viaAlias:true};
+  // Same spelling ignoring case/periods/spaces as a scheduled or settings-file person.
+  const nn=_aliasNorm(n);
+  const schedSame=schedNames.find(s=>_aliasNorm(s)===nn);
+  if(schedSame)return{exact:schedSame};
+  const fileRec=_recordForKey(ent.id,n);
+  if(fileRec&&fileRec.fromFile&&fileRec.canonical_name)return{exact:fileRec.canonical_name};
   // First name match: schedule name is a single word, OCR name contains it
   for(const s of schedNames){
     const sLow=s.toLowerCase();
@@ -6672,6 +6795,7 @@ function _gatherPayrollSettingsRows(includeBreaks){
     const idx=entities.indexOf(ent);
     const entityName=ent.name||('Entity '+(idx+1));
     const seen=new Set();
+    const entStart=out.length;
     const pushRow=(empName,displayName)=>{
       const rec0=ensureRosterRecord(ent.id,empName);
       const lkLow=rec0.id;
@@ -6727,6 +6851,16 @@ function _gatherPayrollSettingsRows(includeBreaks){
       if(!lk||schedLow.has(lk))return;
       pushRow(d.empName,d.empName);
     });
+    // FC-00036: everyone the settings file defined stays in the file — including people not
+    // on this week's schedule and people marked inactive — so no permanent ID ever drops out
+    // of the master file (a dropped ID is how IDs drifted week to week).
+    Object.keys(session.roster.byId).forEach(id=>{
+      const r=session.roster.byId[id];
+      if(r&&r.entity===ent.id&&r.fromFile&&r.canonical_name)pushRow(r.canonical_name,r.canonical_name);
+    });
+    // Rows in permanent-ID order, so the file reads the same every week.
+    const entRows=out.splice(entStart).sort((a,b)=>String(a.employeeId).localeCompare(String(b.employeeId)));
+    out.push(...entRows);
   });
   return out;
 }
@@ -6832,6 +6966,10 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
   // every employee row for an entity carries the same preset name, apply once.
   const palettesApplied=new Set();
   const dayKeys=['sun','mon','tue','wed','thu','fri','sat'];
+  // FC-00036: register every ID in the file before touching any record, so IDs minted later
+  // this session (new employees) always continue after the file's highest ID.
+  rows.forEach(row=>{if(row&&row.length)_noteSeenEmployeeId(get(row,'employee id','employeeid','employee_id').trim(),true);});
+  const touchedEntities=new Set();
   rows.forEach(row=>{
     if(!row||row.length===0)return;
     const entityName=get(row,'entity').trim();
@@ -6841,6 +6979,9 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
     if(!ent){if(entityName)unmatchedEntities.add(entityName);skipped++;return;}
     const employeeIdRaw=get(row,'employee id','employeeid','employee_id').trim();
     const importedRecord=ensureRosterRecord(ent.id,empName,employeeIdRaw);
+    // FC-00036: this record is now defined by the settings file (permanent ID).
+    importedRecord.fromFile=true;
+    touchedEntities.add(ent.id);
     const k=importedRecord.id;
     const wageRaw=money(get(row,'wage/hour','wage'));
     const typeRaw=get(row,'type').trim().toLowerCase();
@@ -6868,6 +7009,16 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
           list=aliasRaw.split(',');
         }
       }
+      // FC-00036: a spelling the file lists as this person's alias may already be on screen
+      // as its own (session-minted) person — e.g. the schedule says ALLIE. Fold that record
+      // into this one first, so the alias is not refused as "someone else's name".
+      list.forEach(a=>{
+        const n=_aliasNorm(a);if(!n)return;
+        Object.keys(session.roster.byId).forEach(id=>{
+          const r=session.roster.byId[id];
+          if(r&&r!==importedRecord&&r.entity===ent.id&&!r.fromFile&&_aliasNorm(r.canonical_name)===n)_mergeRecordInto(r,importedRecord);
+        });
+      });
       const res=setAliases(ent.id,empName,list);
       if(res.rejected.length)aliasRejects.push(`${empName}: ${res.rejected.map(r=>r.reason).join('; ')}`);
     }
@@ -6962,8 +7113,13 @@ function _ingestPayrollSettings(rows,colMap,includeBreaks){
   // touch (e.g. imported into a differently-cased/matched entity than expected), on top of
   // the per-touch auto-migration already happening via ensureRosterRecord above.
   migrateLegacyEmployeeIds();
+  // FC-00036: anyone loaded before this file under a spelling the file knows (same name in
+  // another case, an alias) becomes that file person — one ID, one canonical name.
+  let mergedCount=0;
+  touchedEntities.forEach(entId=>{mergedCount+=_mergeProvisionalRecords(entId);_renumberProvisionalIds(entId);});
   if(currentTab==='payroll')renderPayroll();
   let msg=`Imported settings for ${updated} employee${updated===1?'':'s'}`;
+  if(mergedCount>0)msg+=` · ${mergedCount} name${mergedCount===1?'':'s'} matched to existing employees`;
   if(skipped>0)msg+=` · ${skipped} skipped`;
   if(unmatchedEntities.size>0)msg+=` · unmatched entities: ${[...unmatchedEntities].join(', ')}`;
   if(aliasRejects.length>0)msg+=` · ${aliasRejects.length} alias${aliasRejects.length===1?'':'es'} refused`;
