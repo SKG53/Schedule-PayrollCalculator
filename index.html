@@ -4111,6 +4111,52 @@ async function prepareImageForOcr(file,maxEdge){
   }
 }
 
+// FC-00028: OCR year handling. The year is never hardcoded. Prompts get the pay week's own
+// dates (from the schedule) or, with no schedule, today's date plus the New Year rule; and
+// every OCR'd date is checked afterwards and moved to the nearest plausible year if the model
+// still got it wrong. A week can straddle New Year (Dec 27 - Jan 2), so this is per-date.
+let _ocrTodayOverride=null; // tests only: 'YYYY-MM-DD'
+function _ocrTodayIso(){
+  if(_ocrTodayOverride)return _ocrTodayOverride;
+  const d=new Date(),pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function _setOcrTodayForTests(iso){_ocrTodayOverride=iso||null}
+// Schedule week labels ('Aug 23 2026') -> ISO dates, blanks dropped.
+function _weekIsos(scheduleWeek){return (scheduleWeek||[]).map(schedLabelToIso).filter(Boolean)}
+// Reference date OCR'd dates are checked against: middle of the schedule week, else today.
+function _ocrReferenceIso(scheduleWeek){
+  const w=_weekIsos(scheduleWeek);
+  return w.length?w[Math.floor(w.length/2)]:_ocrTodayIso();
+}
+function _ocrYearGuidance(scheduleWeek){
+  const w=_weekIsos(scheduleWeek);
+  if(w.length){
+    const years=[...new Set(w.map(x=>x.slice(0,4)))];
+    return `This pay week runs ${w[0]} to ${w[w.length-1]}. Use those dates' years (${years.join(' / ')}) for every date. If the week crosses New Year, December dates belong to the earlier year and January dates to the later year.`;
+  }
+  return `No schedule dates were provided. Today is ${_ocrTodayIso()}. Use the year that puts each date closest to today; a December date read in January belongs to the previous year.`;
+}
+// Moves an OCR'd ISO date to the year (y-1, y, y+1) closest to the reference date, but only
+// when the read date is clearly wrong (more than ~4 months from the reference). Returns
+// {iso, from} where `from` is the original year when a correction was made, else null.
+function _correctOcrYear(iso,refIso){
+  const m=(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const r=(refIso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m||!r)return{iso,from:null};
+  const ref=Date.UTC(+r[1],+r[2]-1,+r[3]);
+  const at=y=>Date.UTC(y,+m[2]-1,+m[3]);
+  const y0=+m[1];
+  if(Math.abs(at(y0)-ref)<=120*86400000)return{iso,from:null};
+  let best=y0,bestD=Infinity;
+  const ry=new Date(ref).getUTCFullYear();
+  [ry-1,ry,ry+1].forEach(y=>{
+    const d=Math.abs(at(y)-ref);if(d<bestD){bestD=d;best=y;}
+  });
+  if(best===y0)return{iso,from:null};
+  return{iso:String(best)+iso.slice(4),from:y0};
+}
+
 function tcPrompt(scheduleNames,scheduleWeek,scheduleAnchors){
   return `You are extracting data from a physical employee timecard image (TOPS 1256 or similar). The card has green-ink machine stamps showing dates and times, and a handwritten employee name at the top.
 
@@ -4118,7 +4164,7 @@ EXTRACT each stamped punch pair (one clock-in, one clock-out) and return a JSON 
 
 RULES:
 1. Use ONLY the machine-stamped dates/times in the "REGULAR TIME" column. Ignore handwritten totals, handwritten daily hours, and the 1st Day/2nd Day/etc. labels.
-2. Each punch stamp is formatted like "26APR 6 3:19PM" = April 6, 2026 3:19 PM. The "26" prefix is the year 2026.
+2. Each punch stamp is formatted like "26APR 6 3:19PM" = April 6, 3:19 PM, where the leading two digits are the year ("26" = 2026, "27" = 2027). Read the year from each stamp; never assume one. ${_ocrYearGuidance(scheduleWeek)}
 3. A pair of consecutive stamps (IN then OUT) forms one shift. They may span midnight (e.g., APR 6 3:19PM IN → APR 7 12:21AM OUT).
 4. Attribute each shift to the CLOCK-IN date.
 5. The employee name is handwritten at the top near "NAME". Return it as written. Known roster names for this entity: ${scheduleNames.join(', ')||'(none provided)'}
@@ -4155,7 +4201,7 @@ EXTRACT every row and return a JSON array. One row per punch pair. Do NOT try to
 
 RULES:
 1. Each screenshot row = one element in the output array.
-2. Date format: "Apr 12, Sun" → 2026-04-12. Assume year 2026 unless the screenshot indicates otherwise.
+2. Date format: "Apr 12, Sun" → YYYY-04-12. The screenshot usually shows no year. ${_ocrYearGuidance(scheduleWeek)}
 3. If Time Out shows "Missing punch", set clockOut1 to "" and add "Missing clock-out punch" to notes.
 4. Convert all times to 24-hour HH:MM. "08:02 PM" → "20:02". "12:23 AM" → "00:23".
 5. Name field — use as written from the screenshot. It may include full name. Known roster first names: ${scheduleNames.join(', ')||'(none provided)'}
@@ -4449,6 +4495,12 @@ function processReviewRow(r,ent){
     _lowConf:false,_gt2Pairs:false,_escalated:!!r._escalated,
     flags:[],needsReview:false,approved:false
   };
+  // FC-00028: OCR'd dates (TC/EC only) are moved to the nearest plausible year when the
+  // model clearly misread it; the row is flagged so the correction is visible in review.
+  if(row.date&&(row.source==='TC'||row.source==='EC')){
+    const fx=_correctOcrYear(row.date,_ocrReferenceIso(ent&&ent.dateLabels));
+    if(fx.from!=null){row._yearCorrectedFrom=fx.from;row.date=fx.iso;}
+  }
   // Day index from date
   if(row.date){
     const d=new Date(row.date+'T00:00:00');
@@ -4909,6 +4961,7 @@ function recomputeRowFlags(row,ent){
   if(row._lowConf)row.flags.push('Low OCR confidence ('+Math.round(row.confidence*100)+'%)');
   if(row._gt2Pairs)row.flags.push('Too many punch pairs — verify');
   if(row._escalated)row.flags.push('Escalated to Pro');
+  if(row._yearCorrectedFrom!=null)row.flags.push(`Year corrected (OCR read ${row._yearCorrectedFrom}) — verify date`);
   row.needsReview=row.flags.length>0;
 }
 

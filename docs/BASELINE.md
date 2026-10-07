@@ -137,7 +137,10 @@ has a name):
   disambiguate AM/PM and overnights. Structured JSON output with per-row
   `confidence` 0.0–1.0; <0.75 flags "Low OCR confidence"; optional auto-escalation
   re-runs low-confidence TC images with Pro. Images >2048 px or >1.5 MB are
-  downscaled client-side before upload.
+  downscaled client-side before upload. No year is hardcoded (FC-00028): prompts carry the
+  week's dates or today + the New Year rule, and a TC/EC date more than 120 days from the
+  reference (mid-week, else today) is moved to the nearest year and flagged
+  `Year corrected (OCR read YYYY) — verify date`.
 - **Name matching** (`matchEmployeeName`): exact case-insensitive → auto-applied;
   else **registered alias** → auto-applied to the canonical name, silently and with
   no flag (returns `{exact, viaAlias:true}`); else substring/first-name containment

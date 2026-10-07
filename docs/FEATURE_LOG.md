@@ -30,3 +30,4 @@ Index of all Feature Cards. Updated at approval time and on status change.
 | FC-00024 | 2026-09-28 | M | Low | done | [features/FC-00024-2026-09-28-editable-preview-copy.md](features/FC-00024-2026-09-28-editable-preview-copy.md) | Editable scratch copy of the combined preview |
 | FC-00026 | 2026-10-07 | S | Low | done | [features/FC-00026-2026-10-07-scrub-real-names.md](features/FC-00026-2026-10-07-scrub-real-names.md) | Remove real employee names from the repository |
 | FC-00027 | 2026-10-07 | S | Medium | done | [features/FC-00027-2026-10-07-export-no-schedule-entities.md](features/FC-00027-2026-10-07-export-no-schedule-entities.md) | Export entities that have actuals but no schedule |
+| FC-00028 | 2026-10-07 | S | Medium | done | [features/FC-00028-2026-10-07-ocr-year.md](features/FC-00028-2026-10-07-ocr-year.md) | Remove the hardcoded year from OCR |

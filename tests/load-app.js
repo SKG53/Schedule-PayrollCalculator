@@ -449,6 +449,16 @@ function loadApp() {
       pasteScheduleImage,
       OCR_RETRY_DELAY_MS,
       OCR_MAX_AUTO_ATTEMPTS,
+      tcPrompt,
+      ecPrompt,
+      _correctOcrYear,
+      _ocrYearGuidance,
+      _setOcrTodayForTests,
+      schedLabelToIso,
+      syncActualsFromReview,
+      retryOcrJob,
+      rerunOcrForImage,
+      renderOcrFileList,
     };
   `;
 
